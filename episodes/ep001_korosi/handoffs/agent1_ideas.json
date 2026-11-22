@@ -1,0 +1,44 @@
+{
+  "candidates": [
+    {
+      "id": "idea_1",
+      "title": "Kenapa Besi Bisa Berkarat? Ternyata Besinya Pelan-Pelan Terbakar!",
+      "phenomenon": "Korosi besi (oksidasi lambat besi oleh oksigen dan air)",
+      "hook_3s": "Tahu nggak sih, besi yang berkarat itu sebenarnya lagi 'terbakar' pelan-pelan?",
+      "core_explanation": "Korosi terjadi saat besi bereaksi dengan oksigen dan air membentuk oksida besi yang rapuh dan mengelupas, berbeda dari aluminium yang lapisan oksidanya justru melindungi.",
+      "real_footage_feasibility": "Sangat tinggi: banyak footage nyata besi berkarat, tetesan air hujan pada logam, percikan api/logam, dan pagar/kapal berkarat."
+    },
+    {
+      "id": "idea_2",
+      "title": "Kenapa Es Batu Selalu Mengapung di Air?",
+      "phenomenon": "Anomali air dan ikatan hidrogen kristal es",
+      "hook_3s": "Hampir semua benda padat tenggelam di cairannya sendiri, kecuali es batu! Kok bisa?",
+      "core_explanation": "Saat air membeku, molekulnya membentuk struktur heksagonal berongga sehingga massa jenis es lebih ringan dari air cair.",
+      "real_footage_feasibility": "Tinggi: footage nyata gelas berisi es batu, air membeku, dan gunung es."
+    },
+    {
+      "id": "idea_3",
+      "title": "Kenapa Bawang Merah Bikin Mata Kita Menangis?",
+      "phenomenon": "Pelepasan gas syn-propanethial-S-oxide saat sel bawang teriris",
+      "hook_3s": "Baru motong bawang sebentar, kok mata langsung banjir air mata?",
+      "core_explanation": "Mengiris bawang memecah sel dan melepaskan gas iritan yang berubah menjadi asam ringan saat menyentuh permukaan mata.",
+      "real_footage_feasibility": "Tinggi: footage nyata mengiris bawang di dapur dan tetesan air."
+    },
+    {
+      "id": "idea_4",
+      "title": "Kenapa Langit Berwarna Biru Saat Siang dan Jingga Saat Senja?",
+      "phenomenon": "Hamburan Rayleigh cahaya matahari di atmosfer",
+      "hook_3s": "Cahaya matahari warnanya putih, terus kenapa langit kita malah biru?",
+      "core_explanation": "Cahaya biru bergelombang pendek paling banyak dihamburkan molekul udara, sedangkan saat senja jaraknya lebih jauh sehingga warna merah-jingga yang tersisa.",
+      "real_footage_feasibility": "Sangat tinggi: timelapse langit biru, awan, dan matahari terbenam nyata."
+    },
+    {
+      "id": "idea_5",
+      "title": "Kenapa Suara Petir Selalu Datang Setelah Kilat?",
+      "phenomenon": "Perbedaan kecepatan cahaya dan kecepatan bunyi di udara",
+      "hook_3s": "Pernah sadar nggak, kilat selalu muncul duluan baru suara petirnya menyusul?",
+      "core_explanation": "Cahaya melesat hampir sejuta kali lebih cepat dibanding gelombang suara yang cuma sekitar 340 meter per detik.",
+      "real_footage_feasibility": "Tinggi: footage nyata kilat di langit malam dan hujan badai."
+    }
+  ]
+}

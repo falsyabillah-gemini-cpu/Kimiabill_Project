@@ -1,0 +1,77 @@
+{
+  "assets": [
+    {
+      "scene_id": "scene_1",
+      "footage_path": "/home/antigravity/kimiabill-studio/episodes/ep001_korosi/assets/scene_1.mp4",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Eisen-Gl%C3%BCh-Versuch_(Batteriez%C3%BCndung).webm",
+      "license": "CC BY-SA 4.0",
+      "duration_sec": 25.0,
+      "width": 1920,
+      "height": 1080,
+      "sfx_path": "/home/antigravity/kimiabill-studio/data/sfx_cache/pop.wav",
+      "notes": "Eisen-Glüh-Versuch (Batteriezündung).webm (offset 20.8s: iron wool glowing/oxidizing)"
+    },
+    {
+      "scene_id": "scene_2",
+      "footage_path": "/home/antigravity/kimiabill-studio/episodes/ep001_korosi/assets/scene_2.mp4",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Melting_an_iron_nail.webm",
+      "license": "CC BY-SA 4.0",
+      "duration_sec": 12.16,
+      "width": 3840,
+      "height": 2160,
+      "sfx_path": "/home/antigravity/kimiabill-studio/data/sfx_cache/whoosh.wav",
+      "notes": "Melting an iron nail.webm"
+    },
+    {
+      "scene_id": "scene_3",
+      "footage_path": "/home/antigravity/kimiabill-studio/episodes/ep001_korosi/assets/scene_3.mp4",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Slow_motion_drop.webm",
+      "license": "CC BY 3.0",
+      "duration_sec": 25.0,
+      "width": 1280,
+      "height": 720,
+      "sfx_path": "/home/antigravity/kimiabill-studio/data/sfx_cache/ding.wav",
+      "notes": "Slow motion drop.webm"
+    },
+    {
+      "scene_id": "scene_4",
+      "footage_path": "/home/antigravity/kimiabill-studio/episodes/ep001_korosi/assets/scene_4.mp4",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:The_shipwreck_of_Raketa_on_the_shore_of_Kasispea_village_in_Estonia_(July_2022).webm",
+      "license": "CC BY-SA 4.0",
+      "duration_sec": 25.0,
+      "width": 1920,
+      "height": 1080,
+      "sfx_path": "/home/antigravity/kimiabill-studio/data/sfx_cache/whoosh.wav",
+      "notes": "The shipwreck of Raketa on the shore of Kasispea village in Estonia (July 2022).webm"
+    },
+    {
+      "scene_id": "scene_5",
+      "footage_path": "/home/antigravity/kimiabill-studio/episodes/ep001_korosi/assets/scene_5.mp4",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Rialto_Beach_Waves_2022.webm",
+      "license": "CC BY-SA 4.0",
+      "duration_sec": 19.03,
+      "width": 3840,
+      "height": 2160,
+      "sfx_path": "/home/antigravity/kimiabill-studio/data/sfx_cache/riser.wav",
+      "notes": "Rialto Beach Waves 2022.webm"
+    },
+    {
+      "scene_id": "scene_6",
+      "footage_path": "/home/antigravity/kimiabill-studio/episodes/ep001_korosi/assets/scene_6.mp4",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Spray_art_Kanagawa_2024_12_24.webm",
+      "license": "CC BY-SA 4.0",
+      "duration_sec": 25.0,
+      "width": 1920,
+      "height": 1080,
+      "sfx_path": "/home/antigravity/kimiabill-studio/data/sfx_cache/chime.wav",
+      "notes": "Spray art Kanagawa 2024 12 24.webm"
+    }
+  ],
+  "bgm_path": "/home/antigravity/kimiabill-studio/data/sfx_cache/bgm_curious_science.wav"
+}

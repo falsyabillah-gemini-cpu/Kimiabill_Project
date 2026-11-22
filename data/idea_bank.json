@@ -1,0 +1,246 @@
+{
+  "version": "1.0",
+  "description": "Database ide konten sains murni Kimiabill (fallback otomatis saat tidak ada fenomena sains yang sedang viral)",
+  "ideas": [
+    {
+      "id": "kim_01",
+      "discipline": "kimia",
+      "title": "Kenapa Besi Bisa Berkarat? Ternyata Lagi Terbakar Pelan-Pelan!",
+      "phenomenon": "Korosi besi (oksidasi lambat besi oleh oksigen dan air)",
+      "hook_3s": "Tahu nggak sih, besi yang berkarat itu sebenarnya lagi terbakar pelan-pelan?",
+      "real_footage_keywords": ["iron rust", "iron oxidation", "water drops", "ocean waves"]
+    },
+    {
+      "id": "kim_02",
+      "discipline": "kimia",
+      "title": "Kenapa Sabun Bisa Melunturkan Minyak Padahal Air Saja Gagal?",
+      "phenomenon": "Molekul surfaktan amfifilik membentuk misel yang mengikat minyak dan air",
+      "hook_3s": "Coba cuci tangan berminyak cuma pakai air — licinnya nggak hilang kan? Sabun punya trik rahasia!",
+      "real_footage_keywords": ["oil water drops", "soap bubbles macro", "washing hands water"]
+    },
+    {
+      "id": "kim_03",
+      "discipline": "kimia",
+      "title": "Kenapa Apel yang Dipotong Cepat Berubah Jadi Cokelat?",
+      "phenomenon": "Browning enzimatik oleh polifenol oksidase saat jaringan buah terpapar oksigen",
+      "hook_3s": "Baru ditinggal 10 menit, potongan apel langsung kecokelatan! Bukan busuk, tapi reaksi pertahanan diri!",
+      "real_footage_keywords": ["cutting apple", "lemon juice drop", "apple closeup"]
+    },
+    {
+      "id": "kim_04",
+      "discipline": "kimia",
+      "title": "Kenapa Api Kompor Warna Biru Jauh Lebih Panas dari Api Kuning?",
+      "phenomenon": "Pembakaran sempurna vs tidak sempurna (radiasi jelaga karbon)",
+      "hook_3s": "Banyak yang kira api kuning paling panas, padahal api biru jauh lebih ganas!",
+      "real_footage_keywords": ["blue gas flame stove", "candle yellow flame", "fire sparks"]
+    },
+    {
+      "id": "kim_05",
+      "discipline": "kimia",
+      "title": "Kenapa Garam Bisa Mencairkan Es Lebih Cepat di Musim Dingin?",
+      "phenomenon": "Penurunan titik beku larutan (sifat koligatif)",
+      "hook_3s": "Kok jalanan bersalju di luar negeri malah ditaburi garam? Ternyata bukan buat bumbu!",
+      "real_footage_keywords": ["ice melting timelapse", "salt pouring", "snow road"]
+    },
+    {
+      "id": "kim_06",
+      "discipline": "kimia",
+      "title": "Kenapa Soda Langsung Meledak Berbusa Saat Dimasuki Mentos?",
+      "phenomenon": "Nukleasi fisik CO2 terlarut pada pori mikroskopis permukaan permen",
+      "hook_3s": "Soda campur Mentos bisa muncrat setinggi orang dewasa — ternyata bukan reaksi kimia, lho!",
+      "real_footage_keywords": ["soda bubbles fizzy", "carbonated drink pouring", "foam eruption"]
+    },
+    {
+      "id": "fis_01",
+      "discipline": "fisika",
+      "title": "Kenapa Es Batu Mengapung di Air Padahal Benda Padat Lain Tenggelam?",
+      "phenomenon": "Anomali air dan struktur kristal heksagonal ikatan hidrogen",
+      "hook_3s": "Hampir semua benda padat tenggelam di cairannya sendiri, kecuali es batu! Kok bisa?",
+      "real_footage_keywords": ["ice cubes floating glass", "iceberg ocean", "water freezing"]
+    },
+    {
+      "id": "fis_02",
+      "discipline": "fisika",
+      "title": "Kenapa Tetesan Air Bisa Menari-Nari di Wajan Super Panas?",
+      "phenomenon": "Efek Leidenfrost (bantalan uap isolasi di bawah tetesan air)",
+      "hook_3s": "Pernah lihat air bukannya langsung menguap, malah meluncur lincah di wajan super panas?",
+      "real_footage_keywords": ["water drop hot pan", "steam boiling water", "droplet bouncing"]
+    },
+    {
+      "id": "fis_03",
+      "discipline": "fisika",
+      "title": "Kenapa Langit Siang Berwarna Biru, Tapi Senja Berubah Jingga?",
+      "phenomenon": "Hamburan Rayleigh gelombang cahaya di atmosfer",
+      "hook_3s": "Cahaya matahari aslinya putih, terus kenapa langit kita bisa berubah dari biru jadi oranye?",
+      "real_footage_keywords": ["blue sky clouds", "sunset orange sky timelapse", "sunlight prism"]
+    },
+    {
+      "id": "fis_04",
+      "discipline": "fisika",
+      "title": "Kenapa Gelas Kaca Bisa Pecah Cuma Pakai Suara?",
+      "phenomenon": "Resonansi frekuensi alami benda padat",
+      "hook_3s": "Bisa nggak sih gelas kaca pecah cuma gara-gara suara tanpa disentuh sama sekali?",
+      "real_footage_keywords": ["wine glass vibration", "sound wave speaker", "glass shattering slow motion"]
+    },
+    {
+      "id": "fis_05",
+      "discipline": "fisika",
+      "title": "Kenapa Suara Sirine Ambulans Berubah Saat Melewati Kita?",
+      "phenomenon": "Efek Doppler pada kompresi dan peregangan gelombang suara",
+      "hook_3s": "Sadar nggak, suara sirine ambulans selalu melengking saat mendekat lalu merendah saat menjauh?",
+      "real_footage_keywords": ["ambulance driving street", "water ripples moving", "highway traffic"]
+    },
+    {
+      "id": "fis_06",
+      "discipline": "fisika",
+      "title": "Kenapa Pesawat Ratusan Ton Bisa Terbang Melayang di Udara?",
+      "phenomenon": "Gaya angkat aerodinamika (defleksi aliran udara & prinsip Bernoulli)",
+      "hook_3s": "Pesawat beratnya bisa ratusan ton besi, tapi kok bisa melayang ringan di atas awan?",
+      "real_footage_keywords": ["airplane takeoff wing", "wind tunnel smoke", "clouds airplane"]
+    },
+    {
+      "id": "mat_01",
+      "discipline": "matematika",
+      "title": "Kenapa Sarang Lebah Selalu Berbentuk Segi Enam, Bukan Kotak atau Bulat?",
+      "phenomenon": "Konjektur Honeycomb (heksagon memaksimalkan luas dengan keliling lilin terkecil)",
+      "hook_3s": "Lebah nggak pernah sekolah matematika, tapi mereka pilih bentuk geometri paling hemat di alam semesta!",
+      "real_footage_keywords": ["honeycomb bees macro", "beehive hexagon", "soap bubbles packing"]
+    },
+    {
+      "id": "mat_02",
+      "discipline": "matematika",
+      "title": "Paradoks Ulang Tahun: Cuma 23 Orang, Peluang Tanggal Lahir Sama Sudah 50%!",
+      "phenomenon": "Kombinatorika pasangan (Birthday Paradox — 253 pasangan dalam 23 orang)",
+      "hook_3s": "Dalam satu kelas isi 23 orang, peluang ada dua orang berulang tahun di tanggal sama sudah lewat 50%!",
+      "real_footage_keywords": ["crowd classroom people", "calendar pages", "birthday candles"]
+    },
+    {
+      "id": "mat_03",
+      "discipline": "matematika",
+      "title": "Kenapa Pola Bunga Matahari, Nanas, dan Galaksi Punya Deret Angka yang Sama?",
+      "phenomenon": "Deret Fibonacci & sudut emas 137,5° untuk packing maksimal cahaya matahari",
+      "hook_3s": "Coba hitung spiral biji bunga matahari — angkanya hampir selalu mengikuti satu kode matematika rahasia!",
+      "real_footage_keywords": ["sunflower seeds macro", "nautilus shell", "spiral galaxy"]
+    },
+    {
+      "id": "mat_04",
+      "discipline": "matematika",
+      "title": "Selembar Kertas Dilipat 42 Kali Bisa Sampai ke Bulan?!",
+      "phenomenon": "Pertumbuhan eksponensial (2^42 x 0,1 mm > 384.400 km)",
+      "hook_3s": "Kedengarannya mustahil, tapi selembar kertas tipis kalau dilipat 42 kali tingginya tembus ke Bulan!",
+      "real_footage_keywords": ["folding paper hands", "moon night sky", "earth space"]
+    },
+    {
+      "id": "mat_05",
+      "discipline": "matematika",
+      "title": "Kenapa Rute Tercepat Turun Bukit Bukan Garis Lurus?",
+      "phenomenon": "Kurva Brakistokron (sikloida mengalahkan lintasan lurus karena percepatan awal)",
+      "hook_3s": "Kita selalu diajari garis lurus itu tercepat — ternyata kalau soal meluncur turun, garis lurus kalah telak!",
+      "real_footage_keywords": ["ball rolling ramp", "roller coaster curve", "skatepark ramp"]
+    },
+    {
+      "id": "mat_06",
+      "discipline": "matematika",
+      "title": "Hukum Benford: Kenapa Angka 1 Paling Sering Muncul di Awal Data Nyata?",
+      "phenomenon": "Distribusi logaritmik digit pertama (Benford's Law) untuk mendeteksi kecurangan data",
+      "hook_3s": "Di tagihan listrik sampai panjang sungai dunia, angka 1 muncul 30% di digit pertama — dan ini dipakai tangkap koruptor!",
+      "real_footage_keywords": ["calculator numbers", "city skyline river", "financial charts screen"]
+    },
+    {
+      "id": "med_01",
+      "discipline": "medisinal",
+      "title": "Kenapa Obat Pereda Nyeri Bisa Tahu Bagian Tubuh Mana yang Sakit?",
+      "phenomenon": "Inhibisi enzim COX dan sintesis prostaglandin oleh NSAID secara sistemik",
+      "hook_3s": "Minum obat sakit kepala lewat mulut, tapi kok obatnya tahu persis bagian mana yang lagi nyeri?",
+      "real_footage_keywords": ["medicine pill water glass", "blood cells microscope", "pharmacy capsules"]
+    },
+    {
+      "id": "med_02",
+      "discipline": "medisinal",
+      "title": "Kenapa Antibiotik Wajib Dihabiskan Meski Badan Sudah Terasa Sembuh?",
+      "phenomenon": "Seleksi alam bakteri resisten (Antimicrobial Resistance / AMR)",
+      "hook_3s": "Merasa sudah enakan lalu stop minum antibiotik? Hati-hati, kamu justru sedang melatih bakteri super!",
+      "real_footage_keywords": ["bacteria petri dish microscope", "antibiotic capsules", "medical lab"]
+    },
+    {
+      "id": "med_03",
+      "discipline": "medisinal",
+      "title": "Kenapa Kafein Kopi Bikin Melek, Tapi Setelahnya Malah Makin Ngantuk?",
+      "phenomenon": "Antagonisme reseptor adenosin di otak dan efek adenosine crash",
+      "hook_3s": "Kopi sebenarnya nggak memberi kamu energi baru — dia cuma 'menipu' otak biar lupa kalau lagi capek!",
+      "real_footage_keywords": ["pouring espresso coffee", "coffee beans closeup", "clock ticking"]
+    },
+    {
+      "id": "med_04",
+      "discipline": "medisinal",
+      "title": "Kenapa Demam Sebenarnya Bukan Musuh, Melainkan Senjata Tubuh?",
+      "phenomenon": "Reset termostat hipotalamus oleh sitokin untuk memperlambat replikasi patogen",
+      "hook_3s": "Saat badan panas karena demam, tubuh kamu sebenarnya sengaja menyalakan 'mode oven' buat lawan kuman!",
+      "real_footage_keywords": ["thermometer temperature", "white blood cell microscope", "cold compress"]
+    },
+    {
+      "id": "med_05",
+      "discipline": "medisinal",
+      "title": "Kenapa Luka Tergores Bisa Berhenti Berdarah Sendiri dalam Hitungan Menit?",
+      "phenomenon": "Kaskade koagulasi trombosit dan jaring protein fibrin",
+      "hook_3s": "Jari keiris kertas, lalu nggak lama darahnya berhenti sendiri — ada 'tim tambal ban' mikroskopis di darahmu!",
+      "real_footage_keywords": ["red blood cells microscope", "bandage skin", "laboratory microscope"]
+    },
+    {
+      "id": "med_06",
+      "discipline": "medisinal",
+      "title": "Kenapa Vaksin Bisa Melindungi Tubuh Tanpa Membuat Kita Sakit Parah?",
+      "phenomenon": "Pembentukan sel memori imun (limfosit B & T) melalui antigen lemah/mRNA",
+      "hook_3s": "Vaksin itu ibarat latihan simulasi perang buat sistem imun sebelum musuh aslinya datang menyerang!",
+      "real_footage_keywords": ["vaccine vial syringe", "immune cells microscope", "medical research lab"]
+    },
+    {
+      "id": "bio_01",
+      "discipline": "biologi",
+      "title": "Kenapa Jari Tangan Jadi Keriput Kalau Kelamaan Berendam di Air?",
+      "phenomenon": "Vasokonstriksi saraf simpatik untuk meningkatkan daya cengkeram di permukaan basah",
+      "hook_3s": "Jari keriput habis berenang itu bukan karena kulit kemasukan air, melainkan perintah langsung dari otak!",
+      "real_footage_keywords": ["hands underwater swimming", "rain wet surface", "water ripples"]
+    },
+    {
+      "id": "bio_02",
+      "discipline": "biologi",
+      "title": "Kenapa Kunang-Kunang Bisa Bercahaya Tanpa Terbakar Kepanasan?",
+      "phenomenon": "Bioluminesensi dingin reaksi luciferin-luciferase dengan efisiensi hampir 100%",
+      "hook_3s": "Lampu bohlam biasa membuang 90% energinya jadi panas, tapi kunang-kunang bikin cahaya dingin super efisien!",
+      "real_footage_keywords": ["fireflies night glowing", "light bulb glowing", "bioluminescent waves"]
+    },
+    {
+      "id": "bio_03",
+      "discipline": "biologi",
+      "title": "Kenapa Daun Berubah Warna dari Hijau Jadi Kuning dan Merah Saat Gugur?",
+      "phenomenon": "Penguraian klorofil menyingkap pigmen karotenoid dan antosianin",
+      "hook_3s": "Warna kuning dan merah pada daun gugur sebenarnya sudah ada sejak awal — cuma selama ini ketutupan warna hijau!",
+      "real_footage_keywords": ["autumn leaves falling", "green leaf macro sunlight", "forest trees"]
+    },
+    {
+      "id": "bio_04",
+      "discipline": "biologi",
+      "title": "Kenapa Mata Kucing Menyala Terang Saat Kena Cahaya di Gelap Malam?",
+      "phenomenon": "Lapisan cermin Tapetum Lucidum di belakang retina memantulkan cahaya dua kali",
+      "hook_3s": "Pernah kaget lihat mata kucing bersinar di gelap? Ternyata di dalam matanya ada 'cermin night-vision' alami!",
+      "real_footage_keywords": ["cat eyes night closeup", "cat pupil dilating", "flashlight dark"]
+    },
+    {
+      "id": "bio_05",
+      "discipline": "biologi",
+      "title": "Kenapa Tardigrada (Beruang Air) Bisa Selamat di Luar Angkasa?",
+      "phenomenon": "Kriptobiosis (keadaan tun kering tanpa metabolisme) dan protein pelindung DNA Dsup",
+      "hook_3s": "Hewan mikroskopis ini bisa selamat direbus, dibekukan, bahkan dilepas ke ruang hampa luar angkasa!",
+      "real_footage_keywords": ["tardigrade microscope video", "moss forest closeup", "space earth orbit"]
+    },
+    {
+      "id": "bio_06",
+      "discipline": "biologi",
+      "title": "Kenapa Kita Menguap Saat Melihat Orang Lain Menguap?",
+      "phenomenon": "Contagious yawning terkait sistem neuron cermin, empati sosial, dan pendinginan otak",
+      "hook_3s": "Hayo, baca kata 'menguap' saja kadang bikin kamu pengen ikutan menguap kan? Ini alasan biologisnya!",
+      "real_footage_keywords": ["animal yawning lion", "person yawning tired", "brain scan"]
+    }
+  ]
+}

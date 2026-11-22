@@ -1,0 +1,52 @@
+{
+  "scores": [
+    {
+      "id": "idea_1",
+      "hook_score": 9.3,
+      "clarity_score": 9.1,
+      "visual_realness_score": 9.4,
+      "overall_score": 9.3,
+      "short_note": "Hook 'terbakar pelan-pelan' sangat memancing rasa penasaran, dekat dengan kehidupan sehari-hari, dan sangat kuat divisualisasikan dengan footage nyata korosi."
+    },
+    {
+      "id": "idea_2",
+      "hook_score": 8.2,
+      "clarity_score": 8.8,
+      "visual_realness_score": 8.6,
+      "overall_score": 8.5,
+      "short_note": "Bagus dan mudah dipahami, tapi topiknya sudah cukup sering dibahas."
+    },
+    {
+      "id": "idea_3",
+      "hook_score": 8.5,
+      "clarity_score": 8.6,
+      "visual_realness_score": 8.4,
+      "overall_score": 8.5,
+      "short_note": "Relatable, cocok untuk episode berikutnya."
+    },
+    {
+      "id": "idea_4",
+      "hook_score": 7.9,
+      "clarity_score": 8.5,
+      "visual_realness_score": 9.2,
+      "overall_score": 8.4,
+      "short_note": "Visual sangat indah, namun hook perlu sudut pandang lebih mengejutkan."
+    },
+    {
+      "id": "idea_5",
+      "hook_score": 7.8,
+      "clarity_score": 8.9,
+      "visual_realness_score": 8.5,
+      "overall_score": 8.3,
+      "short_note": "Mudah dijelaskan, namun terasa sedikit klasik untuk episode perdana."
+    }
+  ],
+  "winner_id": "idea_1",
+  "passed": true,
+  "improvement_notes": [
+    "Jelaskan analogi 'terbakar pelan-pelan' secara ringan di awal (sama-sama reaksi oksidasi dengan oksigen, cuma tanpa api) agar penonton langsung paham tanpa bingung.",
+    "Sebutkan 3 bahan pemicu utama (besi, oksigen, air) dalam narasi yang natural, lalu tampilkan rumus kimia singkatnya sebagai badge overlay saja agar dubbing tetap enak didengar.",
+    "Tambahkan fakta sehari-hari kenapa karat di pinggir pantai jauh lebih cepat (peran garam sebagai elektrolit) supaya ada momen 'oh pantas!' bagi audiens.",
+    "Tutup dengan tips praktis pencegah karat (cat atau lapisan pelindung) dan ajakan diskusi singkat khas Kimiabill."
+  ]
+}

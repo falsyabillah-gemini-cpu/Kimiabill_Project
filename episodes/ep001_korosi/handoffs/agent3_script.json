@@ -1,0 +1,62 @@
+{
+  "episode_slug": "kenapa_besi_berkarat_korosi",
+  "title": "Kenapa Besi Bisa Berkarat? Ternyata Lagi Terbakar Pelan-Pelan!",
+  "caption_social": "Pernah heran kenapa pagar atau rantai besi gampang banget berkarat, apalagi dekat pantai? Ternyata korosi itu mirip proses pembakaran super lambat! 🧪✨ #Kimiabill #SainsNyata #KimiaSehariHari #Korosi #EdukasiSains",
+  "hashtags": ["#Kimiabill", "#SainsNyata", "#KimiaSehariHari", "#Korosi", "#FaktaSains"],
+  "scenes": [
+    {
+      "scene_id": "scene_1",
+      "narration": "Tahu nggak sih, besi yang berkarat itu sebenarnya lagi terbakar pelan-pelan?",
+      "visual_query": "rusty iron metal corrosion closeup",
+      "fallback_queries": ["rust metal chain", "corroded iron"],
+      "overlay_badge": "Karat = Pembakaran Super Lambat?",
+      "sfx_cue": "pop",
+      "motion": "slow_zoom_in"
+    },
+    {
+      "scene_id": "scene_2",
+      "narration": "Serius! Sama seperti api, korosi adalah reaksi oksidasi. Bedanya, proses ini berjalan super lambat tanpa nyala api.",
+      "visual_query": "fire flame sparks metal",
+      "fallback_queries": ["steel wool burning", "welding sparks metal"],
+      "overlay_badge": null,
+      "sfx_cue": "whoosh",
+      "motion": "slow_zoom_in"
+    },
+    {
+      "scene_id": "scene_3",
+      "narration": "Begitu besi bertemu oksigen dan air, atom besi melepaskan elektronnya lalu berubah menjadi oksida besi berwarna oranye kecokelatan.",
+      "visual_query": "water drops rain metal surface",
+      "fallback_queries": ["rain drops water splash", "water droplets closeup"],
+      "overlay_badge": "Fe + O₂ + H₂O → Fe₂O₃·nH₂O (Karat)",
+      "sfx_cue": "ding",
+      "motion": "slow_zoom_out"
+    },
+    {
+      "scene_id": "scene_4",
+      "narration": "Masalahnya, lapisan karat ini rapuh dan berpori. Jadi air dan udara tetap bisa masuk dan menggerogoti bagian dalamnya.",
+      "visual_query": "rusty metal ship iron decay",
+      "fallback_queries": ["rusted steel iron bridge", "rust corrosion flaking"],
+      "overlay_badge": "Karat Berpori → Menembus ke Dalam",
+      "sfx_cue": "whoosh",
+      "motion": "slow_zoom_in"
+    },
+    {
+      "scene_id": "scene_5",
+      "narration": "Nah, kalau dekat pantai, karat muncul jauh lebih cepat! Soalnya garam di udara laut mempercepat aliran listrik mikro pada besi.",
+      "visual_query": "ocean waves sea coast water",
+      "fallback_queries": ["sea waves beach", "ocean water coast"],
+      "overlay_badge": "Air Garam = Mempercepat Reaksi!",
+      "sfx_cue": "riser",
+      "motion": "slow_zoom_in"
+    },
+    {
+      "scene_id": "scene_6",
+      "narration": "Makanya besi sering dicat atau dilapisi seng supaya air dan oksigen tidak bisa menyentuhnya. Follow Kimiabill biar sains makin seru!",
+      "visual_query": "painting metal iron brush spray",
+      "fallback_queries": ["metal factory steel", "paint coating surface"],
+      "overlay_badge": "Solusi: Cat / Lapisan Seng (Galvanis)",
+      "sfx_cue": "chime",
+      "motion": "slow_zoom_out"
+    }
+  ]
+}

@@ -1,0 +1,691 @@
+{
+  "episode_id": "ep001_korosi",
+  "status": "uploaded",
+  "revision_count": 2,
+  "agent1": {
+    "mode_used": "idea_bank_fallback",
+    "candidates": [
+      {
+        "id": "idea_1",
+        "discipline": "kimia",
+        "source_mode": "idea_bank",
+        "viral_source_url": null,
+        "title": "Kenapa Besi Bisa Berkarat? Ternyata Besinya Pelan-Pelan Terbakar!",
+        "phenomenon": "Korosi besi (oksidasi lambat besi oleh oksigen dan air)",
+        "hook_3s": "Tahu nggak sih, besi yang berkarat itu sebenarnya lagi 'terbakar' pelan-pelan?",
+        "core_explanation": "Korosi terjadi saat besi bereaksi dengan oksigen dan air membentuk oksida besi yang rapuh dan mengelupas, berbeda dari aluminium yang lapisan oksidanya justru melindungi.",
+        "real_footage_feasibility": "Sangat tinggi: banyak footage nyata besi berkarat, tetesan air hujan pada logam, percikan api/logam, dan pagar/kapal berkarat."
+      },
+      {
+        "id": "idea_2",
+        "discipline": "kimia",
+        "source_mode": "idea_bank",
+        "viral_source_url": null,
+        "title": "Kenapa Es Batu Selalu Mengapung di Air?",
+        "phenomenon": "Anomali air dan ikatan hidrogen kristal es",
+        "hook_3s": "Hampir semua benda padat tenggelam di cairannya sendiri, kecuali es batu! Kok bisa?",
+        "core_explanation": "Saat air membeku, molekulnya membentuk struktur heksagonal berongga sehingga massa jenis es lebih ringan dari air cair.",
+        "real_footage_feasibility": "Tinggi: footage nyata gelas berisi es batu, air membeku, dan gunung es."
+      },
+      {
+        "id": "idea_3",
+        "discipline": "kimia",
+        "source_mode": "idea_bank",
+        "viral_source_url": null,
+        "title": "Kenapa Bawang Merah Bikin Mata Kita Menangis?",
+        "phenomenon": "Pelepasan gas syn-propanethial-S-oxide saat sel bawang teriris",
+        "hook_3s": "Baru motong bawang sebentar, kok mata langsung banjir air mata?",
+        "core_explanation": "Mengiris bawang memecah sel dan melepaskan gas iritan yang berubah menjadi asam ringan saat menyentuh permukaan mata.",
+        "real_footage_feasibility": "Tinggi: footage nyata mengiris bawang di dapur dan tetesan air."
+      },
+      {
+        "id": "idea_4",
+        "discipline": "kimia",
+        "source_mode": "idea_bank",
+        "viral_source_url": null,
+        "title": "Kenapa Langit Berwarna Biru Saat Siang dan Jingga Saat Senja?",
+        "phenomenon": "Hamburan Rayleigh cahaya matahari di atmosfer",
+        "hook_3s": "Cahaya matahari warnanya putih, terus kenapa langit kita malah biru?",
+        "core_explanation": "Cahaya biru bergelombang pendek paling banyak dihamburkan molekul udara, sedangkan saat senja jaraknya lebih jauh sehingga warna merah-jingga yang tersisa.",
+        "real_footage_feasibility": "Sangat tinggi: timelapse langit biru, awan, dan matahari terbenam nyata."
+      },
+      {
+        "id": "idea_5",
+        "discipline": "kimia",
+        "source_mode": "idea_bank",
+        "viral_source_url": null,
+        "title": "Kenapa Suara Petir Selalu Datang Setelah Kilat?",
+        "phenomenon": "Perbedaan kecepatan cahaya dan kecepatan bunyi di udara",
+        "hook_3s": "Pernah sadar nggak, kilat selalu muncul duluan baru suara petirnya menyusul?",
+        "core_explanation": "Cahaya melesat hampir sejuta kali lebih cepat dibanding gelombang suara yang cuma sekitar 340 meter per detik.",
+        "real_footage_feasibility": "Tinggi: footage nyata kilat di langit malam dan hujan badai."
+      }
+    ]
+  },
+  "agent2": {
+    "scores": [
+      {
+        "id": "idea_1",
+        "hook_score": 9.3,
+        "clarity_score": 9.1,
+        "visual_realness_score": 9.4,
+        "overall_score": 9.3,
+        "short_note": "Hook 'terbakar pelan-pelan' sangat memancing rasa penasaran, dekat dengan kehidupan sehari-hari, dan sangat kuat divisualisasikan dengan footage nyata korosi."
+      },
+      {
+        "id": "idea_2",
+        "hook_score": 8.2,
+        "clarity_score": 8.8,
+        "visual_realness_score": 8.6,
+        "overall_score": 8.5,
+        "short_note": "Bagus dan mudah dipahami, tapi topiknya sudah cukup sering dibahas."
+      },
+      {
+        "id": "idea_3",
+        "hook_score": 8.5,
+        "clarity_score": 8.6,
+        "visual_realness_score": 8.4,
+        "overall_score": 8.5,
+        "short_note": "Relatable, cocok untuk episode berikutnya."
+      },
+      {
+        "id": "idea_4",
+        "hook_score": 7.9,
+        "clarity_score": 8.5,
+        "visual_realness_score": 9.2,
+        "overall_score": 8.4,
+        "short_note": "Visual sangat indah, namun hook perlu sudut pandang lebih mengejutkan."
+      },
+      {
+        "id": "idea_5",
+        "hook_score": 7.8,
+        "clarity_score": 8.9,
+        "visual_realness_score": 8.5,
+        "overall_score": 8.3,
+        "short_note": "Mudah dijelaskan, namun terasa sedikit klasik untuk episode perdana."
+      }
+    ],
+    "winner_id": "idea_1",
+    "passed": true,
+    "improvement_notes": [
+      "Jelaskan analogi 'terbakar pelan-pelan' secara ringan di awal (sama-sama reaksi oksidasi dengan oksigen, cuma tanpa api) agar penonton langsung paham tanpa bingung.",
+      "Sebutkan 3 bahan pemicu utama (besi, oksigen, air) dalam narasi yang natural, lalu tampilkan rumus kimia singkatnya sebagai badge overlay saja agar dubbing tetap enak didengar.",
+      "Tambahkan fakta sehari-hari kenapa karat di pinggir pantai jauh lebih cepat (peran garam sebagai elektrolit) supaya ada momen 'oh pantas!' bagi audiens.",
+      "Tutup dengan tips praktis pencegah karat (cat atau lapisan pelindung) dan ajakan diskusi singkat khas Kimiabill."
+    ]
+  },
+  "agent3": {
+    "episode_slug": "kenapa_besi_berkarat_korosi",
+    "title": "Kenapa Besi Bisa Berkarat? Ternyata Lagi Terbakar Pelan-Pelan!",
+    "caption_social": "Pernah heran kenapa pagar atau rantai besi gampang banget berkarat, apalagi dekat pantai? Ternyata korosi itu mirip proses pembakaran super lambat! 🧪✨ #Kimiabill #SainsNyata #KimiaSehariHari #Korosi #EdukasiSains",
+    "hashtags": [
+      "#Kimiabill",
+      "#SainsNyata",
+      "#KimiaSehariHari",
+      "#Korosi",
+      "#FaktaSains"
+    ],
+    "scenes": [
+      {
+        "scene_id": "scene_1",
+        "narration": "Tahu nggak sih, besi yang berkarat itu sebenarnya lagi terbakar pelan-pelan?",
+        "visual_query": "rusty iron metal corrosion closeup",
+        "fallback_queries": [
+          "rust metal chain",
+          "corroded iron"
+        ],
+        "overlay_badge": "Karat = Pembakaran Super Lambat?",
+        "sfx_cue": "pop",
+        "motion": "slow_zoom_in"
+      },
+      {
+        "scene_id": "scene_2",
+        "narration": "Serius! Sama seperti api, korosi adalah reaksi oksidasi. Bedanya, proses ini berjalan super lambat tanpa nyala api.",
+        "visual_query": "fire flame sparks metal",
+        "fallback_queries": [
+          "steel wool burning",
+          "welding sparks metal"
+        ],
+        "overlay_badge": null,
+        "sfx_cue": "whoosh",
+        "motion": "slow_zoom_in"
+      },
+      {
+        "scene_id": "scene_3",
+        "narration": "Begitu besi bertemu oksigen dan air, atom besi melepaskan elektronnya lalu berubah menjadi oksida besi berwarna oranye kecokelatan.",
+        "visual_query": "water drops rain metal surface",
+        "fallback_queries": [
+          "rain drops water splash",
+          "water droplets closeup"
+        ],
+        "overlay_badge": "Fe + O₂ + H₂O → Fe₂O₃·nH₂O (Karat)",
+        "sfx_cue": "ding",
+        "motion": "slow_zoom_out"
+      },
+      {
+        "scene_id": "scene_4",
+        "narration": "Masalahnya, lapisan karat ini rapuh dan berpori. Jadi air dan udara tetap bisa masuk dan menggerogoti bagian dalamnya.",
+        "visual_query": "rusty metal ship iron decay",
+        "fallback_queries": [
+          "rusted steel iron bridge",
+          "rust corrosion flaking"
+        ],
+        "overlay_badge": "Karat Berpori → Menembus ke Dalam",
+        "sfx_cue": "whoosh",
+        "motion": "slow_zoom_in"
+      },
+      {
+        "scene_id": "scene_5",
+        "narration": "Nah, kalau dekat pantai, karat muncul jauh lebih cepat! Soalnya garam di udara laut mempercepat aliran listrik mikro pada besi.",
+        "visual_query": "ocean waves sea coast water",
+        "fallback_queries": [
+          "sea waves beach",
+          "ocean water coast"
+        ],
+        "overlay_badge": "Air Garam = Mempercepat Reaksi!",
+        "sfx_cue": "riser",
+        "motion": "slow_zoom_in"
+      },
+      {
+        "scene_id": "scene_6",
+        "narration": "Makanya besi sering dicat atau dilapisi seng supaya air dan oksigen tidak bisa menyentuhnya. Follow Kimiabill biar sains makin seru!",
+        "visual_query": "painting metal iron brush spray",
+        "fallback_queries": [
+          "metal factory steel",
+          "paint coating surface"
+        ],
+        "overlay_badge": "Solusi: Cat / Lapisan Seng (Galvanis)",
+        "sfx_cue": "chime",
+        "motion": "slow_zoom_out"
+      }
+    ]
+  },
+  "agent6": {
+    "assets": [
+      {
+        "scene_id": "scene_1",
+        "footage_path": "/home/antigravity/Kimiabill_videos/episodes/ep001_korosi/assets/scene_1.mp4",
+        "source": "wikimedia_commons",
+        "source_url": "https://commons.wikimedia.org/wiki/File:Eisen-Gl%C3%BCh-Versuch_(Batteriez%C3%BCndung).webm",
+        "license": "CC BY-SA 4.0",
+        "duration_sec": 25.0,
+        "width": 1920,
+        "height": 1080,
+        "sfx_path": "/home/antigravity/Kimiabill_videos/data/sfx_cache/pop.wav",
+        "notes": "Eisen-Glüh-Versuch (Batteriezündung).webm (offset 20.8s: iron wool glowing/oxidizing)"
+      },
+      {
+        "scene_id": "scene_2",
+        "footage_path": "/home/antigravity/Kimiabill_videos/episodes/ep001_korosi/assets/scene_2.mp4",
+        "source": "wikimedia_commons",
+        "source_url": "https://commons.wikimedia.org/wiki/File:Melting_an_iron_nail.webm",
+        "license": "CC BY-SA 4.0",
+        "duration_sec": 12.16,
+        "width": 3840,
+        "height": 2160,
+        "sfx_path": "/home/antigravity/Kimiabill_videos/data/sfx_cache/whoosh.wav",
+        "notes": "Melting an iron nail.webm"
+      },
+      {
+        "scene_id": "scene_3",
+        "footage_path": "/home/antigravity/Kimiabill_videos/episodes/ep001_korosi/assets/scene_3.mp4",
+        "source": "wikimedia_commons",
+        "source_url": "https://commons.wikimedia.org/wiki/File:Slow_motion_drop.webm",
+        "license": "CC BY 3.0",
+        "duration_sec": 25.0,
+        "width": 1280,
+        "height": 720,
+        "sfx_path": "/home/antigravity/Kimiabill_videos/data/sfx_cache/ding.wav",
+        "notes": "Slow motion drop.webm"
+      },
+      {
+        "scene_id": "scene_4",
+        "footage_path": "/home/antigravity/Kimiabill_videos/episodes/ep001_korosi/assets/scene_4.mp4",
+        "source": "wikimedia_commons",
+        "source_url": "https://commons.wikimedia.org/wiki/File:The_shipwreck_of_Raketa_on_the_shore_of_Kasispea_village_in_Estonia_(July_2022).webm",
+        "license": "CC BY-SA 4.0",
+        "duration_sec": 25.0,
+        "width": 1920,
+        "height": 1080,
+        "sfx_path": "/home/antigravity/Kimiabill_videos/data/sfx_cache/whoosh.wav",
+        "notes": "The shipwreck of Raketa on the shore of Kasispea village in Estonia (July 2022).webm"
+      },
+      {
+        "scene_id": "scene_5",
+        "footage_path": "/home/antigravity/Kimiabill_videos/episodes/ep001_korosi/assets/scene_5.mp4",
+        "source": "wikimedia_commons",
+        "source_url": "https://commons.wikimedia.org/wiki/File:Rialto_Beach_Waves_2022.webm",
+        "license": "CC BY-SA 4.0",
+        "duration_sec": 19.03,
+        "width": 3840,
+        "height": 2160,
+        "sfx_path": "/home/antigravity/Kimiabill_videos/data/sfx_cache/riser.wav",
+        "notes": "Rialto Beach Waves 2022.webm"
+      },
+      {
+        "scene_id": "scene_6",
+        "footage_path": "/home/antigravity/Kimiabill_videos/episodes/ep001_korosi/assets/scene_6.mp4",
+        "source": "wikimedia_commons",
+        "source_url": "https://commons.wikimedia.org/wiki/File:Spray_art_Kanagawa_2024_12_24.webm",
+        "license": "CC BY-SA 4.0",
+        "duration_sec": 25.0,
+        "width": 1920,
+        "height": 1080,
+        "sfx_path": "/home/antigravity/Kimiabill_videos/data/sfx_cache/chime.wav",
+        "notes": "Spray art Kanagawa 2024 12 24.webm"
+      }
+    ],
+    "bgm_path": "/home/antigravity/Kimiabill_videos/data/sfx_cache/bgm_curious_science.wav"
+  },
+  "render_plan": {
+    "version": 3,
+    "resolution_mode": "final_1080p",
+    "voice_path": "/home/antigravity/Kimiabill_videos/episodes/ep001_korosi/renders/audio_v3/voiceover_full.wav",
+    "total_duration_sec": 42.098,
+    "segments": [
+      {
+        "scene_id": "scene_1",
+        "start_sec": 0.0,
+        "end_sec": 3.564,
+        "duration_sec": 3.564,
+        "footage_path": "/home/antigravity/Kimiabill_videos/episodes/ep001_korosi/assets/scene_1.mp4",
+        "footage_start_offset": 20.8,
+        "overlay_badge": "Karat = Pembakaran Super Lambat?",
+        "sfx_path": "/home/antigravity/Kimiabill_videos/data/sfx_cache/pop.wav",
+        "sfx_gain_db": -10.5,
+        "motion": "slow_zoom_in"
+      },
+      {
+        "scene_id": "scene_2",
+        "start_sec": 3.564,
+        "end_sec": 12.514,
+        "duration_sec": 8.95,
+        "footage_path": "/home/antigravity/Kimiabill_videos/episodes/ep001_korosi/assets/scene_2.mp4",
+        "footage_start_offset": 0.0,
+        "overlay_badge": null,
+        "sfx_path": "/home/antigravity/Kimiabill_videos/data/sfx_cache/whoosh.wav",
+        "sfx_gain_db": -10.5,
+        "motion": "slow_zoom_in"
+      },
+      {
+        "scene_id": "scene_3",
+        "start_sec": 12.514,
+        "end_sec": 19.213,
+        "duration_sec": 6.698,
+        "footage_path": "/home/antigravity/Kimiabill_videos/episodes/ep001_korosi/assets/scene_3.mp4",
+        "footage_start_offset": 0.0,
+        "overlay_badge": "Fe + O₂ + H₂O → Fe₂O₃·nH₂O (Karat)",
+        "sfx_path": "/home/antigravity/Kimiabill_videos/data/sfx_cache/ding.wav",
+        "sfx_gain_db": -10.5,
+        "motion": "slow_zoom_out"
+      },
+      {
+        "scene_id": "scene_4",
+        "start_sec": 19.213,
+        "end_sec": 26.713,
+        "duration_sec": 7.501,
+        "footage_path": "/home/antigravity/Kimiabill_videos/episodes/ep001_korosi/assets/scene_4.mp4",
+        "footage_start_offset": 0.0,
+        "overlay_badge": "Karat Berpori → Menembus ke Dalam",
+        "sfx_path": "/home/antigravity/Kimiabill_videos/data/sfx_cache/whoosh.wav",
+        "sfx_gain_db": -10.5,
+        "motion": "slow_zoom_in"
+      },
+      {
+        "scene_id": "scene_5",
+        "start_sec": 26.713,
+        "end_sec": 34.544,
+        "duration_sec": 7.83,
+        "footage_path": "/home/antigravity/Kimiabill_videos/episodes/ep001_korosi/assets/scene_5.mp4",
+        "footage_start_offset": 0.0,
+        "overlay_badge": "Air Garam = Mempercepat Reaksi!",
+        "sfx_path": "/home/antigravity/Kimiabill_videos/data/sfx_cache/riser.wav",
+        "sfx_gain_db": -10.5,
+        "motion": "slow_zoom_in"
+      },
+      {
+        "scene_id": "scene_6",
+        "start_sec": 34.544,
+        "end_sec": 42.098,
+        "duration_sec": 7.554,
+        "footage_path": "/home/antigravity/Kimiabill_videos/episodes/ep001_korosi/assets/scene_6.mp4",
+        "footage_start_offset": 0.0,
+        "overlay_badge": "Solusi: Cat / Lapisan Seng (Galvanis)",
+        "sfx_path": "/home/antigravity/Kimiabill_videos/data/sfx_cache/chime.wav",
+        "sfx_gain_db": -10.5,
+        "motion": "slow_zoom_out"
+      }
+    ],
+    "subtitles": [
+      {
+        "start": 0.105,
+        "end": 0.809,
+        "text": "Tahu nggak sih"
+      },
+      {
+        "start": 1.016,
+        "end": 1.789,
+        "text": "besi yang berkarat itu"
+      },
+      {
+        "start": 1.789,
+        "end": 2.424,
+        "text": "sebenarnya lagi"
+      },
+      {
+        "start": 2.424,
+        "end": 3.324,
+        "text": "terbakar pelan-pelan"
+      },
+      {
+        "start": 3.661,
+        "end": 4.434,
+        "text": "Serius"
+      },
+      {
+        "start": 5.23,
+        "end": 6.289,
+        "text": "Sama seperti api"
+      },
+      {
+        "start": 6.551,
+        "end": 7.491,
+        "text": "korosi adalah reaksi"
+      },
+      {
+        "start": 7.491,
+        "end": 8.217,
+        "text": "oksidasi"
+      },
+      {
+        "start": 9.014,
+        "end": 9.704,
+        "text": "Bedanya"
+      },
+      {
+        "start": 9.966,
+        "end": 10.858,
+        "text": "proses ini berjalan"
+      },
+      {
+        "start": 10.858,
+        "end": 11.667,
+        "text": "super lambat tanpa"
+      },
+      {
+        "start": 11.667,
+        "end": 12.274,
+        "text": "nyala api"
+      },
+      {
+        "start": 12.622,
+        "end": 13.455,
+        "text": "Begitu besi bertemu"
+      },
+      {
+        "start": 13.455,
+        "end": 14.466,
+        "text": "oksigen dan air"
+      },
+      {
+        "start": 14.751,
+        "end": 15.583,
+        "text": "atom besi melepaskan"
+      },
+      {
+        "start": 15.583,
+        "end": 16.249,
+        "text": "elektronnya lalu"
+      },
+      {
+        "start": 16.249,
+        "end": 17.272,
+        "text": "berubah menjadi oksida"
+      },
+      {
+        "start": 17.272,
+        "end": 18.212,
+        "text": "besi berwarna oranye"
+      },
+      {
+        "start": 18.212,
+        "end": 18.973,
+        "text": "kecokelatan"
+      },
+      {
+        "start": 19.309,
+        "end": 20.105,
+        "text": "Masalahnya"
+      },
+      {
+        "start": 20.379,
+        "end": 21.543,
+        "text": "lapisan karat ini rapuh"
+      },
+      {
+        "start": 21.543,
+        "end": 22.256,
+        "text": "dan berpori"
+      },
+      {
+        "start": 23.051,
+        "end": 24.156,
+        "text": "Jadi air dan udara"
+      },
+      {
+        "start": 24.156,
+        "end": 25.059,
+        "text": "tetap bisa masuk dan"
+      },
+      {
+        "start": 25.059,
+        "end": 25.903,
+        "text": "menggerogoti bagian"
+      },
+      {
+        "start": 25.903,
+        "end": 26.473,
+        "text": "dalamnya"
+      },
+      {
+        "start": 26.81,
+        "end": 27.274,
+        "text": "Nah"
+      },
+      {
+        "start": 27.476,
+        "end": 28.499,
+        "text": "kalau dekat pantai"
+      },
+      {
+        "start": 28.749,
+        "end": 29.725,
+        "text": "karat muncul jauh lebih"
+      },
+      {
+        "start": 29.725,
+        "end": 30.177,
+        "text": "cepat"
+      },
+      {
+        "start": 30.973,
+        "end": 31.96,
+        "text": "Soalnya garam di udara"
+      },
+      {
+        "start": 31.96,
+        "end": 32.995,
+        "text": "laut mempercepat aliran"
+      },
+      {
+        "start": 32.995,
+        "end": 34.304,
+        "text": "listrik mikro pada besi"
+      },
+      {
+        "start": 34.64,
+        "end": 35.421,
+        "text": "Makanya besi sering"
+      },
+      {
+        "start": 35.421,
+        "end": 36.345,
+        "text": "dicat atau dilapisi"
+      },
+      {
+        "start": 36.345,
+        "end": 37.304,
+        "text": "seng supaya air dan"
+      },
+      {
+        "start": 37.304,
+        "end": 38.192,
+        "text": "oksigen tidak bisa"
+      },
+      {
+        "start": 38.192,
+        "end": 38.878,
+        "text": "menyentuhnya"
+      },
+      {
+        "start": 39.671,
+        "end": 40.736,
+        "text": "Follow Kimiabill biar"
+      },
+      {
+        "start": 40.736,
+        "end": 41.648,
+        "text": "sains makin seru"
+      }
+    ],
+    "output_video_path": "/home/antigravity/kimiabill-studio/episodes/ep001_korosi/FINAL_kenapa_besi_berkarat_korosi_1080p.mp4",
+    "subtitle_font_size_ratio": 0.052,
+    "bgm_gain_db": -24.0
+  },
+  "gate0": {
+    "passed": true,
+    "duration_sec": 42.03,
+    "width": 1080,
+    "height": 1920,
+    "mean_volume_db": -16.9,
+    "max_volume_db": -3.3,
+    "black_frame_ratio": 0.0,
+    "issues": []
+  },
+  "agent5_history": [
+    {
+      "version_audited": 1,
+      "passed": false,
+      "overall_score": 7.1,
+      "visual_relevance_score": 6.0,
+      "subtitle_readability_score": 8.2,
+      "pacing_and_audio_score": 9.2,
+      "revision_target": "both",
+      "affected_scenes": [
+        "scene_1",
+        "scene_6"
+      ],
+      "issues": [
+        "scene_1: Crop 9:16 memotong traktor berkarat sehingga yang terlihat hanya rumput dan pepohonan; tidak menunjukkan besi berkarat saat hook.",
+        "scene_6: Klip menunjukkan pengecatan garis parkiran aspal, bukan pelapisan/pengecatan atau perlindungan logam besi.",
+        "Subtitle: Pada batas antar kalimat (mis. 'oksidasi Bedanya proses', 'menyentuhnya Follow'), kata dari kalimat berbeda bergabung dalam 1 baris tanpa pemisah jeda."
+      ],
+      "patch_instructions": [
+        "Agent 6: Ganti footage scene_1 dengan klip nyata korosi/besi berkarat yang objek karatnya jelas berada di tengah frame 9:16.",
+        "Agent 6: Ganti footage scene_6 dengan klip nyata penyemprotan cat/pelapisan logam atau struktur baja terlindungi.",
+        "Agent 4: Pisahkan chunk subtitle setiap kali ada jeda suara > 0.22 detik agar akhir kalimat tidak menyambung ke kalimat berikutnya."
+      ]
+    },
+    {
+      "version_audited": 3,
+      "passed": true,
+      "overall_score": 8.9,
+      "visual_relevance_score": 8.8,
+      "subtitle_readability_score": 9.1,
+      "pacing_and_audio_score": 9.2,
+      "revision_target": "none",
+      "affected_scenes": [],
+      "issues": [
+        "Catatan opsional masa depan: tambahkan PEXELS_API_KEY di produksi agar Agent 6 punya lebih banyak opsi footage vertikal 9:16 tanpa teks latar."
+      ],
+      "patch_instructions": []
+    }
+  ],
+  "agent7": {
+    "thumbnail_headline_top": "KENAPA BESI",
+    "thumbnail_headline_main": "BISA BERKARAT?!",
+    "thumbnail_badge": "SAINS NYATA  •  KIMIA",
+    "thumbnail_path": "/home/antigravity/Kimiabill_videos/episodes/ep001_korosi/THUMBNAIL_kenapa_besi_berkarat_korosi_9x16.jpg",
+    "platform_copies": [
+      {
+        "platform": "youtube_shorts",
+        "title": "Kenapa Besi Bisa Berkarat? Ternyata Lagi Terbakar Pelan! #Shorts",
+        "caption": "Besi yang berkarat ternyata mengalami reaksi oksidasi yang sama seperti api — bedanya berjalan super lambat tanpa nyala api!\n\nDi video ini @kimiabill bongkar mekanisme kimia korosi (Fe + O₂ + H₂O → Fe₂O₃·nH₂O), kenapa karat di dekat pantai jauh lebih cepat, dan cara mencegahnya.\n\nMenurut kamu, fenomena sains apa lagi yang wajib kita bongkar di episode berikutnya? Tulis di kolom komentar!",
+        "hashtags": [
+          "#Shorts",
+          "#Kimiabill",
+          "#SainsNyata",
+          "#Kimia",
+          "#Korosi",
+          "#EdukasiSains"
+        ],
+        "pinned_comment": "Pernah lihat pagar atau motor di dekat pantai cepat banget karatan? Itu karena ion garam mempercepat aliran listrik mikro di besi! Mau dibahas fenomena sains apa lagi nih?"
+      },
+      {
+        "platform": "tiktok",
+        "title": "Besi berkarat itu ternyata lagi terbakar pelan-pelan?!",
+        "caption": "Tahu nggak sih, karat pada besi itu sama-sama reaksi oksidasi kayak api — cuma tanpa nyala api! 🔥🧪 Pantas saja pagar dekat pantai gampang banget keropos! Follow @kimiabill biar sains murni makin gampang dipahami.",
+        "hashtags": [
+          "#kimiabill",
+          "#sainsnyata",
+          "#kimia",
+          "#faktasains",
+          "#edukasitiktok"
+        ],
+        "pinned_comment": "Next mau dibahas fenomena Kimia, Fisika, Matematika, Medisinal, atau Biologi nih? Komen di bawah! 👇"
+      },
+      {
+        "platform": "instagram_reels",
+        "title": "Kenapa Besi Bisa Berkarat? (Mekanisme Kimia Korosi)",
+        "caption": "Pernah heran kenapa besi yang kena hujan lama-lama jadi oranye dan keropos?\n\nTernyata korosi adalah reaksi oksidasi lambat antara besi (Fe), oksigen (O₂), dan air (H₂O) yang membentuk lapisan oksida berpori. Kalau dekat pantai, garam bertindak sebagai elektrolit yang bikin karat melesat jauh lebih cepat!\n\nSimpan Reels ini kalau bermanfaat, dan follow @kimiabill untuk bahasan sains murni lainnya! 🧪✨",
+        "hashtags": [
+          "#kimiabill",
+          "#sainsnyata",
+          "#kimiaseharihari",
+          "#edukasisains",
+          "#korosi",
+          "#reelsedukasi"
+        ],
+        "pinned_comment": "Save dulu biar nggak lupa rumus karat: Fe + O₂ + H₂O → Fe₂O₃·nH₂O!"
+      }
+    ],
+    "publish_results": [
+      {
+        "platform": "youtube_shorts",
+        "mode": "dry_run",
+        "status": "packaged_only",
+        "post_id": null,
+        "post_url": null,
+        "detail": "Dry-run: judul, deskripsi, dan thumbnail YouTube Shorts siap diunggah."
+      },
+      {
+        "platform": "tiktok",
+        "mode": "dry_run",
+        "status": "packaged_only",
+        "post_id": null,
+        "post_url": null,
+        "detail": "Dry-run: caption, hashtag, dan cover TikTok siap diunggah."
+      },
+      {
+        "platform": "instagram_reels",
+        "mode": "dry_run",
+        "status": "packaged_only",
+        "post_id": null,
+        "post_url": null,
+        "detail": "Dry-run: caption, hashtag, dan cover Instagram Reels siap diunggah."
+      }
+    ]
+  },
+  "final_video_path": "/home/antigravity/kimiabill-studio/episodes/ep001_korosi/FINAL_kenapa_besi_berkarat_korosi_1080p.mp4",
+  "gdrive_folder_url": "https://drive.google.com/drive/folders/1jNnEq-PwpCB8Q-IZuu9qrdsMtmSyn8DD"
+}

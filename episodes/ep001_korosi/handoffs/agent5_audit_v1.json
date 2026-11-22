@@ -1,0 +1,20 @@
+{
+  "version_audited": 1,
+  "passed": false,
+  "overall_score": 7.1,
+  "visual_relevance_score": 6.0,
+  "subtitle_readability_score": 8.2,
+  "pacing_and_audio_score": 9.2,
+  "revision_target": "both",
+  "affected_scenes": ["scene_1", "scene_6"],
+  "issues": [
+    "scene_1: Crop 9:16 memotong traktor berkarat sehingga yang terlihat hanya rumput dan pepohonan; tidak menunjukkan besi berkarat saat hook.",
+    "scene_6: Klip menunjukkan pengecatan garis parkiran aspal, bukan pelapisan/pengecatan atau perlindungan logam besi.",
+    "Subtitle: Pada batas antar kalimat (mis. 'oksidasi Bedanya proses', 'menyentuhnya Follow'), kata dari kalimat berbeda bergabung dalam 1 baris tanpa pemisah jeda."
+  ],
+  "patch_instructions": [
+    "Agent 6: Ganti footage scene_1 dengan klip nyata korosi/besi berkarat yang objek karatnya jelas berada di tengah frame 9:16.",
+    "Agent 6: Ganti footage scene_6 dengan klip nyata penyemprotan cat/pelapisan logam atau struktur baja terlindungi.",
+    "Agent 4: Pisahkan chunk subtitle setiap kali ada jeda suara > 0.22 detik agar akhir kalimat tidak menyambung ke kalimat berikutnya."
+  ]
+}

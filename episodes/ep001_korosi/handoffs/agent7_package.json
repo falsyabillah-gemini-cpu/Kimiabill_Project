@@ -1,0 +1,75 @@
+{
+  "thumbnail_headline_top": "KENAPA BESI",
+  "thumbnail_headline_main": "BISA BERKARAT?!",
+  "thumbnail_badge": "SAINS NYATA  •  KIMIA",
+  "thumbnail_path": "/home/antigravity/Kimiabill_videos/episodes/ep001_korosi/THUMBNAIL_kenapa_besi_berkarat_korosi_9x16.jpg",
+  "platform_copies": [
+    {
+      "platform": "youtube_shorts",
+      "title": "Kenapa Besi Bisa Berkarat? Ternyata Lagi Terbakar Pelan! #Shorts",
+      "caption": "Besi yang berkarat ternyata mengalami reaksi oksidasi yang sama seperti api — bedanya berjalan super lambat tanpa nyala api!\n\nDi video ini @kimiabill bongkar mekanisme kimia korosi (Fe + O₂ + H₂O → Fe₂O₃·nH₂O), kenapa karat di dekat pantai jauh lebih cepat, dan cara mencegahnya.\n\nMenurut kamu, fenomena sains apa lagi yang wajib kita bongkar di episode berikutnya? Tulis di kolom komentar!",
+      "hashtags": [
+        "#Shorts",
+        "#Kimiabill",
+        "#SainsNyata",
+        "#Kimia",
+        "#Korosi",
+        "#EdukasiSains"
+      ],
+      "pinned_comment": "Pernah lihat pagar atau motor di dekat pantai cepat banget karatan? Itu karena ion garam mempercepat aliran listrik mikro di besi! Mau dibahas fenomena sains apa lagi nih?"
+    },
+    {
+      "platform": "tiktok",
+      "title": "Besi berkarat itu ternyata lagi terbakar pelan-pelan?!",
+      "caption": "Tahu nggak sih, karat pada besi itu sama-sama reaksi oksidasi kayak api — cuma tanpa nyala api! 🔥🧪 Pantas saja pagar dekat pantai gampang banget keropos! Follow @kimiabill biar sains murni makin gampang dipahami.",
+      "hashtags": [
+        "#kimiabill",
+        "#sainsnyata",
+        "#kimia",
+        "#faktasains",
+        "#edukasitiktok"
+      ],
+      "pinned_comment": "Next mau dibahas fenomena Kimia, Fisika, Matematika, Medisinal, atau Biologi nih? Komen di bawah! 👇"
+    },
+    {
+      "platform": "instagram_reels",
+      "title": "Kenapa Besi Bisa Berkarat? (Mekanisme Kimia Korosi)",
+      "caption": "Pernah heran kenapa besi yang kena hujan lama-lama jadi oranye dan keropos?\n\nTernyata korosi adalah reaksi oksidasi lambat antara besi (Fe), oksigen (O₂), dan air (H₂O) yang membentuk lapisan oksida berpori. Kalau dekat pantai, garam bertindak sebagai elektrolit yang bikin karat melesat jauh lebih cepat!\n\nSimpan Reels ini kalau bermanfaat, dan follow @kimiabill untuk bahasan sains murni lainnya! 🧪✨",
+      "hashtags": [
+        "#kimiabill",
+        "#sainsnyata",
+        "#kimiaseharihari",
+        "#edukasisains",
+        "#korosi",
+        "#reelsedukasi"
+      ],
+      "pinned_comment": "Save dulu biar nggak lupa rumus karat: Fe + O₂ + H₂O → Fe₂O₃·nH₂O!"
+    }
+  ],
+  "publish_results": [
+    {
+      "platform": "youtube_shorts",
+      "mode": "dry_run",
+      "status": "packaged_only",
+      "post_id": null,
+      "post_url": null,
+      "detail": "Dry-run: judul, deskripsi, dan thumbnail YouTube Shorts siap diunggah."
+    },
+    {
+      "platform": "tiktok",
+      "mode": "dry_run",
+      "status": "packaged_only",
+      "post_id": null,
+      "post_url": null,
+      "detail": "Dry-run: caption, hashtag, dan cover TikTok siap diunggah."
+    },
+    {
+      "platform": "instagram_reels",
+      "mode": "dry_run",
+      "status": "packaged_only",
+      "post_id": null,
+      "post_url": null,
+      "detail": "Dry-run: caption, hashtag, dan cover Instagram Reels siap diunggah."
+    }
+  ]
+}

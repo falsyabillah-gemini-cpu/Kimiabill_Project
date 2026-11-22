@@ -14,14 +14,19 @@ Project otomasi 6 agent untuk akun **Kimiabill** yang membahas fenomena **sains 
 ## Cara Menjalankan Otomatis Saat Laptop Mati (24/7)
 Otomasi berjalan dari **kode project ini** (bukan dari sesi chat):
 
-### Opsi A — VPS / Cloud Server (Docker)
-1. Salin `.env.example` menjadi `.env` lalu isi API key (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY` atau `OPENROUTER_API_KEY`, serta opsional `PEXELS_API_KEY`).
-2. Ubah `runtime_mode` dan `provider` tiap agent di `config/agents.yaml` (misalnya `gemini_api`, `anthropic_api`, atau `claude_code_cli`).
+### Opsi A — GitHub Actions (Gratis, Tanpa VPS — Direkomendasikan)
+Workflow `.github/workflows/daily_kimiabill.yml` sudah aktif dan akan otomatis berjalan setiap hari jam **08:00 WIB** (dan bisa dijalankan manual kapan saja lewat tab **Actions → Kimiabill Daily Auto-Video → Run workflow**).
+1. Buka **Settings → Secrets and variables → Actions → New repository secret** di repo GitHub ini.
+2. Tambahkan minimal **1 API key LLM**:
+   - `GEMINI_API_KEY` *(disarankan)*, **atau** `ANTHROPIC_API_KEY`, **atau** `OPENROUTER_API_KEY`.
+3. Opsional (sangat disarankan untuk footage lebih variatif): tambahkan `PEXELS_API_KEY`.
+4. Opsional (untuk auto-publish media sosial): tambahkan token YouTube/TikTok/Instagram sesuai `.env.example`, lalu atur `publish_mode` (`dry_run` / `draft` / `public`).
+
+### Opsi B — VPS / Cloud Server (Docker)
+1. Salin `.env.example` menjadi `.env` lalu isi minimal 1 API key LLM (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, atau `OPENROUTER_API_KEY`), serta opsional `PEXELS_API_KEY`.
+2. `config/agents.yaml` sudah memakai `runtime_mode: "production"` dan `provider: "auto"` (otomatis mendeteksi API key yang Anda isi).
 3. Jalankan sekali:
    ```bash
-   docker compose up -d
+   docker compose up -d --build
    ```
    Scheduler (`src/scheduler.py`) akan otomatis memproduksi video setiap hari sesuai `SCHEDULE_TIMES_WIB`.
-
-### Opsi B — GitHub Actions (Gratis, Tanpa VPS)
-Push project `Kimiabill_videos` ke GitHub, tambahkan API key di **Repository Secrets**, dan workflow `.github/workflows/daily_kimiabill.yml` akan otomatis berjalan setiap jam 08:00 WIB.

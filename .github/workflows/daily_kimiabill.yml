@@ -1,0 +1,64 @@
+name: Kimiabill Daily Auto-Video
+
+on:
+  schedule:
+    # Setiap hari jam 08:00 WIB (01:00 UTC)
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+    inputs:
+      publish_mode:
+        description: "Mode publish Agent 7 (dry_run / draft / public)"
+        required: false
+        default: "dry_run"
+        type: choice
+        options:
+          - dry_run
+          - draft
+          - public
+
+jobs:
+  produce-video:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install FFmpeg & Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-liberation
+          pip install -r requirements.txt
+
+      - name: Run Automated Episode Pipeline
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'dry_run' }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          INSTAGRAM_IG_USER_ID: ${{ secrets.INSTAGRAM_IG_USER_ID }}
+          PUBLIC_MEDIA_BASE_URL: ${{ secrets.PUBLIC_MEDIA_BASE_URL }}
+          TIKTOK_ACCESS_TOKEN: ${{ secrets.TIKTOK_ACCESS_TOKEN }}
+          SOCIAL_BRIDGE_WEBHOOK_URL: ${{ secrets.SOCIAL_BRIDGE_WEBHOOK_URL }}
+          SOCIAL_BRIDGE_API_KEY: ${{ secrets.SOCIAL_BRIDGE_API_KEY }}
+          AUTO_UPLOAD_GDRIVE: "false"
+        run: |
+          python -c "from src.scheduler import run_one_automated_episode; run_one_automated_episode()"
+
+      - name: Upload Rendered Video Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kimiabill-episode-${{ github.run_number }}
+          path: |
+            episodes/*/FINAL_*.mp4
+            episodes/*/THUMBNAIL_*.jpg
+            episodes/*/*_contact_sheet.jpg
+            episodes/*/handoffs/*.json
