@@ -939,3 +939,505 @@ def render_hybrid_korosi_video(
     sheet_path = output_mp4.with_name(f"{output_mp4.stem}_contact_sheet.jpg")
     _build_contact_sheet(output_mp4, plan.segments, sheet_path)
     return str(output_mp4), str(sheet_path)
+
+
+def _probe_video_dims(video_path: str) -> tuple[int, int]:
+    """Return (width, height) of a video file using ffprobe."""
+    try:
+        out = subprocess.check_output(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "csv=s=x:p=0",
+                video_path,
+            ],
+            text=True,
+        ).strip()
+        w_s, h_s = out.splitlines()[0].split("x")
+        return int(w_s), int(h_s)
+    except Exception:
+        return 1280, 720
+
+
+def _prepare_smart_real_footage_base(
+    plan: RenderPlan,
+    out_stitched_mp4: Path,
+    work_dir: Path,
+    width: int = 1080,
+    height: int = 1920,
+    fps: int = 30,
+) -> Path:
+    """Prepare crisp, non-overzoomed real footage base for vertical 9:16 video.
+
+    - Vertical/square clips (aspect <= 1.15): fill 9:16 cleanly with Lanczos scaling.
+    - Landscape clips (aspect > 1.15): render a softly blurred dark background fill + crisp
+      un-zoomed foreground video window in the upper-middle frame so scientific details stay sharp!
+    """
+    seg_dir = work_dir / f"smart_base_{width}x{height}"
+    seg_dir.mkdir(parents=True, exist_ok=True)
+    seg_files: list[Path] = []
+
+    fg_w = int(width * 0.94)
+    fg_w -= fg_w % 2
+    fg_y = int(height * 0.21)
+
+    for seg in plan.segments:
+        out_seg = seg_dir / f"{seg.scene_id}.mp4"
+        src_w, src_h = _probe_video_dims(seg.footage_path)
+        aspect = (src_w / src_h) if src_h > 0 else 1.77
+
+        if aspect > 1.15:
+            # Landscape clip: blurred dark backdrop + sharp, full-frame foreground (NO brutal 3x crop!)
+            filter_complex = (
+                f"[0:v]split=2[bg0][fg0];"
+                f"[bg0]scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,"
+                f"crop={width}:{height},gblur=sigma=24,eq=brightness=-0.22:saturation=0.80[bg];"
+                f"[fg0]scale={fg_w}:-2:flags=lanczos,eq=contrast=1.05:saturation=1.08[fg];"
+                f"[bg][fg]overlay=(W-w)/2:{fg_y}:shortest=1,fps={fps},format=yuv420p[vout]"
+            )
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-stream_loop",
+                "-1",
+                "-ss",
+                f"{seg.footage_start_offset:.2f}",
+                "-i",
+                seg.footage_path,
+                "-t",
+                f"{seg.duration_sec:.3f}",
+                "-filter_complex",
+                filter_complex,
+                "-map",
+                "[vout]",
+                "-an",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "20",
+                "-pix_fmt",
+                "yuv420p",
+                str(out_seg),
+            ]
+        else:
+            vf = (
+                f"scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,"
+                f"crop={width}:{height},fps={fps},"
+                f"eq=contrast=1.05:saturation=1.06:brightness=-0.03,format=yuv420p"
+            )
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-stream_loop",
+                "-1",
+                "-ss",
+                f"{seg.footage_start_offset:.2f}",
+                "-i",
+                seg.footage_path,
+                "-t",
+                f"{seg.duration_sec:.3f}",
+                "-vf",
+                vf,
+                "-an",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "20",
+                "-pix_fmt",
+                "yuv420p",
+                str(out_seg),
+            ]
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        seg_files.append(out_seg)
+
+    concat_txt = seg_dir / "concat.txt"
+    concat_txt.write_text("\n".join(f"file '{p.resolve()}'" for p in seg_files), encoding="utf-8")
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(concat_txt),
+            "-c",
+            "copy",
+            str(out_stitched_mp4),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return out_stitched_mp4
+
+
+def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_w: int, max_lines: int = 3) -> list[str]:
+    words = text.split()
+    lines: list[str] = []
+    cur = ""
+    for w in words:
+        cand = f"{cur} {w}".strip()
+        bbox = draw.textbbox((0, 0), cand, font=font)
+        if (bbox[2] - bbox[0]) <= max_w or not cur:
+            cur = cand
+        else:
+            lines.append(cur)
+            cur = w
+            if len(lines) >= max_lines - 1:
+                break
+    if cur:
+        lines.append(cur)
+    return lines[:max_lines]
+
+
+def _draw_discipline_pill(draw: ImageDraw.ImageDraw, discipline: str, fonts: dict) -> None:
+    colors = {
+        "kimia": BLUE,
+        "fisika": PURPLE,
+        "matematika": ORANGE,
+        "medisinal": RED,
+        "biologi": GREEN,
+    }
+    col = colors.get(discipline.lower(), BLUE)
+    label = f"SAINS • {discipline.upper()}"
+    bbox = draw.textbbox((0, 0), label, font=fonts["tiny_bold"])
+    pw = (bbox[2] - bbox[0]) + 46
+    x1 = 1032
+    x0 = x1 - pw
+    draw_comic_box(draw, (x0, 74, x1, 138), fill=col, radius=24, border_w=4, shadow_offset=5)
+    draw_outlined_text(draw, ((x0 + x1) // 2, 106), label, fonts["tiny_bold"], fill=WHITE, stroke_w=3)
+
+
+def _draw_mechanistic_diagram_card(
+    draw: ImageDraw.ImageDraw,
+    seg: TimelineSegment,
+    seg_idx: int,
+    local_t: float,
+    fonts: dict,
+) -> None:
+    """Draw an animated 30fps comic-science mechanistic card (nodes + pulsing arrows + energy particles)."""
+    badge = (seg.overlay_badge or "").strip()
+    if not badge:
+        # Derive concise mechanistic highlight from narration
+        words = [w.strip(".,!?") for w in seg.narration.split() if len(w.strip(".,!?")) > 3]
+        badge = " → ".join(words[:3]).upper() if len(words) >= 3 else (seg.narration[:36] or "MEKANISME SAINS")
+
+    # Split into process nodes by arrow/equals/plus/colon
+    import re
+    raw_nodes = [p.strip() for p in re.split(r"\s*(?:→|->|=>|=|\+)\s*", badge) if p.strip()]
+    if not raw_nodes:
+        raw_nodes = [badge]
+    nodes = raw_nodes[:3]
+
+    p = ease_out_back(local_t / 0.38)
+    if p <= 0.05:
+        return
+
+    card_x0, card_y0, card_x1, card_y1 = 56, 985, 1024, 1265
+    cy = (card_y0 + card_y1) // 2
+    half_h = int(((card_y1 - card_y0) // 2) * min(p, 1.02))
+    draw_comic_box(
+        draw,
+        (card_x0, cy - half_h, card_x1, cy + half_h),
+        fill=CARD_BG,
+        outline=INK,
+        radius=28,
+        border_w=6,
+        shadow_offset=10,
+    )
+    if p < 0.65:
+        return
+
+    # Top strip title inside mechanistic card
+    draw.rounded_rectangle([card_x0 + 18, card_y0 + 16, card_x0 + 360, card_y0 + 62], radius=16, fill=CARD_DARK)
+    draw.text((card_x0 + 189, card_y0 + 39), f"MEKANISME #{seg_idx}", font=fonts["tiny_bold"], fill=YELLOW, anchor="mm")
+
+    # Animated molecular/particle orbit indicator at top-right of card
+    ox, oy = card_x1 - 76, card_y0 + 44
+    draw.ellipse([ox - 24, oy - 12, ox + 24, oy + 12], outline=BLUE, width=3)
+    draw.ellipse([ox - 12, oy - 24, ox + 12, oy + 24], outline=CYAN, width=3)
+    draw.ellipse([ox - 6, oy - 6, ox + 6, oy + 6], fill=ORANGE, outline=INK, width=2)
+    ex = ox + int(22 * math.cos(local_t * 5.0))
+    ey = oy + int(11 * math.sin(local_t * 5.0))
+    draw.ellipse([ex - 5, ey - 5, ex + 5, ey + 5], fill=YELLOW, outline=INK, width=2)
+
+    node_colors = [BLUE, PURPLE, GREEN]
+    n = len(nodes)
+    inner_w = (card_x1 - card_x0) - 64
+    if n == 1:
+        lines = _wrap_text(draw, nodes[0], fonts["summary"], inner_w - 40, max_lines=2)
+        box_y0, box_y1 = card_y0 + 82, card_y1 - 24
+        draw_comic_box(draw, (card_x0 + 32, box_y0, card_x1 - 32, box_y1), fill=(238, 246, 255, 255), radius=20, border_w=4, shadow_offset=4)
+        ty = (box_y0 + box_y1) // 2 - (len(lines) - 1) * 24
+        for ln in lines:
+            draw_outlined_text(draw, (540, ty), ln, fonts["summary"], fill=WHITE, outline_color=INK, stroke_w=4)
+            ty += 48
+    else:
+        gap = 58
+        node_w = (inner_w - gap * (n - 1)) // n
+        start_x = card_x0 + 32
+        box_y0, box_y1 = card_y0 + 88, card_y1 - 28
+        box_cy = (box_y0 + box_y1) // 2
+        for i, nd in enumerate(nodes):
+            np_anim = ease_out_back((local_t - i * 0.28) / 0.35)
+            if np_anim <= 0.05:
+                continue
+            nx0 = start_x + i * (node_w + gap)
+            nx1 = nx0 + node_w
+            col = node_colors[i % len(node_colors)]
+            pulse = int(4 * math.sin(local_t * 5.0 + i))
+            draw_comic_box(
+                draw,
+                (nx0, box_y0 - pulse, nx1, box_y1 - pulse),
+                fill=col,
+                radius=20,
+                border_w=4,
+                shadow_offset=5,
+            )
+            lines = _wrap_text(draw, nd, fonts["small_bold"], node_w - 20, max_lines=2)
+            ty = box_cy - pulse - (len(lines) - 1) * 18
+            for ln in lines:
+                draw_outlined_text(draw, ((nx0 + nx1) // 2, ty), ln, fonts["small_bold"], fill=WHITE, stroke_w=3)
+                ty += 36
+            # Animated arrow + moving energy dot to next node
+            if i < n - 1:
+                ax0 = nx1 + 6
+                ax1 = nx1 + gap - 6
+                draw.line([(ax0, box_cy), (ax1 - 12, box_cy)], fill=INK, width=7)
+                draw.polygon([(ax1, box_cy), (ax1 - 16, box_cy - 12), (ax1 - 16, box_cy + 12)], fill=ORANGE, outline=INK)
+                dot_prog = (local_t * 1.4 + i * 0.3) % 1.0
+                dx = int(ax0 + dot_prog * (ax1 - ax0 - 10))
+                draw.ellipse([dx - 7, box_cy - 7, dx + 7, box_cy + 7], fill=YELLOW, outline=INK, width=2)
+
+
+def _draw_references_card(
+    draw: ImageDraw.ImageDraw,
+    references: list[str],
+    fonts: dict,
+    local_t: float,
+    appear_at: float,
+) -> None:
+    """Draw a clear, legible Referensi & Sumber card at the closing seconds of the video."""
+    if local_t < appear_at or not references:
+        return
+    p = ease_out_back((local_t - appear_at) / 0.35)
+    if p <= 0.05:
+        return
+
+    x0, y0, x1, y1 = 56, 1020, 1024, 1330
+    cy = (y0 + y1) // 2
+    hh = int(((y1 - y0) // 2) * min(p, 1.02))
+    draw_comic_box(draw, (x0, cy - hh, x1, cy + hh), fill=CARD_DARK, outline=YELLOW, radius=26, border_w=5, shadow_offset=10)
+    if p < 0.65:
+        return
+
+    draw.text((x0 + 34, y0 + 28), "REFERENSI & SUMBER:", font=fonts["small_bold"], fill=YELLOW, anchor="lt")
+    draw.line([(x0 + 34, y0 + 72), (x1 - 34, y0 + 72)], fill=(255, 255, 255, 80), width=2)
+
+    ty = y0 + 88
+    for idx, ref in enumerate(references[:4], start=1):
+        wrapped = _wrap_text(draw, f"{idx}. {ref}", fonts["micro_bold"], (x1 - x0) - 72, max_lines=2)
+        for ln in wrapped:
+            if ty + 26 > y1 - 14:
+                break
+            draw.text((x0 + 36, ty), ln, font=fonts["micro_bold"], fill=WHITE, anchor="lt")
+            ty += 28
+        ty += 6
+
+
+def render_hybrid_science_video(
+    plan: RenderPlan,
+    work_dir: Path,
+    output_mp4: Path,
+    bgm_path: Optional[str],
+    mascots_dir: Optional[Path] = None,
+    use_mascot: bool = True,
+) -> tuple[str, str]:
+    """Universal hybrid comic-science renderer (works for ANY pure-science topic & both 480p proxy / 1080p HD)."""
+    is_final = plan.resolution_mode == "final_1080p"
+    out_w, out_h, fps = (1080, 1920, 30) if is_final else (480, 854, 15)
+    canvas_w, canvas_h = 1080, 1920
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    output_mp4.parent.mkdir(parents=True, exist_ok=True)
+
+    stitched_base_mp4 = work_dir / f"smart_base_{out_w}x{out_h}_v{plan.version}.mp4"
+    _prepare_smart_real_footage_base(plan, stitched_base_mp4, work_dir, out_w, out_h, fps)
+
+    mixed_audio_wav = work_dir / f"mixed_audio_v{plan.version}.wav"
+    _mix_audio(plan, bgm_path=bgm_path, out_audio_wav=mixed_audio_wav)
+
+    ass_path = work_dir / f"subtitles_hybrid_v{plan.version}.ass"
+    _write_ass_subtitles(
+        plan.subtitles,
+        ass_path,
+        width=out_w,
+        height=out_h,
+        font_size_ratio=plan.subtitle_font_size_ratio,
+    )
+
+    fonts = _load_fonts()
+    mascots = MascotLibrary(mascots_dir) if (use_mascot and plan.use_mascot and mascots_dir) else None
+
+    # Pre-render bottom gradient scrim at 1080x1920
+    bot_scrim = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+    bsd = ImageDraw.Draw(bot_scrim)
+    for y in range(1240, canvas_h, 4):
+        a = int(190 * ((y - 1240) / (canvas_h - 1240)) ** 1.3)
+        bsd.rectangle([0, y, canvas_w, y + 4], fill=(10, 14, 26, a))
+
+    escaped_ass = str(ass_path.resolve()).replace("\\", "/").replace(":", "\\:")
+    if is_final:
+        filter_complex = f"[0:v][1:v]overlay=0:0:shortest=1,ass='{escaped_ass}',format=yuv420p[vout]"
+    else:
+        filter_complex = (
+            f"[1:v]scale={out_w}:{out_h}:flags=bilinear[ov];"
+            f"[0:v][ov]overlay=0:0:shortest=1,ass='{escaped_ass}',format=yuv420p[vout]"
+        )
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(stitched_base_mp4),
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "rgba",
+        "-s",
+        f"{canvas_w}x{canvas_h}",
+        "-r",
+        str(fps),
+        "-i",
+        "pipe:0",
+        "-i",
+        str(mixed_audio_wav),
+        "-filter_complex",
+        filter_complex,
+        "-map",
+        "[vout]",
+        "-map",
+        "2:a",
+        "-shortest",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "19" if is_final else "24",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k" if is_final else "128k",
+        "-movflags",
+        "+faststart",
+        str(output_mp4),
+    ]
+
+    total_frames = int(math.ceil(plan.total_duration_sec * fps))
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    assert proc.stdin is not None
+
+    segs = plan.segments
+    num_segs = len(segs)
+    header_colors = [RED, BLUE, PURPLE, ORANGE, GREEN, BLUE]
+
+    try:
+        for f_idx in range(total_frames):
+            t_global = f_idx / fps
+            seg = segs[-1]
+            seg_idx = num_segs - 1
+            for idx, s in enumerate(segs):
+                if s.start_sec <= t_global < s.end_sec:
+                    seg = s
+                    seg_idx = idx
+                    break
+            local_t = max(0.0, t_global - seg.start_sec)
+
+            canvas = bot_scrim.copy()
+            draw = ImageDraw.Draw(canvas)
+
+            is_first = seg_idx == 0
+            is_last = seg_idx == num_segs - 1
+
+            if is_first:
+                draw_header_pill(draw, "KOK BISA?!", RED, fonts, local_t, y_center=225)
+                if seg.overlay_badge:
+                    _draw_mechanistic_diagram_card(draw, seg, 1, local_t, fonts)
+                elif plan.title:
+                    draw_takeaway_card(
+                        draw,
+                        "FENOMENA SAINS HARI INI",
+                        plan.discipline.upper(),
+                        BLUE,
+                        plan.title[:44],
+                        fonts,
+                        local_t,
+                        appear_at=0.25,
+                        y0=1020,
+                        card_w=860,
+                    )
+                if mascots:
+                    mascots.paste(canvas, "male_curious", center_x=175, bottom_y=1470, target_h=300, local_t=local_t, appear_at=0.15)
+                    mascots.paste(canvas, "female_curious", center_x=905, bottom_y=1470, target_h=300, local_t=local_t, appear_at=0.25)
+            elif is_last:
+                # Final scene: TERJAWAB! + celebrating duo mascots + Referensi & Sumber card
+                outro_start = max(0.2, seg.duration_sec - 3.6)
+                draw_header_pill(draw, "TERJAWAB!", GREEN, fonts, local_t, y_center=225)
+                if local_t < outro_start and seg.overlay_badge:
+                    _draw_mechanistic_diagram_card(draw, seg, seg_idx, local_t, fonts)
+                _draw_references_card(draw, plan.references, fonts, local_t, appear_at=outro_start)
+                if mascots:
+                    mascots.paste(canvas, "male_celebrate", center_x=170, bottom_y=1030, target_h=270, local_t=local_t, appear_at=0.1)
+                    mascots.paste(canvas, "female_celebrate", center_x=910, bottom_y=1030, target_h=270, local_t=local_t, appear_at=0.2)
+            else:
+                # Middle scenes: Mechanistic comic-science card + alternating explaining mascot
+                h_col = header_colors[seg_idx % len(header_colors)]
+                draw_header_pill(draw, f"TAHAP {seg_idx} • PROSES SAINS", h_col, fonts, local_t, y_center=225)
+                _draw_mechanistic_diagram_card(draw, seg, seg_idx, local_t, fonts)
+                if mascots:
+                    if seg_idx % 2 == 1:
+                        mascots.paste(canvas, "male_explain", center_x=165, bottom_y=1475, target_h=285, local_t=local_t, appear_at=0.12)
+                    else:
+                        mascots.paste(canvas, "female_explain", center_x=915, bottom_y=1475, target_h=285, local_t=local_t, appear_at=0.12)
+
+            # Diagonal comic wipe transition between scenes
+            if seg_idx > 0 and local_t < 0.30:
+                draw = ImageDraw.Draw(canvas)
+                draw_diagonal_wipe(draw, local_t / 0.30, canvas_w, canvas_h)
+
+            # Persistent top brand & discipline pills
+            draw = ImageDraw.Draw(canvas)
+            draw_brand_pill(draw, fonts)
+            _draw_discipline_pill(draw, plan.discipline, fonts)
+
+            proc.stdin.write(canvas.tobytes())
+    finally:
+        proc.stdin.close()
+
+    stderr_out = proc.stderr.read().decode("utf-8", errors="ignore") if proc.stderr else ""
+    ret = proc.wait()
+    if ret != 0:
+        raise RuntimeError(f"FFmpeg hybrid science render failed (code {ret}): {stderr_out[-800:]}")
+
+    sheet_path = output_mp4.with_name(f"{output_mp4.stem}_contact_sheet.jpg")
+    _build_contact_sheet(output_mp4, plan.segments, sheet_path)
+    return str(output_mp4), str(sheet_path)
+

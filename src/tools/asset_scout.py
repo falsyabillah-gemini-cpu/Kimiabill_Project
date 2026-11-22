@@ -273,13 +273,21 @@ def scout_assets_for_scenes(
     assets_dir: Path,
     memory: StudioMemory,
     manual_overrides: Optional[dict[str, VideoCandidate]] = None,
+    exclude_urls: Optional[set[str]] = None,
+    existing_assets: Optional[dict[str, SceneAsset]] = None,
+    target_scene_ids: Optional[set[str]] = None,
 ) -> Agent6Output:
-    """Scout real video footage + cached SFX for each scene."""
+    """Scout real video footage + cached SFX for each scene (supports targeted re-scouting)."""
     assets_dir.mkdir(parents=True, exist_ok=True)
     results: list[SceneAsset] = []
-    used_urls: set[str] = set()
+    used_urls: set[str] = set(exclude_urls or ())
 
     for scene in scenes:
+        if target_scene_ids is not None and scene.scene_id not in target_scene_ids and existing_assets and scene.scene_id in existing_assets:
+            results.append(existing_assets[scene.scene_id])
+            used_urls.add(existing_assets[scene.scene_id].source_url)
+            continue
+
         dest_mp4 = assets_dir / f"{scene.scene_id}.mp4"
         chosen_cand: Optional[VideoCandidate] = None
         chosen_info: Optional[dict] = None
@@ -292,7 +300,6 @@ def scout_assets_for_scenes(
 
         if chosen_cand is None:
             raw_queries = [scene.visual_query] + list(scene.fallback_queries)
-            # Build progressively broader queries for Wikimedia/stock search when specific phrases return 0 hits
             stop_words = {
                 "the", "and", "with", "from", "into", "that", "this", "for", "are", "was",
                 "in", "on", "of", "to", "a", "an", "at", "by", "or", "as", "is", "be",
@@ -324,13 +331,16 @@ def scout_assets_for_scenes(
 
             for q in queries:
                 cands = search_pexels(q) + search_wikimedia_videos(q)
+                # Prefer crisp >=720p clips first
+                cands.sort(key=lambda c: (0 if c.width >= 720 else 1, -min(c.width, 1920)))
                 for cand in cands:
-                    if cand.download_url in used_urls:
+                    if cand.download_url in used_urls or cand.page_url in used_urls:
                         continue
                     info = download_and_normalize_clip(cand, dest_mp4)
                     if info:
                         chosen_cand, chosen_info = cand, info
                         used_urls.add(cand.download_url)
+                        used_urls.add(cand.page_url)
                         break
                 if chosen_cand:
                     break

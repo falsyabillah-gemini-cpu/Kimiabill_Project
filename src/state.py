@@ -66,6 +66,10 @@ class Agent3Output(BaseModel):
     title: str
     caption_social: str
     hashtags: list[str]
+    references: list[str] = Field(
+        default_factory=list,
+        description="1-3 concise scientific references or source citations shown at the end of the video",
+    )
     scenes: list[SceneSpec] = Field(min_length=4, max_length=8)
 
 
@@ -100,6 +104,7 @@ class TimelineSegment(BaseModel):
     duration_sec: float
     footage_path: str
     footage_start_offset: float = 0.0
+    narration: str = ""
     overlay_badge: Optional[str] = None
     sfx_path: Optional[str] = None
     sfx_gain_db: float = -10.0
@@ -109,6 +114,10 @@ class TimelineSegment(BaseModel):
 class RenderPlan(BaseModel):
     version: int = 1
     resolution_mode: Literal["proxy_480p", "final_1080p"] = "proxy_480p"
+    title: str = ""
+    discipline: str = "kimia"
+    use_mascot: bool = True
+    references: list[str] = Field(default_factory=list)
     voice_path: str
     total_duration_sec: float
     segments: list[TimelineSegment]

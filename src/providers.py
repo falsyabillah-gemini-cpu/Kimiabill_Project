@@ -9,6 +9,7 @@ Supports:
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
@@ -163,6 +164,7 @@ def call_structured_agent(
     user_payload: dict[str, Any],
     response_model: Type[T],
     handoff_path: Path | None = None,
+    image_paths: list[Path] | None = None,
 ) -> T:
     """Route an agent step to the configured provider and validate against a Pydantic schema."""
     provider, model = resolve_provider_and_model(provider, model)
@@ -210,21 +212,28 @@ def call_structured_agent(
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise ProviderError("GEMINI_API_KEY is not set")
+        user_parts: list[dict[str, Any]] = [
+            {
+                "text": (
+                    f"INPUT_JSON:\n{json.dumps(user_payload, ensure_ascii=False)}\n\n"
+                    f"Return JSON matching schema:\n{schema_hint}"
+                )
+            }
+        ]
+        for img_p in image_paths or []:
+            if img_p.exists():
+                mime = "image/png" if img_p.suffix.lower() == ".png" else "image/jpeg"
+                user_parts.append(
+                    {
+                        "inline_data": {
+                            "mime_type": mime,
+                            "data": base64.b64encode(img_p.read_bytes()).decode("ascii"),
+                        }
+                    }
+                )
         body = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [
-                        {
-                            "text": (
-                                f"INPUT_JSON:\n{json.dumps(user_payload, ensure_ascii=False)}\n\n"
-                                f"Return JSON matching schema:\n{schema_hint}"
-                            )
-                        }
-                    ],
-                }
-            ],
+            "contents": [{"role": "user", "parts": user_parts}],
             "generationConfig": {"responseMimeType": "application/json"},
         }
         tried: list[str] = []

@@ -120,7 +120,20 @@ def _post_webhook(webhook_url: str, payload: dict[str, Any], timeout: int = 180)
 
 
 def _extract_youtube_copy(episode_dir: Path, fallback_title: str) -> dict[str, Any]:
-    """Extract YouTube Shorts title, description, and tags from Agent 7 or Agent 3 handoff."""
+    """Extract YouTube Shorts title, description (including references), and tags."""
+    refs: list[str] = []
+    state_path = episode_dir / "episode_state.json"
+    if state_path.exists():
+        try:
+            st = json.loads(state_path.read_text(encoding="utf-8"))
+            refs = (st.get("render_plan") or {}).get("references") or []
+        except Exception:
+            pass
+    ref_block = ""
+    if refs:
+        ref_lines = "\n".join(f"- {r}" for r in refs)
+        ref_block = f"\n\nReferensi & Sumber:\n{ref_lines}"
+
     a7_path = episode_dir / "handoffs" / "agent7_package.json"
     if a7_path.exists():
         try:
@@ -129,7 +142,7 @@ def _extract_youtube_copy(episode_dir: Path, fallback_title: str) -> dict[str, A
                 if copy.get("platform") == "youtube_shorts":
                     tags = [str(t).lstrip("#") for t in copy.get("hashtags", [])]
                     tag_str = " ".join(copy.get("hashtags", []))
-                    desc = f"{copy.get('caption', '')}\n\n{tag_str}".strip()
+                    desc = f"{copy.get('caption', '')}{ref_block}\n\n{tag_str}".strip()
                     return {
                         "title": copy.get("title") or fallback_title,
                         "description": desc,
@@ -139,7 +152,7 @@ def _extract_youtube_copy(episode_dir: Path, fallback_title: str) -> dict[str, A
             pass
     return {
         "title": fallback_title,
-        "description": f"{fallback_title}\n\n#sains #kimiabill #shorts",
+        "description": f"{fallback_title}{ref_block}\n\n#sains #kimiabill #shorts",
         "tags": ["sains", "kimiabill", "shorts"],
     }
 
@@ -149,6 +162,8 @@ def _upload_via_webhook(
     episode_name: str,
     root_folder_name: str,
     webhook_url: str,
+    allow_youtube: bool = True,
+    qa_summary: str = "",
 ) -> str:
     """Upload final video, thumbnail, and caption sheet via Google Apps Script webhook + YouTube + email notify."""
     init_res = _post_webhook(
@@ -205,13 +220,16 @@ def _upload_via_webhook(
                 thumbnail_file_id = res.get("file_id")
                 thumbnail_url = res.get("file_url")
 
-    # Auto-upload to YouTube Shorts via Apps Script (if PUBLISH_MODE is draft or public)
+    # Auto-upload to YouTube Shorts via Apps Script ONLY when QA gate passed & PUBLISH_MODE is draft/public
     publish_mode = os.environ.get("PUBLISH_MODE", "draft").strip().lower()
     youtube_url: Optional[str] = None
     youtube_privacy: Optional[str] = None
     youtube_note: Optional[str] = None
 
-    if video_file_id and publish_mode in ("draft", "public"):
+    if not allow_youtube:
+        youtube_note = f"DITAHAN OLEH AGENT 5 QA AUDITOR (tidak di-upload ke YouTube): {qa_summary}"
+        print(f"[youtube] {youtube_note}")
+    elif video_file_id and publish_mode in ("draft", "public"):
         yt_copy = _extract_youtube_copy(episode_dir, title)
         privacy = "public" if publish_mode == "public" else "unlisted"
         try:
@@ -238,6 +256,9 @@ def _upload_via_webhook(
         youtube_note = "Mode dry_run (hanya simpan ke Drive; ubah publish_mode ke draft/public untuk auto-upload YouTube)."
 
     notify_to = os.environ.get("NOTIFY_EMAIL_TO", DEFAULT_NOTIFY_EMAIL).strip() or DEFAULT_NOTIFY_EMAIL
+    email_preview = captions_text[:3200]
+    if qa_summary:
+        email_preview = f"[HASIL AUDIT QA AGENT 5]\n{qa_summary}\n\n{email_preview}".strip()
     try:
         _post_webhook(
             webhook_url,
@@ -252,7 +273,7 @@ def _upload_via_webhook(
                 "youtube_url": youtube_url,
                 "youtube_privacy": youtube_privacy,
                 "youtube_note": youtube_note,
-                "captions_preview": captions_text[:3500],
+                "captions_preview": email_preview,
             },
             timeout=60,
         )
@@ -271,12 +292,21 @@ def upload_episode_to_gdrive(
     episode_dir: Path,
     episode_name: str,
     root_folder_name: Optional[str] = None,
+    allow_youtube: bool = True,
+    qa_summary: str = "",
 ) -> str:
     """Upload final video, thumbnail, and logs to Google Drive (webhook or gdrive CLI)."""
     root_name = root_folder_name or os.environ.get("GDRIVE_ROOT_FOLDER", "Kimiabill_Studio")
     webhook_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
     if webhook_url:
-        return _upload_via_webhook(episode_dir, episode_name, root_name, webhook_url)
+        return _upload_via_webhook(
+            episode_dir,
+            episode_name,
+            root_name,
+            webhook_url,
+            allow_youtube=allow_youtube,
+            qa_summary=qa_summary,
+        )
 
     root_id = ensure_folder(root_name)
     ep_folder_id = ensure_folder(episode_name, parent_id=root_id)

@@ -30,6 +30,7 @@ from src.state import (
 )
 from src.tools.asset_scout import scout_assets_for_scenes
 from src.tools.gdrive_sync import upload_episode_to_gdrive
+from src.tools.mechanistic_animator import render_hybrid_science_video
 from src.tools.qa_gate import run_gate0_checks
 from src.tools.social_publisher import publish_to_all_platforms
 from src.tools.thumbnail_maker import generate_cover_thumbnail
@@ -91,6 +92,36 @@ def save_state(state: EpisodeState) -> Path:
     return p
 
 
+def _collect_episode_references(state: EpisodeState) -> list[str]:
+    """Assemble clean scientific references + real footage source credits for end-card & description."""
+    refs: list[str] = []
+    seen: set[str] = set()
+
+    def add_ref(text: str) -> None:
+        cleaned = " ".join(text.strip().split())
+        if cleaned and cleaned.lower() not in seen:
+            seen.add(cleaned.lower())
+            refs.append(cleaned)
+
+    if state.agent3 and state.agent3.references:
+        for r in state.agent3.references:
+            add_ref(r)
+
+    if state.agent1 and state.agent2:
+        winner = next((c for c in state.agent1.candidates if c.id == state.agent2.winner_id), None)
+        if winner and winner.viral_source_url:
+            add_ref(f"Sumber Riset: {winner.viral_source_url}")
+
+    if not refs and state.agent3:
+        add_ref(f"Referensi Sains Umum: {state.agent3.title}")
+
+    if state.agent6 and state.agent6.assets:
+        sources = sorted({a.source.replace("_", " ").title() for a in state.agent6.assets})
+        add_ref(f"Footage Video: {', '.join(sources)} (Lisensi CC/Gratis)")
+
+    return refs[:4]
+
+
 def build_render_plan(
     state: EpisodeState,
     voice_path: str,
@@ -103,10 +134,17 @@ def build_render_plan(
     scene_offsets: Optional[dict[str, float]] = None,
 ) -> RenderPlan:
     assert state.agent3 is not None and state.agent6 is not None
+    brand, _ = load_configs()
     paths = episode_paths(state.episode_id)
     asset_map = {a.scene_id: a for a in state.agent6.assets}
     scene_map = {s.scene_id: s for s in state.agent3.scenes}
     offsets = scene_offsets or {}
+
+    winner_disc = "kimia"
+    if state.agent1 and state.agent2:
+        winner = next((c for c in state.agent1.candidates if c.id == state.agent2.winner_id), None)
+        if winner:
+            winner_disc = winner.discipline
 
     segments: list[TimelineSegment] = []
     for timing in scene_timings:
@@ -120,6 +158,7 @@ def build_render_plan(
                 duration_sec=timing.duration_sec,
                 footage_path=ast.footage_path,
                 footage_start_offset=offsets.get(timing.scene_id, 0.0),
+                narration=sc.narration,
                 overlay_badge=sc.overlay_badge,
                 sfx_path=ast.sfx_path,
                 sfx_gain_db=-10.5,
@@ -133,9 +172,14 @@ def build_render_plan(
         out_mp4 = paths["renders"] / f"proxy_v{version}_480p.mp4"
 
     total_dur = segments[-1].end_sec if segments else 0.0
+    use_mascot = bool(brand.get("video", {}).get("mascot", {}).get("enabled", True))
     return RenderPlan(
         version=version,
         resolution_mode=resolution_mode,
+        title=state.agent3.title,
+        discipline=winner_disc,
+        use_mascot=use_mascot,
+        references=_collect_episode_references(state),
         voice_path=voice_path,
         total_duration_sec=round(total_dur, 3),
         segments=segments,
@@ -217,10 +261,13 @@ def run_agent_1_to_3(episode_id: str, topic_hint: Optional[str] = None) -> Episo
         provider=a3_cfg["provider"],
         model=a3_cfg.get("model", a3_cfg["recommended_prod_model"]),
         system_prompt=(
-            "You are Agent 3 (Script & Shot-List Reviser) for Kimiabill. Write a cheerful, clear, "
-            "moderate-pace Indonesian short script (35-50s total, 5-7 scenes) applying Agent 2's notes. "
-            "Each scene MUST specify an English real-footage visual_query (no cartoons/animations) "
-            "and optional short overlay_badge ONLY when a formula/label genuinely helps understanding."
+            "You are Agent 3 (Script, Shot-List & Mechanistic Storyboard Reviser) for Kimiabill. "
+            "Write a cheerful, clear, moderate-pace Indonesian short script (35-50s total, 5-6 scenes) "
+            "applying Agent 2's notes. "
+            "Each scene MUST specify an English real-footage visual_query (no cartoons/animations). "
+            "For middle explanation scenes, ALWAYS provide a concise mechanistic overlay_badge using arrows "
+            "to show cause-and-effect (e.g. 'Enzim COX → Prostaglandin Turun → Nyeri Reda' or 'Fe + O₂ + H₂O → Fe₂O₃'). "
+            "ALWAYS populate `references` with 1-3 real, accurate scientific references (journal, textbook, university, or source article)."
         ),
         user_payload={
             "winner_idea": winner.model_dump(),
@@ -258,6 +305,36 @@ def run_agent_6_scout(episode_id: str) -> EpisodeState:
     return state
 
 
+def rescout_affected_scenes(episode_id: str, affected_scenes: list[str]) -> EpisodeState:
+    """Replace only the scenes flagged by Agent 5 QA with fresh, alternative real footage."""
+    memory = StudioMemory(BASE_DIR)
+    paths = episode_paths(episode_id)
+    state = load_or_init_state(episode_id)
+    if state.agent3 is None or state.agent6 is None:
+        return state
+
+    target_ids = {s for s in affected_scenes if s}
+    if not target_ids:
+        return state
+
+    existing_map = {a.scene_id: a for a in state.agent6.assets}
+    exclude_urls = {a.source_url for a in state.agent6.assets}
+
+    state.agent6 = scout_assets_for_scenes(
+        scenes=state.agent3.scenes,
+        assets_dir=paths["assets"],
+        memory=memory,
+        exclude_urls=exclude_urls,
+        existing_assets=existing_map,
+        target_scene_ids=target_ids,
+    )
+    (paths["handoffs"] / "agent6_assets.json").write_text(
+        state.agent6.model_dump_json(indent=2), encoding="utf-8"
+    )
+    save_state(state)
+    return state
+
+
 def run_agent_4_proxy_and_gate0(
     episode_id: str,
     version: int = 1,
@@ -291,10 +368,14 @@ def run_agent_4_proxy_and_gate0(
         bgm_gain_db=bgm_gain_db,
         scene_offsets=scene_offsets,
     )
-    video_path, sheet_path = render_video(
+    use_mascot = bool(brand.get("video", {}).get("mascot", {}).get("enabled", True))
+    video_path, sheet_path = render_hybrid_science_video(
         plan=plan,
         work_dir=paths["renders"],
+        output_mp4=Path(plan.output_video_path),
         bgm_path=state.agent6.bgm_path,
+        mascots_dir=BASE_DIR / "assets" / "mascots",
+        use_mascot=use_mascot,
     )
     gate0 = run_gate0_checks(video_path, expected_width=480, expected_height=854)
 
@@ -305,7 +386,73 @@ def run_agent_4_proxy_and_gate0(
     return state, video_path, sheet_path
 
 
+def run_agent_5_video_qa(
+    episode_id: str,
+    sheet_path: str,
+    version: int = 1,
+) -> tuple[EpisodeState, Agent5AuditOutput]:
+    """Strict multimodal Video QA Audit inspecting the rendered contact sheet + Gate 0 report."""
+    brand, agents_cfg = load_configs()
+    paths = episode_paths(episode_id)
+    state = load_or_init_state(episode_id)
+    if state.agent3 is None or state.render_plan is None or state.gate0 is None:
+        raise RuntimeError("Render proxy and Gate 0 before running Agent 5 QA.")
+
+    min_qa = float(brand.get("guardrails", {}).get("min_qa_score", 8.0))
+    a5_cfg = agents_cfg["agents"]["agent_5_video_qa"]
+
+    audit = call_structured_agent(
+        provider=a5_cfg["provider"],
+        model=a5_cfg.get("model", a5_cfg["recommended_prod_model"]),
+        system_prompt=(
+            "You are Agent 5 (Strict Multimodal Video QA Auditor) for Kimiabill. "
+            "Inspect the attached contact sheet image carefully alongside Gate 0 technical checks and script. "
+            "Be RUTHLESS and objective — do NOT pass mediocre videos! Check EVERY item:\n"
+            "1. Visual clarity & framing: Is the real footage crisp and un-zoomed (NOT blurry or overly cropped)?\n"
+            "2. Mechanistic comic-science overlays: Are the animated mechanism cards/diagrams clearly visible?\n"
+            "3. Duo mascots: Are the Kimiabill mascots visible and cleanly positioned without blocking subtitles?\n"
+            "4. Subtitle readability: Are Indonesian subtitles sharp, centered, and inside safe zone?\n"
+            "5. End-card references: Does the final scene show the 'REFERENSI & SUMBER' bibliography card?\n"
+            "6. Gate 0 audio/video health: Must pass technical checks.\n"
+            f"Set `passed: true` ONLY if Gate 0 passed AND overall_score >= {min_qa} AND no major visual defects exist. "
+            "If failing, specify exact `revision_target` ('asset_scout', 'editor', or 'both'), list the exact "
+            "`affected_scenes` (e.g. ['scene_2']), and give up to 4 sharp `patch_instructions`."
+        ),
+        user_payload={
+            "version_audited": version,
+            "min_qa_score": min_qa,
+            "gate0": state.gate0.model_dump(),
+            "title": state.agent3.title,
+            "references": state.render_plan.references,
+            "scenes": [
+                {
+                    "scene_id": s.scene_id,
+                    "narration": s.narration,
+                    "visual_query": s.visual_query,
+                    "overlay_badge": s.overlay_badge,
+                }
+                for s in state.agent3.scenes
+            ],
+        },
+        response_model=Agent5AuditOutput,
+        handoff_path=paths["handoffs"] / f"agent5_audit_v{version}.json",
+        image_paths=[Path(sheet_path)],
+    )
+
+    # Enforce hard guardrail programmatically even if LLM was lenient
+    if not state.gate0.passed or audit.overall_score < min_qa:
+        audit.passed = False
+
+    state.agent5_history.append(audit)
+    state.revision_count = max(0, version - 1)
+    if audit.passed:
+        state.status = "qa_passed"
+    save_state(state)
+    return state, audit
+
+
 def run_final_hd_render(episode_id: str) -> tuple[EpisodeState, str, str]:
+    brand, _ = load_configs()
     paths = episode_paths(episode_id)
     state = load_or_init_state(episode_id)
     if state.render_plan is None or state.agent3 is None or state.agent6 is None:
@@ -316,10 +463,14 @@ def run_final_hd_render(episode_id: str) -> tuple[EpisodeState, str, str]:
     final_plan.output_video_path = str(
         paths["ep_dir"] / f"FINAL_{state.agent3.episode_slug}_1080p.mp4"
     )
-    video_path, sheet_path = render_video(
+    use_mascot = bool(brand.get("video", {}).get("mascot", {}).get("enabled", True))
+    video_path, sheet_path = render_hybrid_science_video(
         plan=final_plan,
         work_dir=paths["renders"],
+        output_mp4=Path(final_plan.output_video_path),
         bgm_path=state.agent6.bgm_path,
+        mascots_dir=BASE_DIR / "assets" / "mascots",
+        use_mascot=use_mascot,
     )
     gate0_hd = run_gate0_checks(video_path, expected_width=1080, expected_height=1920)
     state.render_plan = final_plan
@@ -349,12 +500,18 @@ def run_final_hd_render(episode_id: str) -> tuple[EpisodeState, str, str]:
     return state, video_path, sheet_path
 
 
-def run_upload(episode_id: str) -> EpisodeState:
+def run_upload(episode_id: str, allow_youtube: bool = True, qa_summary: str = "") -> EpisodeState:
     paths = episode_paths(episode_id)
     state = load_or_init_state(episode_id)
-    url = upload_episode_to_gdrive(paths["ep_dir"], episode_name=episode_id)
+    url = upload_episode_to_gdrive(
+        paths["ep_dir"],
+        episode_name=episode_id,
+        allow_youtube=allow_youtube,
+        qa_summary=qa_summary,
+    )
     state.gdrive_folder_url = url
-    state.status = "uploaded"
+    if allow_youtube:
+        state.status = "uploaded"
     save_state(state)
 
     memory = StudioMemory(BASE_DIR)

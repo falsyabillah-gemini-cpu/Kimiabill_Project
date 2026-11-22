@@ -4,14 +4,20 @@ with exact scene duration tracking and kinetic subtitle chunk timing.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 import edge_tts
+import requests
 
 from src.state import SceneSpec, SubtitleChunk
+
+DEFAULT_ELEVENLABS_VOICE_ID = "pNInz6obpgDQGcFmaJgB"  # Adam (clear, expressive male voice)
+DEFAULT_ELEVENLABS_MODEL_ID = "eleven_multilingual_v2"
 
 
 @dataclass
@@ -101,7 +107,79 @@ def _fallback_proportional_chunks(
     return _group_words_to_chunks(word_events, offset_sec, max_words=max_words, max_chars=max_chars)
 
 
-async def _synth_one_scene(
+def _chars_alignment_to_words(alignment: dict) -> list[tuple[float, float, str]]:
+    """Convert ElevenLabs character-level timestamps into (start, end, word) tuples."""
+    chars = alignment.get("characters") or []
+    starts = alignment.get("character_start_times_seconds") or []
+    ends = alignment.get("character_end_times_seconds") or []
+    n = min(len(chars), len(starts), len(ends))
+    words: list[tuple[float, float, str]] = []
+    cur_chars: list[str] = []
+    w_start: float | None = None
+    w_end: float = 0.0
+
+    for i in range(n):
+        ch = chars[i]
+        if ch.isspace():
+            if cur_chars and w_start is not None:
+                words.append((w_start, max(w_end, w_start + 0.05), "".join(cur_chars)))
+                cur_chars = []
+                w_start = None
+        else:
+            if w_start is None:
+                w_start = float(starts[i])
+            w_end = float(ends[i])
+            cur_chars.append(ch)
+    if cur_chars and w_start is not None:
+        words.append((w_start, max(w_end, w_start + 0.05), "".join(cur_chars)))
+    return words
+
+
+def _synth_one_scene_elevenlabs(
+    text: str,
+    out_mp3: Path,
+    api_key: str,
+    voice_id: str,
+    model_id: str,
+) -> list[tuple[float, float, str]]:
+    """Synthesize natural Indonesian voiceover via ElevenLabs API with word alignment."""
+    headers = {
+        "xi-api-key": api_key,
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "text": text,
+        "model_id": model_id,
+        "voice_settings": {
+            "stability": 0.48,
+            "similarity_boost": 0.78,
+            "style": 0.25,
+            "use_speaker_boost": True,
+        },
+    }
+    ts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps"
+    resp = requests.post(ts_url, headers=headers, json=payload, timeout=60)
+    if resp.status_code == 200:
+        data = resp.json()
+        audio_bytes = base64.b64decode(data["audio_base64"])
+        out_mp3.write_bytes(audio_bytes)
+        alignment = data.get("alignment") or data.get("normalized_alignment") or {}
+        return _chars_alignment_to_words(alignment)
+
+    # Fallback to standard audio-only endpoint if /with-timestamps isn't supported for this plan/voice
+    raw_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+    resp2 = requests.post(
+        raw_url,
+        headers={**headers, "Accept": "audio/mpeg"},
+        json=payload,
+        timeout=60,
+    )
+    resp2.raise_for_status()
+    out_mp3.write_bytes(resp2.content)
+    return []
+
+
+async def _synth_one_scene_edge(
     text: str,
     out_mp3: Path,
     voice: str,
@@ -135,10 +213,19 @@ def generate_episode_voiceover(
     pitch: str = "+4Hz",
     inter_scene_pause_sec: float = 0.24,
 ) -> tuple[str, list[SceneVoiceResult], list[SubtitleChunk], float]:
-    """Generate cheerful male voiceover per scene, stitch smoothly, and return exact timing."""
+    """Generate professional voiceover per scene (ElevenLabs if configured, else Edge-TTS), stitch smoothly."""
     out_dir.mkdir(parents=True, exist_ok=True)
     voice_parts_dir = out_dir / "voice_parts"
     voice_parts_dir.mkdir(parents=True, exist_ok=True)
+
+    el_key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
+    el_voice = os.environ.get("ELEVENLABS_VOICE_ID", "").strip() or DEFAULT_ELEVENLABS_VOICE_ID
+    el_model = os.environ.get("ELEVENLABS_MODEL_ID", "").strip() or DEFAULT_ELEVENLABS_MODEL_ID
+    use_elevenlabs = bool(el_key)
+    if use_elevenlabs:
+        print(f"[tts] Menggunakan ElevenLabs (voice_id={el_voice}, model={el_model})")
+    else:
+        print(f"[tts] ELEVENLABS_API_KEY belum diisi — menggunakan fallback Edge-TTS ({voice})")
 
     scene_results: list[SceneVoiceResult] = []
     all_subtitles: list[SubtitleChunk] = []
@@ -170,9 +257,26 @@ def generate_episode_voiceover(
         raw_mp3 = voice_parts_dir / f"{scene.scene_id}.mp3"
         clean_wav = voice_parts_dir / f"{scene.scene_id}.wav"
 
-        word_events = asyncio.run(
-            _synth_one_scene(scene.narration, raw_mp3, voice=voice, rate=rate, pitch=pitch)
-        )
+        word_events: list[tuple[float, float, str]] = []
+        if use_elevenlabs:
+            try:
+                word_events = _synth_one_scene_elevenlabs(
+                    scene.narration,
+                    raw_mp3,
+                    api_key=el_key,
+                    voice_id=el_voice,
+                    model_id=el_model,
+                )
+            except Exception as exc:
+                print(f"[tts] Peringatan ElevenLabs gagal ({exc}), fallback ke Edge-TTS untuk {scene.scene_id}.")
+                word_events = asyncio.run(
+                    _synth_one_scene_edge(scene.narration, raw_mp3, voice=voice, rate=rate, pitch=pitch)
+                )
+        else:
+            word_events = asyncio.run(
+                _synth_one_scene_edge(scene.narration, raw_mp3, voice=voice, rate=rate, pitch=pitch)
+            )
+
         # Convert to clean 44.1kHz mono WAV and trim excessive trailing silence
         subprocess.run(
             [
@@ -198,7 +302,6 @@ def generate_episode_voiceover(
 
         speech_dur = probe_duration(clean_wav)
         if word_events:
-            # Clamp word timestamps to trimmed audio duration proportionally
             max_ev = max(e[1] for e in word_events)
             scale = speech_dur / max_ev if max_ev > 0 else 1.0
             scaled = [(s * scale, e * scale, w) for s, e, w in word_events]
@@ -209,7 +312,8 @@ def generate_episode_voiceover(
             )
 
         is_last = idx == len(scenes) - 1
-        seg_dur = speech_dur + (0.45 if is_last else inter_scene_pause_sec)
+        tail_sec = 2.0 if is_last else inter_scene_pause_sec
+        seg_dur = speech_dur + tail_sec
         scene_results.append(
             SceneVoiceResult(
                 scene_id=scene.scene_id,
@@ -235,7 +339,7 @@ def generate_episode_voiceover(
                     "-i",
                     "anullsrc=r=44100:cl=mono",
                     "-t",
-                    "0.45",
+                    f"{tail_sec:.3f}",
                     "-c:a",
                     "pcm_s16le",
                     str(tail_wav),
