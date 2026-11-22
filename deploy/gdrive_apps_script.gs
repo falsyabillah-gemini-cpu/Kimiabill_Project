@@ -1,14 +1,17 @@
 /**
- * Kimiabill Studio — Google Drive Uploader + Email Notifier (Google Apps Script)
+ * Kimiabill Studio — Google Drive + Auto-Upload YouTube Shorts + Email Notifier
+ * (Google Apps Script — 100% Gratis, Tanpa Google Cloud Console)
  *
- * Cara pasang (2 menit):
- * 1. Buka https://script.google.com -> klik "New project"
- * 2. Hapus semua isi bawaan, tempel seluruh kode ini, lalu simpan (Ctrl+S)
- * 3. Klik "Deploy" -> "New deployment" -> ikon gear pilih "Web app"
+ * Cara pasang (3 menit):
+ * 1. Buka https://script.google.com (login dengan akun Google yang sama dengan YouTube Anda)
+ * 2. Klik "New project", hapus semua isi bawaan, tempel seluruh kode ini, lalu simpan (Ctrl+S)
+ * 3. Aktifkan YouTube di sidebar kiri:
+ *    Klik "Services (+)" -> cari "YouTube Data API v3" -> klik "Add"
+ * 4. Klik "Deploy" -> "New deployment" -> ikon gir pilih "Web app"
  *    - Execute as: Me (akun Google Anda)
  *    - Who has access: Anyone
- * 4. Klik "Deploy" -> izinkan akses Google Drive & Gmail -> salin Web app URL
- * 5. Simpan URL tersebut di GitHub Secrets dengan nama: GDRIVE_WEBHOOK_URL
+ * 5. Klik "Deploy" -> izinkan akses Google Drive, YouTube & Gmail -> salin Web app URL (/exec)
+ * 6. Simpan URL tersebut di GitHub Secrets dengan nama: GDRIVE_WEBHOOK_URL
  */
 
 const DEFAULT_NOTIFY_EMAIL = "researchfalsyabillah@gmail.com";
@@ -62,7 +65,6 @@ function doPost(e) {
         payload.mime_type || "application/octet-stream",
         payload.filename || "file.bin"
       );
-      // Timpa file dengan nama yang sama jika sudah ada
       const existing = folder.getFilesByName(blob.getName());
       while (existing.hasNext()) {
         existing.next().setTrashed(true);
@@ -76,17 +78,69 @@ function doPost(e) {
       });
     }
 
+    if (action === "upload_youtube") {
+      if (typeof YouTube === "undefined") {
+        return _jsonResponse({
+          ok: false,
+          error: "Service 'YouTube Data API v3' belum ditambahkan di Apps Script (klik Services + -> YouTube Data API v3 -> Add).",
+        });
+      }
+      const videoFile = DriveApp.getFileById(payload.video_file_id);
+      const videoBlob = videoFile.getBlob();
+      const privacy = payload.privacy === "public" ? "public" : "unlisted";
+      const resource = {
+        snippet: {
+          title: String(payload.title || "Video Sains Kimiabill").slice(0, 95),
+          description: String(payload.description || ""),
+          tags: Array.isArray(payload.tags) ? payload.tags.slice(0, 15) : ["sains", "kimiabill", "shorts"],
+          categoryId: "27", // Education
+          defaultLanguage: "id",
+        },
+        status: {
+          privacyStatus: privacy,
+          selfDeclaredMadeForKids: false,
+        },
+      };
+      const inserted = YouTube.Videos.insert(resource, "snippet,status", videoBlob);
+      const videoId = inserted.id;
+
+      // Upload thumbnail kustom (opsional; dilewati otomatis jika channel belum verifikasi nomor HP)
+      let thumbnailSet = false;
+      if (payload.thumbnail_file_id) {
+        try {
+          const thumbBlob = DriveApp.getFileById(payload.thumbnail_file_id).getBlob();
+          YouTube.Thumbnails.set(videoId, thumbBlob);
+          thumbnailSet = true;
+        } catch (thumbErr) {
+          thumbnailSet = false;
+        }
+      }
+
+      return _jsonResponse({
+        ok: true,
+        video_id: videoId,
+        youtube_url: "https://youtube.com/shorts/" + videoId,
+        privacy: privacy,
+        thumbnail_set: thumbnailSet,
+      });
+    }
+
     if (action === "notify_email") {
       const to = payload.to || DEFAULT_NOTIFY_EMAIL;
       const title = payload.title || payload.episode_name || "Video Kimiabill Baru";
       const subject = "[Kimiabill] Video Baru Siap: " + title;
       const bodyLines = [
-        "Halo! Video otomatis Kimiabill terbaru sudah selesai dirender dan tersimpan di Google Drive.",
+        "Halo! Video otomatis Kimiabill terbaru sudah selesai dirender.",
         "",
         "Judul       : " + title,
         "Episode ID  : " + (payload.episode_name || "-"),
         "Folder Drive: " + (payload.folder_url || "-"),
       ];
+      if (payload.youtube_url) {
+        bodyLines.push("YouTube     : " + payload.youtube_url + " (" + (payload.youtube_privacy || "unlisted") + ")");
+      } else if (payload.youtube_note) {
+        bodyLines.push("YouTube     : " + payload.youtube_note);
+      }
       if (payload.video_url) {
         bodyLines.push("Link Video  : " + payload.video_url);
       }
@@ -95,7 +149,7 @@ function doPost(e) {
       }
       if (payload.captions_preview) {
         bodyLines.push("");
-        bodyLines.push("=== CAPTION & HASHTAG SIAP COPY ===");
+        bodyLines.push("=== CAPTION & HASHTAG ===");
         bodyLines.push(payload.captions_preview);
       }
       bodyLines.push("");
@@ -116,5 +170,5 @@ function doPost(e) {
 }
 
 function doGet() {
-  return _jsonResponse({ ok: true, service: "Kimiabill Drive & Email Webhook Active" });
+  return _jsonResponse({ ok: true, service: "Kimiabill Drive, YouTube & Email Webhook Active" });
 }

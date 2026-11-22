@@ -103,13 +103,38 @@ def _post_webhook(webhook_url: str, payload: dict[str, Any], timeout: int = 180)
     return data
 
 
+def _extract_youtube_copy(episode_dir: Path, fallback_title: str) -> dict[str, Any]:
+    """Extract YouTube Shorts title, description, and tags from Agent 7 or Agent 3 handoff."""
+    a7_path = episode_dir / "handoffs" / "agent7_package.json"
+    if a7_path.exists():
+        try:
+            a7 = json.loads(a7_path.read_text(encoding="utf-8"))
+            for copy in a7.get("platform_copies", []):
+                if copy.get("platform") == "youtube_shorts":
+                    tags = [str(t).lstrip("#") for t in copy.get("hashtags", [])]
+                    tag_str = " ".join(copy.get("hashtags", []))
+                    desc = f"{copy.get('caption', '')}\n\n{tag_str}".strip()
+                    return {
+                        "title": copy.get("title") or fallback_title,
+                        "description": desc,
+                        "tags": tags or ["sains", "kimiabill", "shorts"],
+                    }
+        except Exception:
+            pass
+    return {
+        "title": fallback_title,
+        "description": f"{fallback_title}\n\n#sains #kimiabill #shorts",
+        "tags": ["sains", "kimiabill", "shorts"],
+    }
+
+
 def _upload_via_webhook(
     episode_dir: Path,
     episode_name: str,
     root_folder_name: str,
     webhook_url: str,
 ) -> str:
-    """Upload final video, thumbnail, and caption sheet via Google Apps Script webhook + email notify."""
+    """Upload final video, thumbnail, and caption sheet via Google Apps Script webhook + YouTube + email notify."""
     init_res = _post_webhook(
         webhook_url,
         {
@@ -127,7 +152,9 @@ def _upload_via_webhook(
         caption_file = episode_dir / "CAPTION_SIAP_UPLOAD.txt"
         caption_file.write_text(f"Judul: {title}\n\n{captions_text}\n", encoding="utf-8")
 
+    video_file_id: Optional[str] = None
     video_url: Optional[str] = None
+    thumbnail_file_id: Optional[str] = None
     thumbnail_url: Optional[str] = None
 
     upload_patterns = (
@@ -156,9 +183,43 @@ def _upload_via_webhook(
                 timeout=240,
             )
             if f.name.startswith("FINAL_") and f.suffix == ".mp4":
+                video_file_id = res.get("file_id")
                 video_url = res.get("file_url")
             elif f.name.startswith("THUMBNAIL_"):
+                thumbnail_file_id = res.get("file_id")
                 thumbnail_url = res.get("file_url")
+
+    # Auto-upload to YouTube Shorts via Apps Script (if PUBLISH_MODE is draft or public)
+    publish_mode = os.environ.get("PUBLISH_MODE", "draft").strip().lower()
+    youtube_url: Optional[str] = None
+    youtube_privacy: Optional[str] = None
+    youtube_note: Optional[str] = None
+
+    if video_file_id and publish_mode in ("draft", "public"):
+        yt_copy = _extract_youtube_copy(episode_dir, title)
+        privacy = "public" if publish_mode == "public" else "unlisted"
+        try:
+            yt_res = _post_webhook(
+                webhook_url,
+                {
+                    "action": "upload_youtube",
+                    "video_file_id": video_file_id,
+                    "thumbnail_file_id": thumbnail_file_id,
+                    "title": yt_copy["title"],
+                    "description": yt_copy["description"],
+                    "tags": yt_copy["tags"],
+                    "privacy": privacy,
+                },
+                timeout=240,
+            )
+            youtube_url = yt_res.get("youtube_url")
+            youtube_privacy = yt_res.get("privacy", privacy)
+            print(f"[youtube] Berhasil upload ke YouTube Shorts ({youtube_privacy}): {youtube_url}")
+        except Exception as exc:
+            youtube_note = f"Belum ter-upload otomatis ({exc})"
+            print(f"[youtube] Peringatan: gagal upload YouTube via webhook ({exc})")
+    elif publish_mode == "dry_run":
+        youtube_note = "Mode dry_run (hanya simpan ke Drive; ubah publish_mode ke draft/public untuk auto-upload YouTube)."
 
     notify_to = os.environ.get("NOTIFY_EMAIL_TO", DEFAULT_NOTIFY_EMAIL).strip() or DEFAULT_NOTIFY_EMAIL
     try:
@@ -172,6 +233,9 @@ def _upload_via_webhook(
                 "folder_url": folder_url,
                 "video_url": video_url,
                 "thumbnail_url": thumbnail_url,
+                "youtube_url": youtube_url,
+                "youtube_privacy": youtube_privacy,
+                "youtube_note": youtube_note,
                 "captions_preview": captions_text[:3500],
             },
             timeout=60,

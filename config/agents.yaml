@@ -56,5 +56,6 @@ agents:
     recommended_prod_model: "gemini-3.6-flash"
     platforms:
       - "youtube_shorts"
-      - "tiktok"
-      - "instagram_reels"
+      # Aktifkan nanti saat sudah siap:
+      # - "tiktok"
+      # - "instagram_reels"

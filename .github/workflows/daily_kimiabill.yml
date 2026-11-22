@@ -7,14 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       publish_mode:
-        description: "Mode publish Agent 7 (dry_run / draft / public)"
+        description: "Mode upload YouTube (draft = Unlisted aman / public = langsung tayang / dry_run = Drive saja)"
         required: false
-        default: "dry_run"
+        default: "draft"
         type: choice
         options:
-          - dry_run
           - draft
           - public
+          - dry_run
 
 jobs:
   produce-video:
@@ -39,7 +39,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'dry_run' }}
+          PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'draft' }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
