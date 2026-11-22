@@ -983,9 +983,13 @@ def _prepare_smart_real_footage_base(
     seg_dir.mkdir(parents=True, exist_ok=True)
     seg_files: list[Path] = []
 
-    fg_w = int(width * 0.94)
-    fg_w -= fg_w % 2
-    fg_y = int(height * 0.21)
+    # Landscape foreground window: full frame width, ~45% of frame height. The clip is scaled
+    # to fill this window (cropping only ~25-30% of the sides) -> big & sharp, never a tiny PiP,
+    # and never the brutal ~3x crop of a full 9:16 fill.
+    fg_w = width - (width % 2)
+    fg_h = int(height * 0.45)
+    fg_h -= fg_h % 2
+    fg_y = int(height * 0.17)
 
     for seg in plan.segments:
         out_seg = seg_dir / f"{seg.scene_id}.mp4"
@@ -998,7 +1002,8 @@ def _prepare_smart_real_footage_base(
                 f"[0:v]split=2[bg0][fg0];"
                 f"[bg0]scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,"
                 f"crop={width}:{height},gblur=sigma=24,eq=brightness=-0.22:saturation=0.80[bg];"
-                f"[fg0]scale={fg_w}:-2:flags=lanczos,eq=contrast=1.05:saturation=1.08[fg];"
+                f"[fg0]scale={fg_w}:{fg_h}:force_original_aspect_ratio=increase:flags=lanczos,"
+                f"crop={fg_w}:{fg_h},eq=contrast=1.05:saturation=1.08[fg];"
                 f"[bg][fg]overlay=(W-w)/2:{fg_y}:shortest=1,fps={fps},format=yuv420p[vout]"
             )
             cmd = [

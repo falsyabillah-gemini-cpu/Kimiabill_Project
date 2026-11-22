@@ -482,9 +482,15 @@ def _build_contact_sheet(
     tmp_dir = out_jpg.parent / "_qa_frames"
     tmp_dir.mkdir(parents=True, exist_ok=True)
     thumbs: list[tuple[str, Image.Image]] = []
-    for seg in segments:
-        mid = seg.start_sec + seg.duration_sec * 0.48
-        frame_p = tmp_dir / f"{seg.scene_id}.jpg"
+    samples: list[tuple[str, float, str]] = [
+        (seg.scene_id, seg.start_sec + seg.duration_sec * 0.48, f"{seg.scene_id} ({seg.start_sec:.1f}-{seg.end_sec:.1f}s)")
+        for seg in segments
+    ]
+    if segments:
+        end_t = max(0.0, segments[-1].end_sec - 0.9)
+        samples.append(("zz_endcard", end_t, f"END-CARD ({end_t:.1f}s)"))
+    for key, mid, label in samples:
+        frame_p = tmp_dir / f"{key}.jpg"
         subprocess.run(
             [
                 "ffmpeg",
@@ -506,7 +512,7 @@ def _build_contact_sheet(
         if frame_p.exists():
             im = Image.open(frame_p).convert("RGB")
             im.thumbnail((320, 568))
-            thumbs.append((f"{seg.scene_id} ({seg.start_sec:.1f}-{seg.end_sec:.1f}s)", im))
+            thumbs.append((label, im))
 
     if not thumbs:
         return

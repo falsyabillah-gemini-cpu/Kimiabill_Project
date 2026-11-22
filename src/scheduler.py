@@ -25,6 +25,7 @@ from src.pipeline import (
     run_upload,
     save_state,
 )
+from src.pipeline import load_or_init_state, episode_paths
 
 from src.tools.gdrive_sync import can_upload_to_gdrive
 
@@ -57,6 +58,7 @@ def run_one_automated_episode() -> None:
     scene_offsets: dict[str, float] = {}
     qa_passed = False
     last_audit = None
+    best = None  # (score, version, audit, render_plan, agent6) of the best-scoring proxy version
 
     for version in range(1, max_revisions + 2):
         state, proxy_video, sheet_path = run_agent_4_proxy_and_gate0(
@@ -72,6 +74,14 @@ def run_one_automated_episode() -> None:
 
         state, audit = run_agent_5_video_qa(episode_id, sheet_path=sheet_path, version=version)
         last_audit = audit
+        if best is None or audit.overall_score > best[0]:
+            best = (
+                audit.overall_score,
+                version,
+                audit,
+                state.render_plan.model_copy(deep=True) if state.render_plan else None,
+                state.agent6.model_copy(deep=True) if state.agent6 else None,
+            )
         print(
             f"[scheduler] Agent 5 QA v{version}: passed={audit.passed}, "
             f"score={audit.overall_score}/10 (visual={audit.visual_relevance_score}, "
@@ -93,6 +103,21 @@ def run_one_automated_episode() -> None:
                 for sc_id in audit.affected_scenes or [s.scene_id for s in (state.agent3.scenes if state.agent3 else [])]:
                     scene_offsets[sc_id] = round(scene_offsets.get(sc_id, 0.0) + 2.0, 2)
                 font_ratio = 0.050 if audit.subtitle_readability_score < 8.0 else font_ratio
+
+    # If QA never passed, render the final from the BEST-scoring version (not simply the last attempt,
+    # which may be worse after re-scouting).
+    if not qa_passed and best is not None and best[1] != version:
+        state = load_or_init_state(episode_id)
+        if best[3] is not None:
+            state.render_plan = best[3]
+        if best[4] is not None:
+            state.agent6 = best[4]
+            (episode_paths(episode_id)["handoffs"] / "agent6_assets.json").write_text(
+                best[4].model_dump_json(indent=2), encoding="utf-8"
+            )
+        save_state(state)
+        last_audit = best[2]
+        print(f"[scheduler] QA belum lolos; memakai versi terbaik v{best[1]} (skor {best[0]}) untuk render final.")
 
     state, final_video, _ = run_final_hd_render(episode_id)
     print(f"[scheduler] Render final 1080p selesai: {final_video} (Gate 0 HD passed={state.gate0.passed if state.gate0 else False})")

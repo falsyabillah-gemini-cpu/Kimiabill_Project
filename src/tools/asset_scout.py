@@ -48,7 +48,30 @@ DISALLOWED_TITLE_TOKENS = (
     "trailer",
     "logo",
     "intro",
+    "music video",
+    "album",
+    "karaoke",
+    "gameplay",
+    "screen recording",
+    "screencast",
 )
+
+# Family-safety blocklist (checked against title + categories + description metadata)
+UNSAFE_TOKENS = (
+    "nude", "nudity", "naked", "topless", "nsfw", "porn", "erotic", "sex", "sexual",
+    "genital", "penis", "vagina", "breast", "nipple", "masturbat", "orgasm", "fetish",
+    "bdsm", "bondage", "lingerie", "bikini", "stripper", "striptease", "intercourse",
+    "condom", "explicit", "adult film", "xxx", "gore", "corpse", "dead body", "autopsy",
+    "beheading", "execution", "suicide", "murder", "torture", "gun", "weapon", "war crime",
+    "drug use", "injecting", "surgery", "pregnan", "childbirth",
+    "dancing", "pole dance", "fashion show", "model posing",
+)
+
+
+def _is_family_safe_text(*texts: str) -> bool:
+    blob = " ".join(t for t in texts if t).lower()
+    blob = re.sub(r"<[^>]+>", " ", blob)
+    return not any(tok in blob for tok in UNSAFE_TOKENS)
 
 
 @dataclass
@@ -187,6 +210,12 @@ def search_wikimedia_videos(query: str, limit: int = 12) -> list[VideoCandidate]
         if not url:
             continue
         meta = vi.get("extmetadata", {})
+        meta_text = " ".join(
+            str(meta.get(k, {}).get("value", ""))
+            for k in ("Categories", "ImageDescription", "ObjectName", "Restrictions")
+        )
+        if not _is_family_safe_text(title, meta_text):
+            continue
         lic = meta.get("LicenseShortName", {}).get("value", "Wikimedia Commons")
         lic = re.sub(r"<[^>]+>", "", str(lic)).strip()
         out.append(
@@ -268,6 +297,106 @@ def download_and_normalize_clip(
         return None
 
 
+def _build_frame_strip(clip: Path, out_jpg: Path) -> Optional[Path]:
+    """Grab 3 frames (15% / 50% / 85%) of a clip and tile them horizontally for vision screening."""
+    try:
+        from PIL import Image
+
+        info = probe_video(clip)
+        if not info:
+            return None
+        dur = max(1.0, float(info["duration"]))
+        frames = []
+        for i, frac in enumerate((0.15, 0.5, 0.85)):
+            fp = out_jpg.with_name(f"{out_jpg.stem}_f{i}.jpg")
+            subprocess.run(
+                ["ffmpeg", "-y", "-ss", f"{dur * frac:.2f}", "-i", str(clip), "-frames:v", "1",
+                 "-vf", "scale=-2:360", "-q:v", "4", str(fp)],
+                check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            if fp.exists():
+                frames.append(Image.open(fp).convert("RGB"))
+                fp.unlink(missing_ok=True)
+        if not frames:
+            return None
+        total_w = sum(f.width for f in frames) + 8 * (len(frames) - 1)
+        strip = Image.new("RGB", (total_w, max(f.height for f in frames)), (0, 0, 0))
+        x = 0
+        for f in frames:
+            strip.paste(f, (x, 0))
+            x += f.width + 8
+        strip.save(out_jpg, quality=85)
+        return out_jpg
+    except Exception:
+        return None
+
+
+def vision_screen_clip(clip: Path, scene: SceneSpec) -> tuple[bool, bool, str]:
+    """Ask Gemini Vision whether a clip is family-safe, relevant, and free of watermarks/UI overlays.
+
+    Returns (accepted, safe_but_weak, reason). If vision screening is unavailable, falls back to accepting
+    (metadata blocklist has already been applied).
+    """
+    if os.environ.get("ASSET_VISION_SCREEN", "true").lower() != "true":
+        return True, True, "vision screening disabled"
+    if not os.environ.get("GEMINI_API_KEY"):
+        return True, True, "no GEMINI_API_KEY; skipped vision screening"
+    strip = _build_frame_strip(clip, clip.with_name(f"{clip.stem}_screen.jpg"))
+    if strip is None:
+        return False, False, "could not extract frames"
+    try:
+        from pydantic import BaseModel, Field
+
+        from src.providers import call_structured_agent
+
+        class ClipScreen(BaseModel):
+            family_safe: bool = Field(description="False if ANY nudity, sexual/suggestive content, gore, violence, or otherwise inappropriate imagery for a kids/teen science channel")
+            relevance_score: float = Field(ge=0, le=10, description="How well the frames visually match the scene narration and visual query")
+            has_watermark_or_ui: bool = Field(description="True if frames show music-player/album art, app UI, big logos, text slides, or channel watermarks")
+            is_real_footage: bool = Field(description="True if real camera footage (not cartoon/animation/slide)")
+            reason: str = ""
+
+        verdict = call_structured_agent(
+            provider="auto",
+            model=os.environ.get("GEMINI_SCREEN_MODEL", "gemini-3.5-flash-lite"),
+            system_prompt=(
+                "You are a strict visual safety & relevance screener for 'Kimiabill', a family-friendly "
+                "Indonesian pure-science short-video channel watched by students. The attached image shows "
+                "3 frames sampled from a candidate stock clip. Judge it strictly."
+            ),
+            user_payload={
+                "scene_narration": scene.narration,
+                "visual_query": scene.visual_query,
+            },
+            response_model=ClipScreen,
+            handoff_path=None,
+            image_paths=[strip],
+        )
+    except Exception as exc:  # noqa: BLE001
+        return True, True, f"vision screening error (accepted on metadata only): {exc}"
+    finally:
+        strip.unlink(missing_ok=True)
+
+    min_rel = float(os.environ.get("ASSET_MIN_RELEVANCE", "5"))
+    clean = verdict.family_safe and verdict.is_real_footage and not verdict.has_watermark_or_ui
+    ok = clean and verdict.relevance_score >= min_rel
+    return ok, clean, (
+        f"safe={verdict.family_safe} real={verdict.is_real_footage} "
+        f"ui={verdict.has_watermark_or_ui} rel={verdict.relevance_score} {verdict.reason}"
+    )
+
+
+def _next_free_path(assets_dir: Path, scene_id: str) -> Path:
+    """Versioned filenames so re-scouting never overwrites footage used by earlier render versions."""
+    base = assets_dir / f"{scene_id}.mp4"
+    if not base.exists():
+        return base
+    k = 2
+    while (assets_dir / f"{scene_id}_alt{k}.mp4").exists():
+        k += 1
+    return assets_dir / f"{scene_id}_alt{k}.mp4"
+
+
 def scout_assets_for_scenes(
     scenes: list[SceneSpec],
     assets_dir: Path,
@@ -281,6 +410,7 @@ def scout_assets_for_scenes(
     assets_dir.mkdir(parents=True, exist_ok=True)
     results: list[SceneAsset] = []
     used_urls: set[str] = set(exclude_urls or ())
+    max_screens = int(os.environ.get("ASSET_MAX_SCREENS_PER_SCENE", "10"))
 
     for scene in scenes:
         if target_scene_ids is not None and scene.scene_id not in target_scene_ids and existing_assets and scene.scene_id in existing_assets:
@@ -288,9 +418,13 @@ def scout_assets_for_scenes(
             used_urls.add(existing_assets[scene.scene_id].source_url)
             continue
 
-        dest_mp4 = assets_dir / f"{scene.scene_id}.mp4"
+        dest_mp4 = _next_free_path(assets_dir, scene.scene_id)
         chosen_cand: Optional[VideoCandidate] = None
         chosen_info: Optional[dict] = None
+        fallback_cand: Optional[VideoCandidate] = None
+        fallback_info: Optional[dict] = None
+        fallback_path: Optional[Path] = None
+        screens_done = 0
 
         if manual_overrides and scene.scene_id in manual_overrides:
             cand = manual_overrides[scene.scene_id]
@@ -336,14 +470,33 @@ def scout_assets_for_scenes(
                 for cand in cands:
                     if cand.download_url in used_urls or cand.page_url in used_urls:
                         continue
-                    info = download_and_normalize_clip(cand, dest_mp4)
-                    if info:
-                        chosen_cand, chosen_info = cand, info
-                        used_urls.add(cand.download_url)
-                        used_urls.add(cand.page_url)
+                    if screens_done >= max_screens:
                         break
-                if chosen_cand:
+                    info = download_and_normalize_clip(cand, dest_mp4)
+                    if not info:
+                        continue
+                    used_urls.add(cand.download_url)
+                    used_urls.add(cand.page_url)
+                    screens_done += 1
+                    ok, clean, reason = vision_screen_clip(dest_mp4, scene)
+                    print(f"[asset_scout] {scene.scene_id} screen '{cand.title[:60]}': ok={ok} ({reason[:160]})")
+                    if ok:
+                        chosen_cand, chosen_info = cand, info
+                        break
+                    if clean and fallback_cand is None:
+                        # Family-safe but weakly relevant: keep as last-resort fallback
+                        fb_path = dest_mp4.with_name(f"{dest_mp4.stem}_fallback.mp4")
+                        dest_mp4.replace(fb_path)
+                        fallback_cand, fallback_info, fallback_path = cand, info, fb_path
+                    else:
+                        dest_mp4.unlink(missing_ok=True)
+                if chosen_cand or screens_done >= max_screens:
                     break
+
+            if chosen_cand is None and fallback_cand is not None:
+                fallback_path.replace(dest_mp4)
+                chosen_cand, chosen_info = fallback_cand, fallback_info
+                print(f"[asset_scout] {scene.scene_id}: memakai fallback aman (relevansi rendah)")
 
         if chosen_cand is None or chosen_info is None:
             raise RuntimeError(
