@@ -36,9 +36,18 @@ def _extract_json(text: str) -> dict[str, Any]:
             lines = lines[:-1]
         text = "\n".join(lines).strip()
     start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1:
+    if start == -1:
         raise ProviderError(f"No JSON object found in model response: {text[:300]}")
+    decoder = json.JSONDecoder()
+    try:
+        obj, _ = decoder.raw_decode(text, start)
+        if isinstance(obj, dict):
+            return obj
+    except json.JSONDecodeError:
+        pass
+    end = text.rfind("}")
+    if end == -1 or end <= start:
+        raise ProviderError(f"Invalid JSON object in model response: {text[:300]}")
     return json.loads(text[start : end + 1])
 
 
@@ -65,8 +74,8 @@ def _post_with_retry(
     *,
     json_body: dict[str, Any],
     headers: dict[str, str] | None = None,
-    max_attempts: int = 4,
-    timeout: int = 120,
+    max_attempts: int = 3,
+    timeout: int = 50,
 ) -> requests.Response:
     """POST with exponential backoff on transient 429/5xx errors or network hiccups."""
     last_exc: Exception | None = None
