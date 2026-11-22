@@ -1,0 +1,12 @@
+services:
+  kimiabill-auto:
+    build: .
+    container_name: kimiabill_videos_auto
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./episodes:/app/episodes
+    entrypoint: ["python", "-m", "src.scheduler"]
