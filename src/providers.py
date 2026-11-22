@@ -42,11 +42,44 @@ def _extract_json(text: str) -> dict[str, Any]:
 
 
 DEFAULT_MODELS: dict[str, str] = {
-    "gemini_api": "gemini-2.5-flash",
+    "gemini_api": "gemini-3.5-flash-lite",
     "anthropic_api": "claude-sonnet-4-5",
-    "openrouter": "google/gemini-2.5-flash",
+    "openrouter": "google/gemini-3.5-flash-lite",
     "claude_code_cli": "claude-sonnet-4-5",
 }
+
+GEMINI_FALLBACK_MODELS: tuple[str, ...] = (
+    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-2.5-flash-lite",
+)
+
+
+def _discover_gemini_flash_model(api_key: str) -> str | None:
+    """Query Gemini /v1beta/models to find an available Flash model supporting generateContent."""
+    try:
+        resp = requests.get(
+            f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}",
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            return None
+        models = resp.json().get("models", [])
+        candidates: list[str] = []
+        for m in models:
+            methods = m.get("supportedGenerationMethods", [])
+            name = m.get("name", "").removeprefix("models/")
+            if "generateContent" in methods and name.startswith("gemini-") and "flash" in name:
+                if not any(skip in name for skip in ("tts", "image", "audio", "live", "embedding")):
+                    candidates.append(name)
+        if candidates:
+            candidates.sort(reverse=True)
+            return candidates[0]
+    except Exception:
+        return None
+    return None
 
 
 def resolve_provider_and_model(provider: str, model: str) -> tuple[str, str]:
@@ -59,6 +92,9 @@ def resolve_provider_and_model(provider: str, model: str) -> tuple[str, str]:
         return forced, DEFAULT_MODELS.get(forced, model)
 
     if os.environ.get("GEMINI_API_KEY"):
+        env_model = os.environ.get("GEMINI_MODEL", "").strip()
+        if env_model:
+            return "gemini_api", env_model
         return "gemini_api", model if model.startswith("gemini") else DEFAULT_MODELS["gemini_api"]
     if os.environ.get("ANTHROPIC_API_KEY"):
         return "anthropic_api", model if model.startswith("claude") else DEFAULT_MODELS["anthropic_api"]
@@ -132,10 +168,6 @@ def call_structured_agent(
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise ProviderError("GEMINI_API_KEY is not set")
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model}:generateContent?key={api_key}"
-        )
         body = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
             "contents": [
@@ -153,7 +185,27 @@ def call_structured_agent(
             ],
             "generationConfig": {"responseMimeType": "application/json"},
         }
-        resp = requests.post(url, json=body, timeout=120)
+        tried: list[str] = []
+        candidates = [model, *[m for m in GEMINI_FALLBACK_MODELS if m != model]]
+        resp = None
+        for cand_model in candidates:
+            tried.append(cand_model)
+            url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{cand_model}:generateContent?key={api_key}"
+            )
+            resp = requests.post(url, json=body, timeout=120)
+            if resp.status_code != 404:
+                break
+        if resp is not None and resp.status_code == 404:
+            discovered = _discover_gemini_flash_model(api_key)
+            if discovered and discovered not in tried:
+                url = (
+                    f"https://generativelanguage.googleapis.com/v1beta/models/"
+                    f"{discovered}:generateContent?key={api_key}"
+                )
+                resp = requests.post(url, json=body, timeout=120)
+        assert resp is not None
         resp.raise_for_status()
         text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
         parsed = response_model.model_validate(_extract_json(text))
