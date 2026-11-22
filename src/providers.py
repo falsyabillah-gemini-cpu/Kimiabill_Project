@@ -52,16 +52,16 @@ def _extract_json(text: str) -> dict[str, Any]:
 
 
 DEFAULT_MODELS: dict[str, str] = {
-    "gemini_api": "gemini-3.6-flash",
+    "gemini_api": "gemini-3.5-flash-lite",
     "anthropic_api": "claude-sonnet-4-5",
-    "openrouter": "google/gemini-3.6-flash",
+    "openrouter": "google/gemini-3.5-flash-lite",
     "claude_code_cli": "claude-sonnet-4-5",
 }
 
 GEMINI_FALLBACK_MODELS: tuple[str, ...] = (
+    "gemini-3.5-flash-lite",
     "gemini-3.6-flash",
     "gemini-3.5-flash",
-    "gemini-3.5-flash-lite",
     "gemini-3.8-flash",
     "gemini-2.5-flash-lite",
 )

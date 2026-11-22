@@ -91,7 +91,23 @@ def _build_captions_summary(episode_dir: Path) -> tuple[str, str]:
     return title, "\n".join(lines).strip()
 
 
+def _normalize_webhook_url(raw: str) -> str:
+    """Accept full https://.../exec URL, scheme-less script.google.com URL, or raw Deployment ID (AKfy...)."""
+    url = raw.strip().strip('"').strip("'")
+    if not url:
+        return ""
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    if url.startswith("script.google.com/"):
+        return f"https://{url}"
+    if "/" not in url and len(url) >= 20:
+        # User pasted the Google Apps Script Deployment ID (e.g. AKfycb...)
+        return f"https://script.google.com/macros/s/{url}/exec"
+    return f"https://{url}"
+
+
 def _post_webhook(webhook_url: str, payload: dict[str, Any], timeout: int = 180) -> dict[str, Any]:
+    webhook_url = _normalize_webhook_url(webhook_url)
     token = os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
     if token:
         payload = {**payload, "token": token}
