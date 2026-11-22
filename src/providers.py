@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Type, TypeVar
 
@@ -55,6 +56,38 @@ GEMINI_FALLBACK_MODELS: tuple[str, ...] = (
     "gemini-3.5-flash",
     "gemini-2.5-flash-lite",
 )
+
+TRANSIENT_STATUS_CODES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
+
+
+def _post_with_retry(
+    url: str,
+    *,
+    json_body: dict[str, Any],
+    headers: dict[str, str] | None = None,
+    max_attempts: int = 4,
+    timeout: int = 120,
+) -> requests.Response:
+    """POST with exponential backoff on transient 429/5xx errors or network hiccups."""
+    last_exc: Exception | None = None
+    resp: requests.Response | None = None
+    for attempt in range(max_attempts):
+        try:
+            resp = requests.post(url, headers=headers, json=json_body, timeout=timeout)
+            if resp.status_code not in TRANSIENT_STATUS_CODES:
+                return resp
+            wait_sec = min(30, 3 * (2 ** attempt))
+            print(f"[providers] Transient HTTP {resp.status_code}, retrying in {wait_sec}s (attempt {attempt + 1}/{max_attempts})...")
+            time.sleep(wait_sec)
+        except requests.RequestException as exc:
+            last_exc = exc
+            wait_sec = min(30, 3 * (2 ** attempt))
+            print(f"[providers] Network error ({exc}), retrying in {wait_sec}s (attempt {attempt + 1}/{max_attempts})...")
+            time.sleep(wait_sec)
+    if resp is not None:
+        return resp
+    assert last_exc is not None
+    raise last_exc
 
 
 def _discover_gemini_flash_model(api_key: str) -> str | None:
@@ -194,17 +227,20 @@ def call_structured_agent(
                 f"https://generativelanguage.googleapis.com/v1beta/models/"
                 f"{cand_model}:generateContent?key={api_key}"
             )
-            resp = requests.post(url, json=body, timeout=120)
-            if resp.status_code != 404:
+            resp = _post_with_retry(url, json_body=body, max_attempts=3)
+            if resp.status_code == 200:
                 break
-        if resp is not None and resp.status_code == 404:
+            if resp.status_code not in (404, *TRANSIENT_STATUS_CODES):
+                break
+            print(f"[providers] Gemini model '{cand_model}' returned HTTP {resp.status_code}, trying next fallback...")
+        if resp is not None and resp.status_code in (404, *TRANSIENT_STATUS_CODES):
             discovered = _discover_gemini_flash_model(api_key)
             if discovered and discovered not in tried:
                 url = (
                     f"https://generativelanguage.googleapis.com/v1beta/models/"
                     f"{discovered}:generateContent?key={api_key}"
                 )
-                resp = requests.post(url, json=body, timeout=120)
+                resp = _post_with_retry(url, json_body=body, max_attempts=3)
         assert resp is not None
         resp.raise_for_status()
         text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
