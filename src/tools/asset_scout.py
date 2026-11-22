@@ -291,7 +291,37 @@ def scout_assets_for_scenes(
                 chosen_cand, chosen_info = cand, info
 
         if chosen_cand is None:
-            queries = [scene.visual_query] + list(scene.fallback_queries)
+            raw_queries = [scene.visual_query] + list(scene.fallback_queries)
+            # Build progressively broader queries for Wikimedia/stock search when specific phrases return 0 hits
+            stop_words = {
+                "the", "and", "with", "from", "into", "that", "this", "for", "are", "was",
+                "in", "on", "of", "to", "a", "an", "at", "by", "or", "as", "is", "be",
+            }
+            broadened: list[str] = []
+            for q in raw_queries:
+                words = [w for w in re.findall(r"[A-Za-z]+", q.lower()) if len(w) > 3 and w not in stop_words]
+                if len(words) >= 2:
+                    broadened.append(" ".join(words[:2]))
+                    broadened.append(" ".join(words[-2:]))
+                for w in words[:3]:
+                    broadened.append(w)
+            generic_science_fallbacks = [
+                "chemistry laboratory",
+                "science experiment",
+                "microscope",
+                "laboratory",
+                "physics experiment",
+                "water",
+                "nature",
+            ]
+            seen_q: set[str] = set()
+            queries: list[str] = []
+            for q in [*raw_queries, *broadened, *generic_science_fallbacks]:
+                q_norm = q.strip()
+                if q_norm and q_norm.lower() not in seen_q:
+                    seen_q.add(q_norm.lower())
+                    queries.append(q_norm)
+
             for q in queries:
                 cands = search_pexels(q) + search_wikimedia_videos(q)
                 for cand in cands:

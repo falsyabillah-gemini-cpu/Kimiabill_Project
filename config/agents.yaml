@@ -1,8 +1,8 @@
 # Konfigurasi routing model untuk 7 Agent Kimiabill_videos.
 # Mode default: "production" dengan provider "auto" — otomatis memakai API key yang tersedia di .env / Secrets:
-#   1. GEMINI_API_KEY     -> gemini_api (gemini-3.5-flash-lite)
+#   1. GEMINI_API_KEY     -> gemini_api (gemini-3.6-flash)
 #   2. ANTHROPIC_API_KEY  -> anthropic_api (claude-sonnet-4-5)
-#   3. OPENROUTER_API_KEY -> openrouter (google/gemini-3.5-flash-lite)
+#   3. OPENROUTER_API_KEY -> openrouter (google/gemini-3.6-flash)
 # Anda tetap dapat memilih provider spesifik per agent:
 # - "auto" | "gemini_api" | "anthropic_api" | "claude_code_cli" | "openrouter" | "antigravity_local"
 
@@ -13,25 +13,25 @@ agents:
     role: "Viral Pure-Science Trend Scout & Ideation"
     provider: "auto"
     recommended_prod_provider: "gemini_api"
-    recommended_prod_model: "gemini-3.5-flash-lite"
+    recommended_prod_model: "gemini-3.6-flash"
 
   agent_2_editorial_auditor:
     role: "Hook & Editorial Auditor"
     provider: "auto"
     recommended_prod_provider: "gemini_api"
-    recommended_prod_model: "gemini-3.5-flash-lite"
+    recommended_prod_model: "gemini-3.6-flash"
 
   agent_3_script_reviser:
     role: "Script, Shot-List & Mechanistic Storyboard Reviser"
     provider: "auto"
     recommended_prod_provider: "gemini_api"
-    recommended_prod_model: "gemini-3.5-flash-lite"
+    recommended_prod_model: "gemini-3.6-flash"
 
   agent_6_asset_scout:
     role: "Real Footage & SFX Scout"
     provider: "auto"
     recommended_prod_provider: "gemini_api"
-    recommended_prod_model: "gemini-3.5-flash-lite"
+    recommended_prod_model: "gemini-3.6-flash"
     footage_sources:
       - "pexels"           # otomatis aktif jika PEXELS_API_KEY diisi
       - "wikimedia"        # gratis tanpa API key, banyak video sains nyata (CC0/CC-BY)
@@ -41,19 +41,19 @@ agents:
     role: "Video Director, Mechanistic Animator & FFmpeg Renderer"
     provider: "auto"
     recommended_prod_provider: "gemini_api"
-    recommended_prod_model: "gemini-3.5-flash-lite"
+    recommended_prod_model: "gemini-3.6-flash"
 
   agent_5_video_qa:
     role: "Multimodal Video QA Auditor"
     provider: "auto"
     recommended_prod_provider: "gemini_api"
-    recommended_prod_model: "gemini-3.5-flash-lite"
+    recommended_prod_model: "gemini-3.6-flash"
 
   agent_7_publisher:
     role: "Packaging (Thumbnail + SEO Caption) & Multi-Platform Social Publisher"
     provider: "auto"
     recommended_prod_provider: "gemini_api"
-    recommended_prod_model: "gemini-3.5-flash-lite"
+    recommended_prod_model: "gemini-3.6-flash"
     platforms:
       - "youtube_shorts"
       - "tiktok"
