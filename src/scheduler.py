@@ -23,6 +23,8 @@ from src.pipeline import (
     run_upload,
 )
 
+from src.tools.gdrive_sync import can_upload_to_gdrive
+
 WIB = ZoneInfo("Asia/Jakarta")
 
 
@@ -57,11 +59,11 @@ def run_one_automated_episode() -> None:
     print(f"[scheduler] Agent 7 selesai: {[r.model_dump() for r in (state.agent7.publish_results if state.agent7 else [])]}")
 
     if os.environ.get("AUTO_UPLOAD_GDRIVE", "true").lower() == "true":
-        if shutil.which("gdrive"):
+        if can_upload_to_gdrive():
             state = run_upload(episode_id)
             print(f"[scheduler] Uploaded ke Google Drive: {state.gdrive_folder_url}")
         else:
-            print("[scheduler] Melewati upload Google Drive (CLI 'gdrive' tidak terpasang di environment ini).")
+            print("[scheduler] Melewati upload Google Drive (GDRIVE_WEBHOOK_URL belum diisi dan CLI 'gdrive' tidak terpasang).")
 
 
 def main() -> None:

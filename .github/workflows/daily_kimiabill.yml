@@ -49,7 +49,10 @@ jobs:
           TIKTOK_ACCESS_TOKEN: ${{ secrets.TIKTOK_ACCESS_TOKEN }}
           SOCIAL_BRIDGE_WEBHOOK_URL: ${{ secrets.SOCIAL_BRIDGE_WEBHOOK_URL }}
           SOCIAL_BRIDGE_API_KEY: ${{ secrets.SOCIAL_BRIDGE_API_KEY }}
-          AUTO_UPLOAD_GDRIVE: "false"
+          GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
+          GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
+          NOTIFY_EMAIL_TO: ${{ vars.NOTIFY_EMAIL_TO || 'researchfalsyabillah@gmail.com' }}
+          AUTO_UPLOAD_GDRIVE: "true"
         run: |
           python -c "from src.scheduler import run_one_automated_episode; run_one_automated_episode()"
 
@@ -60,5 +63,6 @@ jobs:
           path: |
             episodes/*/FINAL_*.mp4
             episodes/*/THUMBNAIL_*.jpg
+            episodes/*/CAPTION_SIAP_UPLOAD.txt
             episodes/*/*_contact_sheet.jpg
             episodes/*/handoffs/*.json

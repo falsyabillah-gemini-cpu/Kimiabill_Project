@@ -1,10 +1,25 @@
-"""Google Drive uploader for Kimiabill Studio episodes using the connected `gdrive` CLI."""
+"""Google Drive uploader + email notifier for Kimiabill Studio episodes.
+
+Supports two backends automatically:
+1. Google Apps Script Web App (`GDRIVE_WEBHOOK_URL`) — works on GitHub Actions, VPS/Docker,
+   and local machines without Google Cloud Console setup; uploads directly to your personal
+   Google Drive and sends email notification via Gmail (`MailApp`).
+2. Local `gdrive` CLI fallback (when running inside Antigravity VM).
+"""
 from __future__ import annotations
 
+import base64
 import json
+import mimetypes
+import os
+import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
+
+import requests
+
+DEFAULT_NOTIFY_EMAIL = "researchfalsyabillah@gmail.com"
 
 
 def _run_gdrive(args: list[str]) -> str:
@@ -42,29 +57,161 @@ def ensure_folder(name: str, parent_id: Optional[str] = None) -> str:
     return items_after[0]["id"]
 
 
+def _build_captions_summary(episode_dir: Path) -> tuple[str, str]:
+    """Read Agent 3/7 handoffs to build a clean title and ready-to-copy captions text."""
+    title = episode_dir.name
+    lines: list[str] = []
+
+    a3_path = episode_dir / "handoffs" / "agent3_script.json"
+    if a3_path.exists():
+        try:
+            a3 = json.loads(a3_path.read_text(encoding="utf-8"))
+            title = a3.get("title") or title
+        except Exception:
+            pass
+
+    a7_path = episode_dir / "handoffs" / "agent7_package.json"
+    if a7_path.exists():
+        try:
+            a7 = json.loads(a7_path.read_text(encoding="utf-8"))
+            for copy in a7.get("platform_copies", []):
+                plat = str(copy.get("platform", "")).upper().replace("_", " ")
+                tags = " ".join(copy.get("hashtags", []))
+                lines.append(f"[{plat}]")
+                lines.append(f"Judul: {copy.get('title', '')}")
+                lines.append(f"Caption:\n{copy.get('caption', '')}")
+                if tags:
+                    lines.append(f"Hashtag: {tags}")
+                if copy.get("pinned_comment"):
+                    lines.append(f"Pinned Comment: {copy.get('pinned_comment')}")
+                lines.append("")
+        except Exception:
+            pass
+
+    return title, "\n".join(lines).strip()
+
+
+def _post_webhook(webhook_url: str, payload: dict[str, Any], timeout: int = 180) -> dict[str, Any]:
+    token = os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
+    if token:
+        payload = {**payload, "token": token}
+    resp = requests.post(webhook_url, json=payload, timeout=timeout, allow_redirects=True)
+    resp.raise_for_status()
+    data = resp.json()
+    if not data.get("ok"):
+        raise RuntimeError(f"Google Drive webhook error: {data}")
+    return data
+
+
+def _upload_via_webhook(
+    episode_dir: Path,
+    episode_name: str,
+    root_folder_name: str,
+    webhook_url: str,
+) -> str:
+    """Upload final video, thumbnail, and caption sheet via Google Apps Script webhook + email notify."""
+    init_res = _post_webhook(
+        webhook_url,
+        {
+            "action": "init_episode",
+            "root_folder": root_folder_name,
+            "episode_name": episode_name,
+        },
+        timeout=60,
+    )
+    folder_id = init_res["folder_id"]
+    folder_url = init_res["folder_url"]
+
+    title, captions_text = _build_captions_summary(episode_dir)
+    if captions_text:
+        caption_file = episode_dir / "CAPTION_SIAP_UPLOAD.txt"
+        caption_file.write_text(f"Judul: {title}\n\n{captions_text}\n", encoding="utf-8")
+
+    video_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+
+    upload_patterns = (
+        "FINAL_*.mp4",
+        "THUMBNAIL_*.jpg",
+        "CAPTION_SIAP_UPLOAD.txt",
+        "*_contact_sheet.jpg",
+    )
+    for pattern in upload_patterns:
+        for f in sorted(episode_dir.glob(pattern)):
+            # Skip files > 36 MB for base64 Apps Script 50 MB payload cap
+            if f.stat().st_size > 36 * 1024 * 1024:
+                print(f"[gdrive] Skipping {f.name} (>36 MB Apps Script limit)")
+                continue
+            mime = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+            b64 = base64.b64encode(f.read_bytes()).decode("ascii")
+            res = _post_webhook(
+                webhook_url,
+                {
+                    "action": "upload_file",
+                    "folder_id": folder_id,
+                    "filename": f.name,
+                    "mime_type": mime,
+                    "content_base64": b64,
+                },
+                timeout=240,
+            )
+            if f.name.startswith("FINAL_") and f.suffix == ".mp4":
+                video_url = res.get("file_url")
+            elif f.name.startswith("THUMBNAIL_"):
+                thumbnail_url = res.get("file_url")
+
+    notify_to = os.environ.get("NOTIFY_EMAIL_TO", DEFAULT_NOTIFY_EMAIL).strip() or DEFAULT_NOTIFY_EMAIL
+    try:
+        _post_webhook(
+            webhook_url,
+            {
+                "action": "notify_email",
+                "to": notify_to,
+                "episode_name": episode_name,
+                "title": title,
+                "folder_url": folder_url,
+                "video_url": video_url,
+                "thumbnail_url": thumbnail_url,
+                "captions_preview": captions_text[:3500],
+            },
+            timeout=60,
+        )
+        print(f"[gdrive] Notifikasi email terkirim ke {notify_to}")
+    except Exception as exc:
+        print(f"[gdrive] Peringatan: upload Drive sukses, namun gagal kirim email ({exc})")
+
+    return folder_url
+
+
+def can_upload_to_gdrive() -> bool:
+    return bool(os.environ.get("GDRIVE_WEBHOOK_URL", "").strip() or shutil.which("gdrive"))
+
+
 def upload_episode_to_gdrive(
     episode_dir: Path,
     episode_name: str,
-    root_folder_name: str = "Kimiabill_Studio",
+    root_folder_name: Optional[str] = None,
 ) -> str:
-    """Upload final video, script/state JSON logs, and real footage assets to Google Drive."""
-    root_id = ensure_folder(root_folder_name)
+    """Upload final video, thumbnail, and logs to Google Drive (webhook or gdrive CLI)."""
+    root_name = root_folder_name or os.environ.get("GDRIVE_ROOT_FOLDER", "Kimiabill_Studio")
+    webhook_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
+    if webhook_url:
+        return _upload_via_webhook(episode_dir, episode_name, root_name, webhook_url)
+
+    root_id = ensure_folder(root_name)
     ep_folder_id = ensure_folder(episode_name, parent_id=root_id)
     logs_folder_id = ensure_folder("01_agent_logs", parent_id=ep_folder_id)
     assets_folder_id = ensure_folder("02_real_footage", parent_id=ep_folder_id)
 
-    # Upload main files in episode root (FINAL mp4, thumbnail, contact sheet, episode_state.json)
     for pattern in ("FINAL_*.mp4", "THUMBNAIL_*.jpg", "*_contact_sheet.jpg", "episode_state.json"):
         for f in sorted(episode_dir.glob(pattern)):
             _run_gdrive(["mutate", "upload", str(f), "--parent", ep_folder_id])
 
-    # Upload handoff / agent logs
     handoffs_dir = episode_dir / "handoffs"
     if handoffs_dir.exists():
         for f in sorted(handoffs_dir.glob("*.json")):
             _run_gdrive(["mutate", "upload", str(f), "--parent", logs_folder_id])
 
-    # Upload downloaded real footage clips
     assets_dir = episode_dir / "assets"
     if assets_dir.exists():
         for f in sorted(assets_dir.glob("*.mp4")):
