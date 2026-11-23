@@ -1746,9 +1746,7 @@ def render_hybrid_science_video(
 
             if is_first:
                 draw_header_pill(draw, "KOK BISA?!", RED, fonts, local_t, y_center=225)
-                if seg.mechanism or seg.overlay_badge:
-                    _draw_mechanistic_diagram_card(draw, seg, 1, local_t, fonts, discipline=plan.discipline)
-                elif plan.title:
+                if plan.title:
                     draw_takeaway_card(
                         draw,
                         "FENOMENA SAINS HARI INI",
@@ -1758,22 +1756,20 @@ def render_hybrid_science_video(
                         fonts,
                         local_t,
                         appear_at=0.25,
-                        y0=1020,
+                        y0=990,
                         card_w=860,
                     )
                 if mascots:
-                    mascots.paste(canvas, "male_curious", center_x=175, bottom_y=1470, target_h=280, local_t=local_t, appear_at=0.15)
-                    mascots.paste(canvas, "female_curious", center_x=905, bottom_y=1470, target_h=280, local_t=local_t, appear_at=0.25)
+                    mascots.paste(canvas, "male_curious", center_x=135, bottom_y=1530, target_h=220, local_t=local_t, appear_at=0.15)
+                    mascots.paste(canvas, "female_curious", center_x=945, bottom_y=1530, target_h=220, local_t=local_t, appear_at=0.25)
             elif is_last:
                 # Final scene: TERJAWAB! + celebrating duo mascots + Referensi & Sumber card
-                outro_start = max(0.2, seg.duration_sec - 3.6)
+                outro_start = max(0.2, seg.duration_sec - 4.0)
                 draw_header_pill(draw, "TERJAWAB!", GREEN, fonts, local_t, y_center=225)
-                if local_t < outro_start and (seg.mechanism or seg.overlay_badge):
-                    _draw_mechanistic_diagram_card(draw, seg, seg_idx, local_t, fonts, discipline=plan.discipline)
                 _draw_references_card(draw, plan.references, fonts, local_t, appear_at=outro_start)
                 if mascots:
-                    mascots.paste(canvas, "male_celebrate", center_x=170, bottom_y=1030, target_h=270, local_t=local_t, appear_at=0.1)
-                    mascots.paste(canvas, "female_celebrate", center_x=910, bottom_y=1030, target_h=270, local_t=local_t, appear_at=0.2)
+                    mascots.paste(canvas, "male_celebrate", center_x=170, bottom_y=1010, target_h=250, local_t=local_t, appear_at=0.1)
+                    mascots.paste(canvas, "female_celebrate", center_x=910, bottom_y=1010, target_h=250, local_t=local_t, appear_at=0.2)
             else:
                 # Middle scenes: Genuine 30fps scientific mechanistic simulation + alternating mascot
                 h_col = header_colors[seg_idx % len(header_colors)]
