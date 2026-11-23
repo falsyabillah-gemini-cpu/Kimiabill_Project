@@ -91,20 +91,37 @@ def run_one_automated_episode() -> None:
                     if (
                         pub_at.startswith(now_wib.strftime("%Y-%m-%d"))
                         and row.get("publish_mode", "public") == "public"
-                        and row.get("youtube_url")
+                        and (row.get("youtube_url") or row.get("gdrive_folder_url"))
                     ):
                         try:
                             pub_hour = datetime.fromisoformat(pub_at).hour
                             if (pub_hour >= 16) == slot_evening:
                                 print(
                                     f"[scheduler] Slot hari ini ({'malam' if slot_evening else 'siang'}) "
-                                    f"sudah terbit ({row.get('youtube_url')}) — melewati duplikasi cron."
+                                    f"sudah terbit ({row.get('youtube_url') or row.get('gdrive_folder_url')}) — melewati duplikasi cron."
                                 )
                                 return
                         except Exception:
                             pass
     except Exception:
         pass
+
+    # Check if Agent 8 queued a viewer comment request to fulfill on weekday (REGULER) slots
+    pending_req: dict | None = None
+    try:
+        from src.pipeline import _is_weekend_karat_mode
+        from src.tools.weekly_growth_auditor import get_next_pending_audience_request
+
+        if not _is_weekend_karat_mode():
+            pending_req = get_next_pending_audience_request()
+            if pending_req:
+                print(
+                    f"[scheduler] Menjalankan REQUEST PENONTON dari {pending_req.get('requester_name')}: "
+                    f"{pending_req.get('topic_title')}"
+                )
+    except Exception:
+        pending_req = None
+
     run_t0 = time.monotonic()
 
     for topic_attempt in range(1, max_topic_attempts + 1):
@@ -122,7 +139,16 @@ def run_one_automated_episode() -> None:
         )
 
         try:
-            state = run_agent_1_to_3(episode_id, avoid_titles=avoid_titles)
+            use_req = pending_req if topic_attempt == 1 else None
+            state = run_agent_1_to_3(
+                episode_id,
+                topic_hint=use_req.get("topic_title") if use_req else None,
+                avoid_titles=avoid_titles,
+                requested_by=use_req.get("requester_name") if use_req else None,
+                request_id=use_req.get("request_id") if use_req else None,
+                request_source_comment=use_req.get("source_comment") if use_req else None,
+                request_comment_id=use_req.get("source_comment_id") if use_req else None,
+            )
             title = state.agent3.title if state.agent3 else "-"
             print(f"[scheduler] Agent 1-3 selesai: {title}")
 
@@ -256,6 +282,22 @@ def run_one_automated_episode() -> None:
                     production_seconds=prod_elapsed,
                 )
                 print(f"[scheduler] Uploaded ke Google Drive & YouTube Shorts: {state.gdrive_folder_url}")
+                if (
+                    state.request_id
+                    and os.environ.get("PUBLISH_MODE", "public").strip().lower() == "public"
+                    and state.status == "uploaded"
+                ):
+                    try:
+                        from src.tools.weekly_growth_auditor import mark_audience_request_fulfilled
+
+                        mark_audience_request_fulfilled(
+                            state.request_id,
+                            episode_id,
+                            youtube_url=state.youtube_url,
+                        )
+                        print(f"[scheduler] Request penonton '{state.request_id}' ({state.requested_by}) ditandai selesai!")
+                    except Exception:
+                        pass
             else:
                 print("[scheduler] Melewati upload Google Drive (GDRIVE_WEBHOOK_URL belum diisi dan CLI 'gdrive' tidak terpasang).")
         return

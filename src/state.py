@@ -105,6 +105,7 @@ class Agent3Output(BaseModel):
         default_factory=list,
         description="1-3 concise scientific references or source citations shown at the end of the video",
     )
+    requested_by: Optional[str] = None
     scenes: list[SceneSpec] = Field(min_length=4, max_length=8)
 
 
@@ -154,6 +155,7 @@ class RenderPlan(BaseModel):
     discipline: str = "kimia"
     section_tag: str = "REGULER"
     section_tagline: str = ""
+    requested_by: Optional[str] = None
     use_mascot: bool = True
     references: list[str] = Field(default_factory=list)
     voice_path: str
@@ -231,6 +233,10 @@ class EpisodeState(BaseModel):
         "needs_human_review",
     ] = "init"
     revision_count: int = 0
+    requested_by: Optional[str] = None
+    request_id: Optional[str] = None
+    request_source_comment: Optional[str] = None
+    request_comment_id: Optional[str] = None
     agent1: Optional[Agent1Output] = None
     agent2: Optional[Agent2Output] = None
     agent3: Optional[Agent3Output] = None
@@ -242,6 +248,20 @@ class EpisodeState(BaseModel):
     final_video_path: Optional[str] = None
     gdrive_folder_url: Optional[str] = None
     youtube_url: Optional[str] = None
+
+
+class AudienceRequestItem(BaseModel):
+    request_id: str = ""
+    requester_name: str = Field(description="Commenter @handle or display name to mention when fulfilled (e.g. '@BudiSains' or 'Kak Sari')")
+    source_comment: str = Field(description="Exact short excerpt of the audience comment requesting the topic or question")
+    source_video_id: Optional[str] = None
+    source_comment_id: Optional[str] = None
+    topic_title: str = Field(description="Concise, engaging Indonesian pure-science Shorts topic fulfilling this viewer request")
+    discipline: Discipline = "kimia"
+    status: Literal["pending", "published", "rejected"] = "pending"
+    created_week: str = ""
+    fulfilled_episode_id: Optional[str] = None
+    fulfilled_youtube_url: Optional[str] = None
 
 
 class Agent8WeeklyAuditOutput(BaseModel):
@@ -294,4 +314,8 @@ class Agent8WeeklyAuditOutput(BaseModel):
     karat_weekend_directives: list[str] = Field(
         default_factory=list,
         description="2-3 concrete research-paper themes & search angles for next weekend's KARAT edition based on this week's highest-engagement topics & viewer comments",
+    )
+    audience_requests: list[AudienceRequestItem] = Field(
+        default_factory=list,
+        description="Up to 5 valid pure-science content/topic requests extracted from viewer comments (ignoring spam/greetings), ready to produce & mention next week",
     )

@@ -192,6 +192,7 @@ def build_render_plan(
         discipline=winner_disc,
         section_tag=section_tag,
         section_tagline=section_tagline,
+        requested_by=state.requested_by or getattr(state.agent3, "requested_by", None),
         use_mascot=use_mascot,
         references=_collect_episode_references(state),
         voice_path=voice_path,
@@ -217,11 +218,20 @@ def run_agent_1_to_3(
     episode_id: str,
     topic_hint: Optional[str] = None,
     avoid_titles: Optional[list[str]] = None,
+    requested_by: Optional[str] = None,
+    request_id: Optional[str] = None,
+    request_source_comment: Optional[str] = None,
+    request_comment_id: Optional[str] = None,
 ) -> EpisodeState:
     brand, agents_cfg = load_configs()
     memory = StudioMemory(BASE_DIR)
     paths = episode_paths(episode_id)
     state = load_or_init_state(episode_id)
+    if requested_by:
+        state.requested_by = requested_by
+        state.request_id = request_id
+        state.request_source_comment = request_source_comment
+        state.request_comment_id = request_comment_id
     is_karat = _is_weekend_karat_mode()
 
     # Pre-Agent 1 (0-Token): Scan viral pure-science trends & recent papers (KARAT mode on weekends)
@@ -251,13 +261,20 @@ def run_agent_1_to_3(
         if is_karat
         else ""
     )
+    req_a1_note = (
+        f"AUDIENCE COMMENT REQUEST PRIORITY: Viewer '{requested_by}' specifically requested: '{topic_hint}' "
+        f"(comment: '{request_source_comment or topic_hint}'). You MUST put a fulfilling, accurate pure-science "
+        f"Shorts idea for this exact request as Candidate #1! "
+        if requested_by and topic_hint
+        else ""
+    )
     state.agent1 = call_structured_agent(
         provider=a1_cfg["provider"],
         model=a1_cfg.get("model", a1_cfg["recommended_prod_model"]),
         system_prompt=(
             "You are Agent 1 (Viral Pure-Science Trend Scout) for Kimiabill. "
             "Cover strictly pure science phenomena across: kimia, fisika, matematika, medisinal, biologi. "
-            f"{karat_a1_note}"
+            f"{req_a1_note}{karat_a1_note}"
             "PRIORITY 1: If `viral_candidates` has fresh viral science topics/papers, prioritize turning them into "
             "engaging Indonesian short-video ideas (`source_mode: 'viral_trend'`). "
             "PRIORITY 2 (Fallback): If no strong viral topic is available, select and enrich unused ideas "
@@ -270,6 +287,8 @@ def run_agent_1_to_3(
             "section": "KARAT — Kabar Riset Terkini" if is_karat else "REGULER",
             "trend_brief": trend_brief,
             "topic_hint": topic_hint,
+            "requested_by": requested_by,
+            "request_comment": request_source_comment,
             "avoid_titles": avoid_titles or [],
             "weekly_growth_directives": weekly_dir.get("agent_1_directives", []) + karat_dir,
         },
@@ -281,16 +300,23 @@ def run_agent_1_to_3(
 
     # Agent 2: Editorial Auditor (Score 5 -> pick 1 winner + max 4 sharp improvements)
     a2_cfg = agents_cfg["agents"]["agent_2_editorial_auditor"]
+    req_a2_note = (
+        f"Because viewer '{requested_by}' requested '{topic_hint}', ensure the candidate answering that viewer request is selected cleanly and stays faithful to what they asked! "
+        if requested_by and topic_hint
+        else ""
+    )
     state.agent2 = call_structured_agent(
         provider=a2_cfg["provider"],
         model=a2_cfg.get("model", a2_cfg["recommended_prod_model"]),
         system_prompt=(
             "You are Agent 2 (Editorial Auditor) for Kimiabill. Score all candidates on hook, "
             "plain-language clarity, and real-footage visual strength. Pick the #1 winner and "
-            "give max 4 concrete improvement notes, applying any `weekly_growth_directives` from Agent 8."
+            f"give max 4 concrete improvement notes, applying any `weekly_growth_directives` from Agent 8. {req_a2_note}"
         ),
         user_payload={
             "candidates": [c.model_dump() for c in state.agent1.candidates],
+            "requested_by": requested_by,
+            "topic_hint": topic_hint,
             "weekly_growth_directives": weekly_dir.get("agent_2_directives", []) + karat_dir,
         },
         response_model=Agent2Output,
@@ -316,6 +342,14 @@ def run_agent_1_to_3(
         if is_karat
         else ""
     )
+    spoken_requester = requested_by.lstrip("@") if requested_by else ""
+    req_a3_note = (
+        f"THIS EPISODE FULFILLS A VIEWER REQUEST FROM '{requested_by}' (comment: '{request_source_comment or topic_hint}'): "
+        f"In scene_1's spoken narration, warmly mention the requester (e.g., 'Menjawab request dari {spoken_requester}!' or 'Halo {spoken_requester}, ini jawaban buat request kamu!'), "
+        f"and right before the closing follow CTA mention thanking {spoken_requester} and inviting viewers to drop their own topic requests in the comments! "
+        if requested_by
+        else ""
+    )
     state.agent3 = call_structured_agent(
         provider=a3_cfg["provider"],
         model=a3_cfg.get("model", a3_cfg["recommended_prod_model"]),
@@ -324,7 +358,7 @@ def run_agent_1_to_3(
             "Write a cheerful, clear, moderate-pace Indonesian short script (~55-65s total spoken, 6-7 scenes, "
             "~18-24 words narration per scene so the viewer gets rich, deep scientific insight) applying Agent 2's notes "
             "and Agent 8's `weekly_growth_directives`. "
-            f"{karat_a3_note}"
+            f"{req_a3_note}{karat_a3_note}"
             "Each scene MUST specify an English real-footage visual_query (no cartoons/animations) that names a "
             "CONCRETE, FAMILY-SAFE, filmable object or lab process (e.g. 'gel cube compressed by hand in laboratory', "
             "'rust on iron chain close up'). NEVER use words about human bodies, skin, stretching people, clothing, "
@@ -343,11 +377,15 @@ def run_agent_1_to_3(
             "winner_idea": winner.model_dump(),
             "audit_notes": state.agent2.improvement_notes,
             "voice_style": brand["voice"],
+            "requested_by": requested_by,
+            "request_comment": request_source_comment,
             "weekly_growth_directives": weekly_dir.get("agent_3_directives", []) + karat_dir,
         },
         response_model=Agent3Output,
         handoff_path=paths["handoffs"] / "agent3_script.json",
     )
+    if requested_by and not state.agent3.requested_by:
+        state.agent3.requested_by = requested_by
     state.status = "scripted"
     save_state(state)
     return state
@@ -700,6 +738,13 @@ def run_agent_7_publish(
     )
 
     a7_cfg = agents_cfg["agents"]["agent_7_publisher"]
+    req_a7_note = (
+        f"IMPORTANT — VIEWER REQUEST SHOUTOUT: This episode fulfills a comment request from '{state.requested_by}' "
+        f"(comment: '{state.request_source_comment or ''}'). Mention '{state.requested_by}' clearly inside the "
+        f"`caption` AND `pinned_comment` thanking them for the request and inviting everyone else to request future science topics in the comments!"
+        if state.requested_by
+        else "In `caption` and `pinned_comment`, warmly invite viewers to write science questions or topic requests in the comments to be featured in future episodes!"
+    )
     pkg = call_structured_agent(
         provider=a7_cfg["provider"],
         model=a7_cfg.get("model", a7_cfg["recommended_prod_model"]),
@@ -707,11 +752,13 @@ def run_agent_7_publish(
             "You are Agent 7 (Packaging & Social Media Publisher) for @kimiabill. "
             "Create high-CTR thumbnail copy (top line + main line + short badge) and "
             "platform-tailored Indonesian title, caption, hashtags, and pinned comment "
-            "for youtube_shorts, tiktok, and instagram_reels."
+            f"for youtube_shorts, tiktok, and instagram_reels. {req_a7_note}"
         ),
         user_payload={
             "brand": brand["brand"],
             "script": state.agent3.model_dump(),
+            "requested_by": state.requested_by,
+            "request_source_comment": state.request_source_comment,
             "platforms": brand.get("publishing", {}).get(
                 "platforms", ["youtube_shorts", "tiktok", "instagram_reels"]
             ),

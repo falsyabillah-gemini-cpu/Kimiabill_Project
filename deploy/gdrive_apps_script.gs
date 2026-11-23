@@ -116,12 +116,54 @@ function doPost(e) {
         }
       }
 
+      const youtubeUrl = "https://youtube.com/shorts/" + videoId;
+      let commentPosted = false;
+      if (privacy === "public" && payload.first_comment) {
+        try {
+          YouTube.CommentThreads.insert(
+            {
+              snippet: {
+                videoId: videoId,
+                topLevelComment: {
+                  snippet: { textOriginal: String(payload.first_comment).slice(0, 800) },
+                },
+              },
+            },
+            "snippet"
+          );
+          commentPosted = true;
+        } catch (fcErr) {
+          commentPosted = false;
+        }
+      }
+
+      let repliedRequester = false;
+      if (privacy === "public" && payload.reply_to_comment_id && payload.reply_comment_text) {
+        try {
+          const replyMsg = String(payload.reply_comment_text).replace("{{YOUTUBE_URL}}", youtubeUrl);
+          YouTube.Comments.insert(
+            {
+              snippet: {
+                parentId: String(payload.reply_to_comment_id),
+                textOriginal: replyMsg.slice(0, 800),
+              },
+            },
+            "snippet"
+          );
+          repliedRequester = true;
+        } catch (rcErr) {
+          repliedRequester = false;
+        }
+      }
+
       return _jsonResponse({
         ok: true,
         video_id: videoId,
-        youtube_url: "https://youtube.com/shorts/" + videoId,
+        youtube_url: youtubeUrl,
         privacy: privacy,
         thumbnail_set: thumbnailSet,
+        comment_posted: commentPosted,
+        replied_requester: repliedRequester,
       });
     }
 
@@ -225,6 +267,29 @@ function doPost(e) {
         }
       }
 
+      // Fetch channel-wide newest comments (with commenter handle/name & comment_id for request queue + mentions)
+      const recentComments = [];
+      try {
+        const allC = YouTube.CommentThreads.list("snippet", {
+          allThreadsRelatedToChannelId: ch.id,
+          maxResults: 45,
+          order: "time",
+        });
+        (allC.items || []).forEach(function (c) {
+          const top = c.snippet && c.snippet.topLevelComment;
+          const sn = top && top.snippet;
+          if (!sn || !sn.textDisplay) return;
+          recentComments.push({
+            comment_id: top.id || c.id || "",
+            video_id: sn.videoId || (c.snippet && c.snippet.videoId) || "",
+            author: String(sn.authorDisplayName || "Penonton").slice(0, 60),
+            text: String(sn.textDisplay).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 260),
+            like_count: Number(sn.likeCount || 0),
+            published_at: sn.publishedAt || "",
+          });
+        });
+      } catch (allCErr) {}
+
       const videos = [];
       if (videoIds.length > 0) {
         const vResp = YouTube.Videos.list("snippet,statistics,contentDetails", { id: videoIds.join(",") });
@@ -232,12 +297,26 @@ function doPost(e) {
           const st = v.statistics || {};
           const ana = analyticsById[v.id] || {};
           const topComments = [];
+          const commentItems = [];
           try {
             if (Number(st.commentCount || 0) > 0) {
-              const cResp = YouTube.CommentThreads.list("snippet", { videoId: v.id, maxResults: 3, order: "relevance" });
+              const cResp = YouTube.CommentThreads.list("snippet", { videoId: v.id, maxResults: 10, order: "time" });
               (cResp.items || []).forEach(function (c) {
-                const txt = c.snippet && c.snippet.topLevelComment && c.snippet.topLevelComment.snippet && c.snippet.topLevelComment.snippet.textDisplay;
-                if (txt) topComments.push(String(txt).replace(/<[^>]+>/g, "").slice(0, 140));
+                const top = c.snippet && c.snippet.topLevelComment;
+                const sn = top && top.snippet;
+                if (sn && sn.textDisplay) {
+                  const cleanTxt = String(sn.textDisplay).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220);
+                  const author = String(sn.authorDisplayName || "Penonton").slice(0, 60);
+                  topComments.push(author + ": " + cleanTxt.slice(0, 140));
+                  commentItems.push({
+                    comment_id: top.id || c.id || "",
+                    video_id: v.id,
+                    author: author,
+                    text: cleanTxt,
+                    like_count: Number(sn.likeCount || 0),
+                    published_at: sn.publishedAt || "",
+                  });
+                }
               });
             }
           } catch (cErr) {}
@@ -255,6 +334,7 @@ function doPost(e) {
             avg_view_percentage: ana.avg_view_percentage !== undefined ? ana.avg_view_percentage : null,
             subscribers_gained: ana.subscribers_gained !== undefined ? ana.subscribers_gained : null,
             top_comments: topComments,
+            comment_items: commentItems,
           });
         });
       }
@@ -264,6 +344,7 @@ function doPost(e) {
         analytics_enabled: analyticsEnabled,
         channel: channelStats,
         videos: videos,
+        recent_comments: recentComments,
       });
     }
 

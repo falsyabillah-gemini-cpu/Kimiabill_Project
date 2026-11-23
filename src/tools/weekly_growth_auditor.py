@@ -12,6 +12,7 @@ Runs every Sunday at 20:00 WIB (after Sunday's 19:00 WIB video is uploaded):
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -24,7 +25,7 @@ import requests
 import yaml
 
 from src.providers import call_structured_agent
-from src.state import Agent8WeeklyAuditOutput
+from src.state import Agent8WeeklyAuditOutput, AudienceRequestItem
 from src.tools.gdrive_sync import _normalize_webhook_url
 
 WIB = ZoneInfo("Asia/Jakarta")
@@ -32,6 +33,91 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 HISTORY_PATH = BASE_DIR / "data" / "published_history.json"
 DIRECTIVES_PATH = BASE_DIR / "data" / "weekly_agent_directives.json"
 AUDITS_DIR = BASE_DIR / "data" / "weekly_audits"
+REQUESTS_PATH = BASE_DIR / "data" / "audience_requests.json"
+
+
+def load_audience_requests() -> list[dict[str, Any]]:
+    if not REQUESTS_PATH.exists():
+        return []
+    try:
+        data = json.loads(REQUESTS_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def queue_audience_requests(
+    new_requests: list[AudienceRequestItem],
+    week_ending: str,
+) -> list[dict[str, Any]]:
+    """Persist new pure-science viewer requests into data/audience_requests.json without duplicates."""
+    existing = load_audience_requests()
+    seen_ids = {x.get("source_comment_id") for x in existing if x.get("source_comment_id")}
+    seen_sigs = {
+        (str(x.get("requester_name") or "").strip().lower(), str(x.get("source_comment") or "").strip().lower()[:80])
+        for x in existing
+    }
+    added: list[dict[str, Any]] = []
+    for req in new_requests:
+        comment_clean = req.source_comment.strip()
+        topic_clean = req.topic_title.strip()
+        requester_clean = (req.requester_name or "Penonton").strip()
+        if not comment_clean or not topic_clean:
+            continue
+        sig = (requester_clean.lower(), comment_clean.lower()[:80])
+        if (req.source_comment_id and req.source_comment_id in seen_ids) or sig in seen_sigs:
+            continue
+        seed = req.source_comment_id or f"{requester_clean}:{comment_clean}"
+        req_id = req.request_id.strip() or f"req_{hashlib.sha1(seed.encode('utf-8')).hexdigest()[:8]}"
+        entry = {
+            "request_id": req_id,
+            "requester_name": requester_clean,
+            "source_comment": comment_clean[:260],
+            "source_video_id": req.source_video_id,
+            "source_comment_id": req.source_comment_id,
+            "topic_title": topic_clean,
+            "discipline": req.discipline,
+            "status": "pending",
+            "created_week": week_ending,
+            "fulfilled_episode_id": None,
+            "fulfilled_youtube_url": None,
+        }
+        existing.append(entry)
+        added.append(entry)
+        if req.source_comment_id:
+            seen_ids.add(req.source_comment_id)
+        seen_sigs.add(sig)
+
+    REQUESTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    REQUESTS_PATH.write_text(json.dumps(existing[-120:], ensure_ascii=False, indent=2), encoding="utf-8")
+    return added
+
+
+def get_next_pending_audience_request() -> Optional[dict[str, Any]]:
+    for item in load_audience_requests():
+        if item.get("status") == "pending":
+            return item
+    return None
+
+
+def mark_audience_request_fulfilled(
+    request_id: str,
+    episode_id: str,
+    youtube_url: Optional[str] = None,
+) -> None:
+    if not request_id or not REQUESTS_PATH.exists():
+        return
+    items = load_audience_requests()
+    changed = False
+    for it in items:
+        if it.get("request_id") == request_id:
+            it["status"] = "published"
+            it["fulfilled_episode_id"] = episode_id
+            if youtube_url:
+                it["fulfilled_youtube_url"] = youtube_url
+            changed = True
+    if changed:
+        REQUESTS_PATH.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def record_published_episode(
@@ -231,6 +317,14 @@ def _format_audit_markdown(
     _sec("Instruksi Upgrade ke Agent 6 (Pencari Footage Real)", audit.agent_6_directives)
     if audit.karat_weekend_directives:
         _sec("Rekomendasi Topik & Riset Edisi Weekend KARAT Minggu Depan", audit.karat_weekend_directives)
+    if getattr(audit, "audience_requests", None):
+        _sec(
+            "Antrean Request Konten dari Komentar Penonton (Siap Tayang Minggu Depan)",
+            [
+                f"**{r.requester_name}** ({r.discipline}) → *{r.topic_title}* — Komentar: \"{r.source_comment}\""
+                for r in audit.audience_requests
+            ],
+        )
     _sec("Eksperimen Minggu Depan", audit.next_week_experiments)
     if audit.recommended_weekend_hours_wib:
         _sec(
@@ -404,25 +498,54 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
 
     prev_directives = load_latest_agent_directives()
     today_wib = datetime.now(WIB).strftime("%Y-%m-%d")
+    existing_requests = load_audience_requests()
+
+    # Merge channel-wide recent comments + per-video comment items/top_comments
+    viewer_comments: list[dict[str, Any]] = []
+    seen_c_keys: set[str] = set()
+    for c in webhook_stats.get("recent_comments", []):
+        cid = c.get("comment_id") or f"{c.get('author')}:{c.get('text', '')[:60]}"
+        if cid not in seen_c_keys and c.get("text"):
+            seen_c_keys.add(cid)
+            viewer_comments.append(c)
+    for v in enriched:
+        for ci in v.get("comment_items", []) or []:
+            cid = ci.get("comment_id") or f"{ci.get('author')}:{ci.get('text', '')[:60]}"
+            if cid not in seen_c_keys and ci.get("text"):
+                seen_c_keys.add(cid)
+                viewer_comments.append(ci)
+        for tc in v.get("top_comments", []) or []:
+            if isinstance(tc, str) and tc.strip():
+                key = f"legacy:{tc[:60]}"
+                if key not in seen_c_keys:
+                    seen_c_keys.add(key)
+                    viewer_comments.append(
+                        {"video_id": v.get("video_id"), "author": "Penonton", "text": tc.strip()}
+                    )
 
     audit = call_structured_agent(
         provider=a8_cfg.get("provider", "auto"),
-        model=a8_cfg.get("model", a8_cfg.get("recommended_prod_model", "gemini-3.5-flash-lite")),
+        model=a8_cfg.get("model", a8_cfg.get("recommended_prod_model", "gemini-3.8-flash")),
         system_prompt=(
             "You are Agent 8 (Chief Weekly System, Engagement & Workflow Efficiency Auditor) for Kimiabill, an Indonesian "
             "pure-science YouTube Shorts studio (Kimia, Fisika, Matematika, Medisinal, Biologi). "
-            "Perform TWO deep audits in clear Indonesian from this week's data:\n"
+            "Perform THREE deep audits in clear Indonesian from this week's data:\n"
             "1. SOCIAL MEDIA ENGAGEMENT & MONETIZATION AUDIT: Analyze views, likes, comments, retention %, avg view duration, "
             "QA scores, hooks, topics, and durations. Also state clearly in `summary` how far the channel is from YouTube "
             "Partner Program Shorts monetization (500 subs / 3M views and 1,000 subs / 10M views) and what will accelerate it.\n"
             "2. WORKFLOW & TOKEN EFFICIENCY AUDIT: Analyze production_seconds, revisions_used, and topic_attempts_used "
             "to spot wasted Gemini/ElevenLabs tokens, slow footage queries, or unnecessary revisions, and recommend "
             "concrete efficiency improvements.\n"
+            "3. AUDIENCE COMMENT & CONTENT REQUEST EXTRACTION: Read `viewer_comments` carefully! Extract up to 5 valid "
+            "pure-science content requests, curious 'why/how' science questions, or requested discussion topics from viewers "
+            "into `audience_requests` (preserving `requester_name` e.g. @handle, `source_comment`, `source_video_id`, "
+            "`source_comment_id`, a crisp Indonesian `topic_title`, and `discipline`). Ignore spam, greetings, or non-science asks, "
+            "and never duplicate anything already in `existing_requests_queue`.\n"
             "Produce sharp, concrete next-week upgrade directives for Agents 1, 2, 3, 5, and 6 so the entire studio "
             "becomes higher quality, faster, and more token-efficient every single week. "
             "Also populate `recommended_weekend_hours_wib` with 2 optimal HH:MM WIB upload times (1 midday slot around 11:30-13:30 "
             "and 1 evening slot around 18:30-20:30) and populate `karat_weekend_directives` with 2-3 specific research-paper "
-            "themes/angles derived from this week's highest-views/highest-retention topics & comments for next Saturday/Sunday's 'KARAT — Kabar Riset Terkini'."
+            "themes/angles derived from this week's highest-views/highest-retention topics & viewer comments for next Saturday/Sunday's 'KARAT — Kabar Riset Terkini'."
         ),
         user_payload={
             "week_ending": today_wib,
@@ -430,11 +553,17 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             "channel_stats": webhook_stats.get("channel", {}),
             "ypp_targets": {"tier1_subs": 500, "tier1_shorts_views_90d": 3000000, "full_subs": 1000, "full_shorts_views_90d": 10000000},
             "recent_videos": enriched,
+            "viewer_comments": viewer_comments[:60],
+            "existing_requests_queue": existing_requests[-25:],
             "previous_week_directives": prev_directives,
         },
         response_model=Agent8WeeklyAuditOutput,
         handoff_path=AUDITS_DIR / f"agent8_audit_{today_wib}.json",
     )
+
+    queued_new = queue_audience_requests(audit.audience_requests, today_wib)
+    if queued_new:
+        print(f"[agent8] Berhasil mencatat {len(queued_new)} request penonton baru ke antrean minggu depan!")
 
     DIRECTIVES_PATH.parent.mkdir(parents=True, exist_ok=True)
     DIRECTIVES_PATH.write_text(audit.model_dump_json(indent=2), encoding="utf-8")

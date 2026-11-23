@@ -1629,6 +1629,7 @@ def _draw_references_card(
     fonts: dict,
     local_t: float,
     appear_at: float,
+    requested_by: Optional[str] = None,
 ) -> None:
     """Draw animated 'THANK YOU FOR WATCHING!' + Follow @kimiabill CTA + Referensi & Sumber end-card."""
     if local_t < appear_at:
@@ -1664,13 +1665,18 @@ def _draw_references_card(
         sr = 8 + int(4 * math.sin(ot * 9.0 + side))
         draw.ellipse([sx - sr, sy - sr, sx + sr, sy + sr], fill=CYAN, outline=WHITE, width=2)
 
-    # 2. Animated pulsing Follow CTA pill
+    # 2. Animated pulsing Follow & Comment-Request CTA pill
     cta_pulse = int(3 * math.sin(ot * 8.0))
+    cta_txt = (
+        f"★ MAKASIH {requested_by[:16].upper()}! YUK REQUEST LAGI! ★"
+        if requested_by
+        else "★ FOLLOW @KIMIABILL • REQUEST TOPIK DI KOMEN! ★"
+    )
     _draw_label_pill(
         draw,
         cx,
         y0 + 106 - cta_pulse,
-        "★ FOLLOW @KIMIABILL • INFO SAINS BERIKUTNYA! ★",
+        cta_txt,
         fonts["tiny_bold"],
         bg=RED,
         fg=WHITE,
@@ -1819,18 +1825,38 @@ def render_hybrid_science_video(
 
             if is_first:
                 is_karat = getattr(plan, "section_tag", "REGULER") == "KARAT"
+                req_by = getattr(plan, "requested_by", None)
                 draw_header_pill(
                     draw,
-                    "KARAT • KABAR RISET TERKINI" if is_karat else "KOK BISA?!",
+                    "KARAT • KABAR RISET TERKINI" if is_karat else ("REQUEST PENONTON!" if req_by else "KOK BISA?!"),
                     ORANGE if is_karat else RED,
                     fonts,
                     local_t,
                     y_center=225,
                 )
+                if req_by and local_t >= 0.25:
+                    _draw_label_pill(
+                        draw,
+                        540,
+                        952,
+                        f"★ REQUEST DARI: {req_by[:28]} ★",
+                        fonts["tiny_bold"],
+                        bg=CYAN,
+                        fg=INK,
+                        outline=WHITE,
+                        pad_x=24,
+                        pad_y=8,
+                        max_w=860,
+                    )
                 if plan.title:
+                    top_lbl = (
+                        "EDISI WEEKEND • RISET TERBARU"
+                        if is_karat
+                        else (f"REQUEST SPESIAL • {req_by[:22]}" if req_by else "FENOMENA SAINS HARI INI")
+                    )
                     draw_takeaway_card(
                         draw,
-                        "EDISI WEEKEND • RISET TERBARU" if is_karat else "FENOMENA SAINS HARI INI",
+                        top_lbl,
                         "KARAT • SAINS" if is_karat else plan.discipline.upper(),
                         ORANGE if is_karat else BLUE,
                         plan.title,
@@ -1847,7 +1873,14 @@ def render_hybrid_science_video(
                 # Final scene: TERJAWAB! + celebrating duo mascots + Thank You / Follow / Referensi end-card
                 outro_start = max(0.15, seg.duration_sec - 4.5)
                 draw_header_pill(draw, "TERJAWAB!", GREEN, fonts, local_t, y_center=225)
-                _draw_references_card(draw, plan.references, fonts, local_t, appear_at=outro_start)
+                _draw_references_card(
+                    draw,
+                    plan.references,
+                    fonts,
+                    local_t,
+                    appear_at=outro_start,
+                    requested_by=getattr(plan, "requested_by", None),
+                )
                 if mascots:
                     mascots.paste(canvas, "male_celebrate", center_x=170, bottom_y=960, target_h=235, local_t=local_t, appear_at=0.1)
                     mascots.paste(canvas, "female_celebrate", center_x=910, bottom_y=960, target_h=235, local_t=local_t, appear_at=0.2)

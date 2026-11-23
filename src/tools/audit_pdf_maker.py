@@ -277,10 +277,18 @@ def generate_weekly_audit_pdf(
                 ay += 21
         ay += 8
 
-    # Bottom Row: Next Week Experiments (Left) + KARAT Weekend Research Recommendations (Right)
+    # Bottom Row: Next Week Experiments + Viewer Requests (Left) + KARAT Weekend Research Recommendations (Right)
     _card(d2, (56, 1455, 56 + col_w, A4_H - 56))
-    d2.text((82, 1475), "EKSPERIMEN ENGAGEMENT MINGGU DEPAN", font=fonts["h3"], fill=GREEN)
+    d2.text((82, 1475), "EKSPERIMEN & REQUEST PENONTON", font=fonts["h3"], fill=GREEN)
     ty = 1511
+    for req in (getattr(audit, "audience_requests", None) or [])[:2]:
+        req_line = f"► Request {req.requester_name}: {req.topic_title}"
+        for ln in _wrap(d2, req_line, fonts["small_b"], col_w - 52, max_lines=2):
+            if ty > A4_H - 72:
+                break
+            d2.text((82, ty), ln, font=fonts["small_b"], fill=BLUE)
+            ty += 21
+        ty += 4
     for item in (audit.next_week_experiments or ["-"])[:3]:
         for ln in _wrap(d2, f"★ {item}", fonts["small"], col_w - 52, max_lines=3):
             if ty > A4_H - 72:

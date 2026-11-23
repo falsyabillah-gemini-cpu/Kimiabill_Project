@@ -226,29 +226,68 @@ def _upload_via_webhook(
     youtube_privacy: Optional[str] = None
     youtube_note: Optional[str] = None
 
+    # Read requester metadata if fulfilling an audience comment request
+    req_by: Optional[str] = None
+    req_comment_id: Optional[str] = None
+    pinned_comment_txt: Optional[str] = None
+    state_json = episode_dir / "episode_state.json"
+    if state_json.exists():
+        try:
+            st_data = json.loads(state_json.read_text(encoding="utf-8"))
+            req_by = st_data.get("requested_by")
+            req_comment_id = st_data.get("request_comment_id")
+        except Exception:
+            pass
+    a7_json = episode_dir / "handoffs" / "agent7_package.json"
+    if a7_json.exists():
+        try:
+            a7_data = json.loads(a7_json.read_text(encoding="utf-8"))
+            for cp in a7_data.get("platform_copies", []):
+                if cp.get("platform") == "youtube_shorts" and cp.get("pinned_comment"):
+                    pinned_comment_txt = str(cp.get("pinned_comment")).strip()
+                    break
+        except Exception:
+            pass
+
     if not allow_youtube:
         youtube_note = f"DITAHAN OLEH AGENT 5 QA AUDITOR (tidak di-upload ke YouTube): {qa_summary}"
         print(f"[youtube] {youtube_note}")
     elif video_file_id and publish_mode in ("draft", "public"):
         yt_copy = _extract_youtube_copy(episode_dir, title)
         privacy = "public" if publish_mode == "public" else "unlisted"
+        yt_payload: dict[str, Any] = {
+            "action": "upload_youtube",
+            "video_file_id": video_file_id,
+            "thumbnail_file_id": thumbnail_file_id,
+            "title": yt_copy["title"],
+            "description": yt_copy["description"],
+            "tags": yt_copy["tags"],
+            "privacy": privacy,
+        }
+        if privacy == "public":
+            first_cmt = pinned_comment_txt or (
+                f"Terima kasih {req_by} atas request topiknya! 🙌 Punya pertanyaan sains lain? Tulis di komentar biar kita bahas minggu depan!"
+                if req_by
+                else "Punya pertanyaan atau request topik sains menarik berikutnya? Tulis di kolom komentar ya! 👇"
+            )
+            yt_payload["first_comment"] = first_cmt
+            if req_comment_id and req_by:
+                yt_payload["reply_to_comment_id"] = req_comment_id
+                yt_payload["reply_comment_text"] = (
+                    f"Halo {req_by}! Request kamu baru aja tayang di Kimiabill 🎉 Cek pembahasannya di sini 👉 {{YOUTUBE_URL}}"
+                )
         try:
             yt_res = _post_webhook(
                 webhook_url,
-                {
-                    "action": "upload_youtube",
-                    "video_file_id": video_file_id,
-                    "thumbnail_file_id": thumbnail_file_id,
-                    "title": yt_copy["title"],
-                    "description": yt_copy["description"],
-                    "tags": yt_copy["tags"],
-                    "privacy": privacy,
-                },
+                yt_payload,
                 timeout=240,
             )
             youtube_url = yt_res.get("youtube_url")
             youtube_privacy = yt_res.get("privacy", privacy)
-            print(f"[youtube] Berhasil upload ke YouTube Shorts ({youtube_privacy}): {youtube_url}")
+            print(
+                f"[youtube] Berhasil upload ke YouTube Shorts ({youtube_privacy}): {youtube_url} "
+                f"(comment_posted={yt_res.get('comment_posted')}, replied_requester={yt_res.get('replied_requester')})"
+            )
             try:
                 hf_dir = episode_dir / "handoffs"
                 hf_dir.mkdir(parents=True, exist_ok=True)
@@ -274,6 +313,8 @@ def _upload_via_webhook(
         model_block = ""
 
     sections = []
+    if req_by:
+        sections.append(f"[MEMENUHI REQUEST KOMENTAR PENONTON]\nRequester: {req_by} (sudah di-mention di video, caption & komentar!)")
     if qa_summary:
         sections.append(f"[HASIL AUDIT QA AGENT 5]\n{qa_summary}")
     if model_block:
