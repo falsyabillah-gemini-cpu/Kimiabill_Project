@@ -269,6 +269,18 @@ class Agent8WeeklyAuditOutput(BaseModel):
         default_factory=list,
         description="2-4 concrete instructions for Agent 5 (Video QA Auditor) for next week",
     )
+    agent_6_directives: list[str] = Field(
+        default_factory=list,
+        description="2-3 concrete instructions for Agent 6 (Footage Scout) to reduce wasted screening & find better clips faster",
+    )
+    workflow_efficiency_summary: str = Field(
+        default="",
+        description="Indonesian assessment of weekly production speed, revision rate, topic retries, and Gemini/ElevenLabs token efficiency",
+    )
+    token_and_cost_optimizations: list[str] = Field(
+        default_factory=list,
+        description="2-4 concrete workflow/prompt/caching optimizations to save tokens, reduce failed revisions, and speed up production",
+    )
     next_week_experiments: list[str] = Field(
         default_factory=list,
         description="2-3 concrete engagement experiments to test next week (hook style, CTA, pacing, topic angle)",

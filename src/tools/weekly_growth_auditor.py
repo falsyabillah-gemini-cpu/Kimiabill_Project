@@ -44,8 +44,11 @@ def record_published_episode(
     qa_score: Optional[float] = None,
     duration_sec: Optional[float] = None,
     hook_line: str = "",
+    revisions_used: int = 0,
+    topic_attempts_used: int = 1,
+    production_seconds: Optional[float] = None,
 ) -> None:
-    """Persist each published episode into data/published_history.json for Sunday Agent 8 audits."""
+    """Persist each published episode + 0-token efficiency telemetry into data/published_history.json."""
     HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
     items: list[dict[str, Any]] = []
     if HISTORY_PATH.exists():
@@ -64,6 +67,9 @@ def record_published_episode(
         "qa_score": qa_score,
         "duration_sec": duration_sec,
         "hook_line": hook_line[:160],
+        "revisions_used": revisions_used,
+        "topic_attempts_used": topic_attempts_used,
+        "production_seconds": round(production_seconds, 1) if production_seconds is not None else None,
     }
     items = [x for x in items if x.get("episode_id") != episode_id]
     items.append(record)
@@ -166,10 +172,15 @@ def _format_audit_markdown(audit: Agent8WeeklyAuditOutput, enriched_videos: list
 
     _sec("Pola yang Paling Berhasil", audit.top_performing_patterns)
     _sec("Kelemahan & Hambatan Engagement", audit.bottlenecks_and_weaknesses)
+    lines.append("")
+    lines.append("## Audit Efisiensi Workflow & Penggunaan Token")
+    lines.append(audit.workflow_efficiency_summary or "-")
+    _sec("Optimasi Token, Kuota & Kecepatan Produksi", audit.token_and_cost_optimizations)
     _sec("Instruksi Upgrade ke Agent 1 (Trend & Ideasi)", audit.agent_1_directives)
     _sec("Instruksi Upgrade ke Agent 2 (Editor & Hook)", audit.agent_2_directives)
     _sec("Instruksi Upgrade ke Agent 3 (Skrip & Animasi Mekanistik)", audit.agent_3_directives)
     _sec("Instruksi Upgrade ke Agent 5 (Video QA Auditor)", audit.agent_5_directives)
+    _sec("Instruksi Upgrade ke Agent 6 (Pencari Footage Real)", audit.agent_6_directives)
     _sec("Eksperimen Minggu Depan", audit.next_week_experiments)
     return "\n".join(lines) + "\n"
 
@@ -309,13 +320,16 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
         provider=a8_cfg.get("provider", "auto"),
         model=a8_cfg.get("model", a8_cfg.get("recommended_prod_model", "gemini-3.5-flash-lite")),
         system_prompt=(
-            "You are Agent 8 (Weekly Social Media Growth & Retention Auditor) for Kimiabill, an Indonesian "
-            "pure-science YouTube Shorts channel (Kimia, Fisika, Matematika, Medisinal, Biologi). "
-            "Analyze this week's uploaded videos, views, likes, comments, QA scores, hooks, topics, and durations. "
-            "Write a deep, practical, data-driven audit in clear Indonesian. "
-            "Give CONCRETE, actionable upgrade directives for Agent 1 (Ideation), Agent 2 (Editorial/Hook), "
-            "Agent 3 (Script, Pacing & Mechanistic Visuals), and Agent 5 (Video QA) so next week's videos "
-            "achieve higher retention, watch-through rate, likes, comments, and subscriber growth."
+            "You are Agent 8 (Chief Weekly System, Engagement & Workflow Efficiency Auditor) for Kimiabill, an Indonesian "
+            "pure-science YouTube Shorts studio (Kimia, Fisika, Matematika, Medisinal, Biologi). "
+            "Perform TWO deep audits in clear Indonesian from this week's data:\n"
+            "1. SOCIAL MEDIA ENGAGEMENT AUDIT: Analyze views, likes, comments, QA scores, hooks, topics, and durations "
+            "to maximize watch-through retention, likes, comments, and follows.\n"
+            "2. WORKFLOW & TOKEN EFFICIENCY AUDIT: Analyze production_seconds, revisions_used, and topic_attempts_used "
+            "to spot wasted Gemini/ElevenLabs tokens, slow footage queries, or unnecessary revisions, and recommend "
+            "concrete efficiency improvements.\n"
+            "Produce sharp, concrete next-week upgrade directives for Agents 1, 2, 3, 5, and 6 so the entire studio "
+            "becomes higher quality, faster, and more token-efficient every single week."
         ),
         user_payload={
             "week_ending": today_wib,

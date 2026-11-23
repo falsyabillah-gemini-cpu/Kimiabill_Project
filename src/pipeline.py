@@ -568,7 +568,13 @@ def run_final_hd_render(episode_id: str) -> tuple[EpisodeState, str, str]:
     return state, video_path, sheet_path
 
 
-def run_upload(episode_id: str, allow_youtube: bool = True, qa_summary: str = "") -> EpisodeState:
+def run_upload(
+    episode_id: str,
+    allow_youtube: bool = True,
+    qa_summary: str = "",
+    topic_attempts_used: int = 1,
+    production_seconds: Optional[float] = None,
+) -> EpisodeState:
     paths = episode_paths(episode_id)
     state = load_or_init_state(episode_id)
     url = upload_episode_to_gdrive(
@@ -600,6 +606,9 @@ def run_upload(episode_id: str, allow_youtube: bool = True, qa_summary: str = ""
             qa_score=state.agent5_history[-1].overall_score if state.agent5_history else None,
             duration_sec=state.render_plan.total_duration_sec if state.render_plan else None,
             hook_line=state.agent3.scenes[0].narration if state.agent3.scenes else "",
+            revisions_used=state.revision_count,
+            topic_attempts_used=topic_attempts_used,
+            production_seconds=production_seconds,
         )
 
     memory = StudioMemory(BASE_DIR)

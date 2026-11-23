@@ -66,6 +66,7 @@ def run_one_automated_episode() -> None:
     max_revisions = int(guardrails.get("max_revisions", 4))
     max_topic_attempts = int(guardrails.get("max_topic_attempts", 3))
     avoid_titles: list[str] = []
+    run_t0 = time.monotonic()
 
     for topic_attempt in range(1, max_topic_attempts + 1):
         now = datetime.now(WIB)
@@ -169,6 +170,8 @@ def run_one_automated_episode() -> None:
         state = run_agent_7_publish(episode_id)
         print(f"[scheduler] Agent 7 selesai: {[r.model_dump() for r in (state.agent7.publish_results if state.agent7 else [])]}")
 
+        prod_elapsed = time.monotonic() - run_t0
+
         # Wait for prime-time publish window if configured (e.g., TARGET_PUBLISH_TIME_WIB="19:00")
         target_pub = os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
         if target_pub and ":" in target_pub:
@@ -188,7 +191,13 @@ def run_one_automated_episode() -> None:
 
         if os.environ.get("AUTO_UPLOAD_GDRIVE", "true").lower() == "true":
             if can_upload_to_gdrive():
-                state = run_upload(episode_id, allow_youtube=True, qa_summary=qa_summary)
+                state = run_upload(
+                    episode_id,
+                    allow_youtube=True,
+                    qa_summary=qa_summary,
+                    topic_attempts_used=topic_attempt,
+                    production_seconds=prod_elapsed,
+                )
                 print(f"[scheduler] Uploaded ke Google Drive & YouTube Shorts: {state.gdrive_folder_url}")
             else:
                 print("[scheduler] Melewati upload Google Drive (GDRIVE_WEBHOOK_URL belum diisi dan CLI 'gdrive' tidak terpasang).")

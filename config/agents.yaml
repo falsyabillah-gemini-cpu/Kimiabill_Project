@@ -61,7 +61,7 @@ agents:
       # - "instagram_reels"
 
   agent_8_growth_auditor:
-    role: "Weekly Social Media Engagement & Cross-Agent Growth Auditor (Every Sunday 20:00 WIB)"
+    role: "Chief Weekly Auditor: Social Media Engagement, Workflow Efficiency & Token Optimization (Every Sunday 20:00 WIB)"
     provider: "auto"
     recommended_prod_provider: "gemini_api"
     recommended_prod_model: "gemini-3.5-flash-lite"
