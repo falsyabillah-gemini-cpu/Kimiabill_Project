@@ -1,38 +1,38 @@
 # Laporan Audit Mingguan Sosial Media Kimiabill (2026-11-23)
 
 ## Ringkasan Performa Minggu Ini
-Performa studio minggu ini mengalami kelesuan ekstrim dengan hanya memproduksi 1 video berdurasi 30.3 detik pada disiplin Kimia (ep_20261123_1127). Meskipun skor QA teknis mencapai 9.5, video tersebut hanya memperoleh 2 views karena tidak adanya volume publikasi harian, absennya diversifikasi ke disiplin Fisika, Matematika, Medisinal, dan Biologi, serta kurangnya momentum algoritma YouTube Shorts. Dari segi efisiensi alur kerja, rendahnya output produksi mengindikasikan adanya hambatan dalam eksekusi terjadwal dan potensi pemborosan kapasitas token akibat kurangnya pipeline ide yang siap produksi.
+Performa studio minggu ini masih terkendala volume publikasi yang sangat rendah, dengan hanya 1 video yang dirilis pada disiplin Kimia (ep_20261123_1127). Meskipun skor QA teknis mencapai 9.5 dan durasi optimal di 30.3 detik, video hanya memperoleh 2 views akibat kurangnya momentum algoritma dan diversifikasi topik ke disiplin lain seperti Fisika, Matematika, Medisinal, dan Biologi.
 
 ## Data Video yang Diaudit
 - **Bahan Unik Ini Malah Makin Kuat Kalau Sering Ditekuk!** (kimia) | Views: 2 | Likes: N/A | Komen: N/A | QA: 9.5 | https://youtube.com/shorts/av3gJNphSpg
 
 ## Pola yang Paling Berhasil
-- Skor QA teknis yang tinggi (9.5) membuktikan bahwa standar dasar kualitas visual dan mekanistik video sudah selaras dengan standar studio.
-- Durasi video di kisaran 30 detik terbukti ideal untuk menjaga retensi penonton YouTube Shorts tanpa kehabisan substansi.
-- Pemilihan topik material sains unik ('Bahan unik ini justru makin kuat kalau sering ditekuk!') memiliki potensi rasa ingin tahu yang sangat tinggi.
+- Skor QA teknis yang tinggi (9.5) menunjukkan standar kualitas visual dan mekanistik dasar studio sudah sangat matang.
+- Durasi video di kisaran 30 detik sangat efektif menjaga retensi tanpa mengorbankan kedalaman materi sains.
+- Pemilihan topik material sains yang unik dan kontraintuitif memiliki daya tarik rasa ingin tahu yang kuat.
 
 ## Kelemahan & Hambatan Engagement
-- Volume publikasi mingguan mandek di angka 1 video, menyebabkan kanal kehilangan total momentum algoritma rekomendasi.
-- Monopoli satu disiplin (hanya Kimia) membuat audiens lintas sains murni terabaikan.
-- Kurangnya optimasi penayangan awal dan kekuatan emosional hook membuat video gagal menembus batas minimum views organik (hanya 2 views).
+- Volume publikasi mingguan mandek di angka 1 video, menyebabkan kanal gagal membangun otoritas dan momentum algoritma Shorts.
+- Monopoli satu disiplin (Kimia saja) membuat audiens dari pilar sains murni lainnya terabaikan.
+- Ketiadaan hook emosional yang kuat pada detik pertama membuat video gagal menembus impresi awal audiens organik.
 
 ## Audit Efisiensi Workflow & Penggunaan Token
-Efisiensi alur kerja minggu ini sangat buruk akibat kegagalan memenuhi target volume harian. Kapasitas token LLM (Gemini) dan generator suara (ElevenLabs) tidak terpakai secara maksimal karena hanya ada 1 siklus produksi yang berjalan. Diperlukan pengetatan SOP otomatisasi agar pipeline dari ide hingga render akhir berjalan tanpa hambatan operasional.
+Efisiensi alur kerja minggu ini sangat rendah karena kegagalan memenuhi target volume harian, sehingga kapasitas token LLM (Gemini) dan generator suara (ElevenLabs) tidak terserap optimal. Diperlukan pengetatan SOP otomatisasi agar pipeline dari ide hingga render akhir berjalan tanpa hambatan operasional.
 
 ## Optimasi Token, Kuota & Kecepatan Produksi
-- Gunakan template prompt terstandarisasi untuk Agent 1 dan Agent 3 guna meminimalisir iterasi chat Gemini yang berulang dan menghemat token.
-- Lakukan batching (pemrosesan massal) untuk skrip dan voiceover ElevenLabs sekaligus di awal minggu untuk menghindari penggunaan token harian yang terfragmentasi.
-- Terapkan sistem caching pada aset visual dan struktur naskah yang terbukti sukses agar tidak memerlukan query ulang yang memakan waktu dan sumber daya.
+- Gunakan template prompt terstandarisasi untuk Agent 1 dan Agent 3 guna meminimalisir iterasi chat Gemini yang berulang.
+- Lakukan batching (pemrosesan massal) untuk skrip dan voiceover ElevenLabs di awal minggu untuk menghindari fragmentasi penggunaan token.
+- Terapkan sistem caching pada aset visual dan struktur naskah terbukti sukses agar tidak memerlukan query ulang yang membuang sumber daya.
 
 ## Instruksi Upgrade ke Agent 1 (Trend & Ideasi)
-- Wajib menyetor minimal 7 ide topik segar per minggu yang mencakup 5 pilar disiplin studio secara merata (Kimia, Fisika, Matematika, Medisinal, Biologi).
-- Fokuskan riset pada fenomena sains 'counter-intuitive' atau paradoks yang langsung memicu perdebatan di kolom komentar.
-- Sertakan bank referensi tren dari kreator sains global sebagai fondasi brief ide.
+- Wajib menyetor minimal 7 ide topik segar per minggu yang mencakup 5 pilar disiplin studio (Kimia, Fisika, Matematika, Medisinal, Biologi) secara merata.
+- Fokuskan riset pada fenomena sains 'counter-intuitive' atau paradoks yang memicu perdebatan instan di kolom komentar.
+- Sertakan bank referensi tren kreator sains global sebagai fondasi brief ide.
 
 ## Instruksi Upgrade ke Agent 2 (Editor & Hook)
 - Rombak total struktur hook menjadi tipe pertanyaan retoris ekstrem atau ancaman paradoks visual dalam 3 detik pertama.
-- Pastikan judul video menggunakan diksi lokal Indonesia yang memancing rasa penasaran tinggi tanpa melanggar batas clickbait.
-- Lakukan audit ketat pada draf skrip sebelum diteruskan ke tahap produksi untuk memastikan elemen scroll-stopper terpenuhi.
+- Pastikan judul menggunakan diksi lokal Indonesia yang memancing rasa penasaran tinggi tanpa melanggar batas clickbait.
+- Lakukan audit ketat pada draf skrip sebelum diteruskan ke produksi untuk memastikan elemen scroll-stopper terpenuhi.
 
 ## Instruksi Upgrade ke Agent 3 (Skrip & Animasi Mekanistik)
 - Perketat pacing pada paruh awal naskah untuk mengeliminasi potensi drop-off penonton di detik ke-2 hingga ke-5.
