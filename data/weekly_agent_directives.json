@@ -1,0 +1,38 @@
+{
+  "week_ending": "2026-11-23",
+  "summary": "Performa minggu ini menunjukkan aktivitas upload yang sangat minim dengan hanya 1 video yang dirilis di disiplin kimia (ep_20261123_1127). Meskipun skor QA teknis mencapai 9.5 dengan durasi optimal sekitar 30 detik, video tersebut baru menghasilkan 2 views karena kurangnya volume publikasi, momentum algoritma, dan variasi topik lintas disiplin (Fisika, Matematika, Medisinal, Biologi). Diperlukan peningkatan konsistensi produksi harian serta strategi distribusi yang lebih agresif.",
+  "top_performing_patterns": [
+    "Skor QA internal yang tinggi (9.5) menunjukkan kualitas visual dan mekanistik memenuhi standar produksi dasar.",
+    "Durasi video di kisaran 30 detik sudah tepat untuk menjaga potensi retensi penonton YouTube Shorts.",
+    "Topik berbasis material sains unik ('Bahan unik ini justru makin kuat kalau sering ditekuk!') memiliki potensi rasa ingin tahu yang tinggi jika dieksekusi dengan hook yang lebih tajam."
+  ],
+  "bottlenecks_and_weaknesses": [
+    "Volume publikasi mingguan sangat rendah (hanya 1 video), menyebabkan kanal kehilangan momentum algoritma rekomendasi YouTube.",
+    "Kurangnya diversifikasi disiplin sains (hanya Kimia, mengabaikan Fisika, Matematika, Medisinal, dan Biologi).",
+    "Views rendah (2 views) mengindikasikan perlunya perbaikan pada optimasi judul, thumbnail frame pertama, dan kekuatan hook emosional/psikologis."
+  ],
+  "agent_1_directives": [
+    "Tingkatkan volume ide topik sains murni menjadi minimal 7 ide segar per minggu untuk mencakup Kimia, Fisika, Matematika, Medisinal, dan Biologi.",
+    "Fokuskan riset ide pada fenomena 'paradoks sains' yang melawan intuisi umum untuk mendongkrak rasa penasaran penonton Indonesia.",
+    "Sertakan referensi tren atau pertanyaan populer dari TikTok/YouTube Shorts sains global dalam setiap brief ide."
+  ],
+  "agent_2_directives": [
+    "Rombak struktur hook agar tidak hanya deskriptif, tetapi langsung menyajikan ancaman, pertanyaan retoris ekstrem, atau kontradiksi visual.",
+    "Pastikan judul video menggunakan kata kunci pemicu rasa penasaran yang relevan dengan penonton lokal Indonesia tanpa clickbait yang berlebihan.",
+    "Audit ulang setiap draft hook untuk memastikan 3 detik pertama mampu menghentikan scroll (scroll-stopper)."
+  ],
+  "agent_3_directives": [
+    "Perketat ritme (pacing) naskah pada paruh pertama video untuk meminimalkan drop-off rate di detik ke-2 hingga ke-5.",
+    "Perkuat visualisasi mekanistik tingkat molekuler atau matematis yang bergerak dinamis agar penonton mendapatkan kepuasan visual sains murni.",
+    "Sisipkan Call-to-Action (CTA) interaktif di akhir video untuk mendorong komentar dan diskusi penonton."
+  ],
+  "agent_5_directives": [
+    "Terapkan standar QA yang lebih ketat tidak hanya pada aspek teknis, tetapi juga pada daya tarik emosional dari frame pertama video.",
+    "Validasi bahwa durasi 25-35 detik benar-benar padat informasi tanpa ada jeda kosong atau dead-air dalam narasi.",
+    "Pastikan sinkronisasi antara audio voiceover, teks on-screen, dan animasi visual berjalan tanpa cela."
+  ],
+  "next_week_experiments": [
+    "Uji coba hook tipe 'Pertanyaan Menantang Logika' berdurasi 25 detik untuk membandingkan tingkat retensi dengan format naratif biasa.",
+    "Eksperimen dengan CTA berbasis pertanyaan kontroversial di kolom komentar untuk meningkatkan engagement rate."
+  ]
+}
