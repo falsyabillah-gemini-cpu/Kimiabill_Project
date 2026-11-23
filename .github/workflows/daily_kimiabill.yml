@@ -1,20 +1,19 @@
 name: Kimiabill Daily Auto-Video
 
 on:
-  # Jadwal otomatis dijeda sementara sampai kualitas video disetujui user:
-  # schedule:
-  #   # Setiap hari jam 08:00 WIB (01:00 UTC)
-  #   - cron: "0 1 * * *"
+  schedule:
+    # Setiap hari jam 08:00 WIB (01:00 UTC)
+    - cron: "0 1 * * *"
   workflow_dispatch:
     inputs:
       publish_mode:
-        description: "Mode upload YouTube (draft = Unlisted aman / public = langsung tayang / dry_run = Drive saja)"
+        description: "Mode upload YouTube (public = langsung tayang / draft = Unlisted / dry_run = Drive saja)"
         required: false
-        default: "draft"
+        default: "public"
         type: choice
         options:
-          - draft
           - public
+          - draft
           - dry_run
 
 jobs:
@@ -43,7 +42,7 @@ jobs:
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID || vars.ELEVENLABS_VOICE_ID }}
           ELEVENLABS_MODEL_ID: ${{ vars.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2' }}
-          PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'draft' }}
+          PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'public' }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}

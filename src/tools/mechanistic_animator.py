@@ -1596,32 +1596,70 @@ def _draw_references_card(
     local_t: float,
     appear_at: float,
 ) -> None:
-    """Draw a clear, legible Referensi & Sumber card at the closing seconds of the video."""
-    if local_t < appear_at or not references:
+    """Draw animated 'THANK YOU FOR WATCHING!' + Follow @kimiabill CTA + Referensi & Sumber end-card."""
+    if local_t < appear_at:
         return
-    p = ease_out_back((local_t - appear_at) / 0.35)
+    ot = local_t - appear_at
+    p = ease_out_back(ot / 0.35)
     if p <= 0.05:
         return
 
-    x0, y0, x1, y1 = 56, 1020, 1024, 1330
+    x0, y0, x1, y1 = 56, 955, 1024, 1375
+    cx = (x0 + x1) // 2
     cy = (y0 + y1) // 2
     hh = int(((y1 - y0) // 2) * min(p, 1.02))
-    draw_comic_box(draw, (x0, cy - hh, x1, cy + hh), fill=CARD_DARK, outline=YELLOW, radius=26, border_w=5, shadow_offset=10)
+    draw_comic_box(draw, (x0, cy - hh, x1, cy + hh), fill=CARD_DARK, outline=YELLOW, radius=28, border_w=6, shadow_offset=10)
     if p < 0.65:
         return
 
-    draw.text((x0 + 34, y0 + 28), "REFERENSI & SUMBER:", font=fonts["small_bold"], fill=YELLOW, anchor="lt")
-    draw.line([(x0 + 34, y0 + 72), (x1 - 34, y0 + 72)], fill=(255, 255, 255, 80), width=2)
+    # 1. Animated "THANK YOU FOR WATCHING!" banner with twinkling sparkles
+    bob = int(4 * math.sin(ot * 6.0))
+    draw_outlined_text(
+        draw,
+        (cx, y0 + 44 + bob),
+        "THANK YOU FOR WATCHING!",
+        fonts["summary"],
+        fill=YELLOW,
+        outline_color=INK,
+        stroke_w=5,
+    )
+    # Animated star/sparkle dots flanking the title
+    for side in (-1, 1):
+        sx = cx + side * 375
+        sy = y0 + 44 + int(6 * math.cos(ot * 7.0 + side))
+        sr = 8 + int(4 * math.sin(ot * 9.0 + side))
+        draw.ellipse([sx - sr, sy - sr, sx + sr, sy + sr], fill=CYAN, outline=WHITE, width=2)
 
-    ty = y0 + 88
-    for idx, ref in enumerate(references[:4], start=1):
+    # 2. Animated pulsing Follow CTA pill
+    cta_pulse = int(3 * math.sin(ot * 8.0))
+    _draw_label_pill(
+        draw,
+        cx,
+        y0 + 106 - cta_pulse,
+        "★ FOLLOW @KIMIABILL • INFO SAINS BERIKUTNYA! ★",
+        fonts["tiny_bold"],
+        bg=RED,
+        fg=WHITE,
+        outline=YELLOW,
+        pad_x=22,
+        pad_y=10,
+        max_w=(x1 - x0) - 48,
+    )
+
+    # 3. Divider + Referensi & Sumber bibliography
+    draw.line([(x0 + 34, y0 + 148), (x1 - 34, y0 + 148)], fill=(255, 255, 255, 95), width=2)
+    draw.text((x0 + 34, y0 + 162), "REFERENSI & SUMBER:", font=fonts["tiny_bold"], fill=YELLOW, anchor="lt")
+
+    ty = y0 + 198
+    refs_to_show = references[:3] if references else ["Kimiabill Pure Science Editorial & Wikimedia Commons (CC)"]
+    for idx, ref in enumerate(refs_to_show, start=1):
         wrapped = _wrap_text(draw, f"{idx}. {ref}", fonts["micro_bold"], (x1 - x0) - 72, max_lines=2)
         for ln in wrapped:
-            if ty + 26 > y1 - 14:
+            if ty + 24 > y1 - 14:
                 break
             draw.text((x0 + 36, ty), ln, font=fonts["micro_bold"], fill=WHITE, anchor="lt")
-            ty += 28
-        ty += 6
+            ty += 26
+        ty += 4
 
 
 def render_hybrid_science_video(
@@ -1763,13 +1801,13 @@ def render_hybrid_science_video(
                     mascots.paste(canvas, "male_curious", center_x=135, bottom_y=1530, target_h=220, local_t=local_t, appear_at=0.15)
                     mascots.paste(canvas, "female_curious", center_x=945, bottom_y=1530, target_h=220, local_t=local_t, appear_at=0.25)
             elif is_last:
-                # Final scene: TERJAWAB! + celebrating duo mascots + Referensi & Sumber card
-                outro_start = max(0.2, seg.duration_sec - 4.0)
+                # Final scene: TERJAWAB! + celebrating duo mascots + Thank You / Follow / Referensi end-card
+                outro_start = max(0.15, seg.duration_sec - 4.5)
                 draw_header_pill(draw, "TERJAWAB!", GREEN, fonts, local_t, y_center=225)
                 _draw_references_card(draw, plan.references, fonts, local_t, appear_at=outro_start)
                 if mascots:
-                    mascots.paste(canvas, "male_celebrate", center_x=170, bottom_y=1010, target_h=250, local_t=local_t, appear_at=0.1)
-                    mascots.paste(canvas, "female_celebrate", center_x=910, bottom_y=1010, target_h=250, local_t=local_t, appear_at=0.2)
+                    mascots.paste(canvas, "male_celebrate", center_x=170, bottom_y=960, target_h=235, local_t=local_t, appear_at=0.1)
+                    mascots.paste(canvas, "female_celebrate", center_x=910, bottom_y=960, target_h=235, local_t=local_t, appear_at=0.2)
             else:
                 # Middle scenes: Genuine 30fps scientific mechanistic simulation + alternating mascot
                 h_col = header_colors[seg_idx % len(header_colors)]

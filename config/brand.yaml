@@ -58,7 +58,7 @@ audio_mix:
   bgm_gain_db: -24.0
 
 publishing:
-  default_mode: "draft"   # "dry_run" | "draft" (YouTube Unlisted) | "public" (langsung tayang)
+  default_mode: "public"   # "dry_run" | "draft" (YouTube Unlisted) | "public" (langsung tayang)
   platforms:
     - "youtube_shorts"
     # Aktifkan nanti saat sudah siap:

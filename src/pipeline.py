@@ -281,6 +281,8 @@ def run_agent_1_to_3(
             "'molecular_reaction' (bonds breaking/forming with curved arrows), 'receptor_binding' (enzyme/drug lock-and-key docking), "
             "'force_wave' (physics wave/force vectors), or 'math_geometry' (live mathematical curve/growth), and fill concise "
             "`title`, `actor_a`, `actor_b`, `result`, and `caption` matching the scene's exact mechanism. "
+            "The FINAL scene's Indonesian narration MUST end with the exact closing CTA: "
+            "'Jangan lupa follow Kimiabill untuk info sains berikutnya!' "
             "ALWAYS populate `references` with 1-3 real, accurate scientific references (journal, textbook, university, or source article)."
         ),
         user_payload={
