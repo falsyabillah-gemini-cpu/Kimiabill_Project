@@ -24,5 +24,28 @@
     "topic_attempts_used": 1,
     "production_seconds": 444.1,
     "publish_mode": "public"
+  },
+  {
+    "episode_id": "ep_20261123_1936_t3",
+    "published_at_wib": "2026-11-23T19:44:29+07:00",
+    "title": "Logam Perak Meniru Zat Radioaktif Berbahaya!",
+    "discipline": "kimia",
+    "youtube_url": "https://youtube.com/shorts/QfTbL7vPiKQ",
+    "gdrive_folder_url": "https://drive.google.com/drive/folders/1GmMR2KjSTxBVc6VJLfzAiy79QrAtuQ5R",
+    "qa_score": 9.2,
+    "duration_sec": 57.024,
+    "hook_line": "Bagaimana jika logam perak yang sering kita lihat ternyata bisa berubah meniru struktur zat radioaktif paling mematikan?",
+    "revisions_used": 0,
+    "topic_attempts_used": 3,
+    "production_seconds": 1257.1,
+    "publish_mode": "public",
+    "agent_models": {
+      "Agent 1 (Ideasi Topik)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)",
+      "Agent 2 (Auditor Hook)": "gemini-3.5-flash-lite (fallback dari gemini-4-hydrogen)",
+      "Agent 3 (Skrip & Storyboard)": "gemini-3.5-flash-lite (fallback dari gemini-4-hydrogen)",
+      "Agent 6 (Screening Klip)": "gemini-3.5-flash-lite (23x)",
+      "Agent 5 (QA Video v1)": "gemini-3.5-flash-lite (fallback dari gemini-4-hydrogen)",
+      "Agent 7 (Packaging & SEO)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)"
+    }
   }
 ]
