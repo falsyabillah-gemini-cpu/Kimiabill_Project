@@ -228,8 +228,9 @@ def _deliver_audit_to_drive_and_email(
     audit: Agent8WeeklyAuditOutput,
     report_md: str,
     report_path: Path,
+    pdf_path: Optional[Path] = None,
 ) -> None:
-    """Upload weekly audit report to Google Drive (Kimiabill_Studio/Weekly_Audits) & email research inbox."""
+    """Upload weekly audit PDF + Markdown to Google Drive (Kimiabill_Studio/Weekly_Audits) & email research inbox."""
     raw_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
     if not raw_url:
         print("[agent8] GDRIVE_WEBHOOK_URL tidak diset; melewati upload Drive & email.")
@@ -239,6 +240,7 @@ def _deliver_audit_to_drive_and_email(
     notify_to = os.environ.get("NOTIFY_EMAIL_TO", "researchfalsyabillah@gmail.com").strip()
 
     folder_url = ""
+    pdf_url = ""
     file_url = ""
     try:
         init_resp = requests.post(
@@ -254,6 +256,21 @@ def _deliver_audit_to_drive_and_email(
         if init_resp.get("ok"):
             folder_id = init_resp["folder_id"]
             folder_url = init_resp.get("folder_url", "")
+            if pdf_path and pdf_path.exists():
+                up_pdf = requests.post(
+                    webhook_url,
+                    json={
+                        "action": "upload_file",
+                        "token": token,
+                        "folder_id": folder_id,
+                        "filename": pdf_path.name,
+                        "mime_type": "application/pdf",
+                        "content_base64": base64.b64encode(pdf_path.read_bytes()).decode("ascii"),
+                    },
+                    timeout=90,
+                ).json()
+                if up_pdf.get("ok"):
+                    pdf_url = up_pdf.get("file_url", "")
             up_resp = requests.post(
                 webhook_url,
                 json={
@@ -271,8 +288,15 @@ def _deliver_audit_to_drive_and_email(
     except Exception as exc:
         print(f"[agent8] Peringatan upload Drive laporan mingguan: {exc}")
 
-    # Email full report via send_custom_email (new Apps Script) or fallback to notify_email (existing deployment)
-    subject = f"[Kimiabill] Laporan Audit Mingguan Sosial Media ({audit.week_ending})"
+    header_links = []
+    if pdf_url:
+        header_links.append(f"📄 BUKA LAPORAN PDF VISUAL (GRAFIK & MONETISASI): {pdf_url}")
+    if folder_url:
+        header_links.append(f"📁 Folder Arsip Audit Drive: {folder_url}")
+    email_body = ("\n".join(header_links) + "\n\n" if header_links else "") + report_md
+
+    # Email full report via send_custom_email (new Apps Script) or fallback to notify_email
+    subject = f"[Kimiabill] Laporan Audit Mingguan Visual PDF ({audit.week_ending})"
     try:
         r1 = requests.post(
             webhook_url,
@@ -281,12 +305,12 @@ def _deliver_audit_to_drive_and_email(
                 "token": token,
                 "to": notify_to,
                 "subject": subject,
-                "body": report_md + (f"\n\nFolder Drive Audit: {folder_url}" if folder_url else ""),
+                "body": email_body,
             },
             timeout=45,
         ).json()
         if r1.get("ok"):
-            print(f"[agent8] Laporan audit mingguan terkirim ke {notify_to}")
+            print(f"[agent8] Laporan audit mingguan (PDF: {pdf_url}) terkirim ke {notify_to}")
             return
     except Exception:
         pass
@@ -299,10 +323,10 @@ def _deliver_audit_to_drive_and_email(
                 "token": token,
                 "to": notify_to,
                 "episode_name": f"weekly_audit_{audit.week_ending}",
-                "title": f"LAPORAN AUDIT MINGGUAN SOSIAL MEDIA ({audit.week_ending})",
+                "title": f"LAPORAN AUDIT MINGGUAN VISUAL PDF ({audit.week_ending})",
                 "folder_url": folder_url,
-                "video_url": file_url,
-                "captions_preview": report_md,
+                "video_url": pdf_url or file_url,
+                "captions_preview": email_body,
             },
             timeout=45,
         ).json()
@@ -386,10 +410,21 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
     DIRECTIVES_PATH.write_text(audit.model_dump_json(indent=2), encoding="utf-8")
 
     AUDITS_DIR.mkdir(parents=True, exist_ok=True)
-    report_md = _format_audit_markdown(audit, enriched, channel_stats=webhook_stats.get("channel", {}))
+    ch_stats = webhook_stats.get("channel", {})
+    report_md = _format_audit_markdown(audit, enriched, channel_stats=ch_stats)
     report_path = AUDITS_DIR / f"weekly_audit_{today_wib}.md"
     report_path.write_text(report_md, encoding="utf-8")
 
-    _deliver_audit_to_drive_and_email(audit, report_md, report_path)
+    pdf_path = AUDITS_DIR / f"WEEKLY_AUDIT_{today_wib}.pdf"
+    try:
+        from src.tools.audit_pdf_maker import generate_weekly_audit_pdf
+
+        generate_weekly_audit_pdf(audit, enriched, ch_stats, pdf_path)
+        print(f"[agent8] PDF visual berhasil dibuat: {pdf_path}")
+    except Exception as exc:
+        print(f"[agent8] Peringatan gagal membuat PDF visual: {exc}")
+        pdf_path = None
+
+    _deliver_audit_to_drive_and_email(audit, report_md, report_path, pdf_path=pdf_path)
     print(f"[agent8] Audit mingguan selesai ({today_wib}). Instruksi terbaru disimpan di {DIRECTIVES_PATH}")
     return audit
