@@ -126,9 +126,9 @@ def _post_with_retry(
     json_body: dict[str, Any],
     headers: dict[str, str] | None = None,
     max_attempts: int = 3,
-    timeout: int = 50,
+    timeout: int = 28,
 ) -> requests.Response:
-    """POST with exponential backoff on transient 429/5xx errors or network hiccups."""
+    """POST with bounded backoff on transient 429/5xx errors or network hiccups."""
     last_exc: Exception | None = None
     resp: requests.Response | None = None
     for attempt in range(max_attempts):
@@ -136,12 +136,12 @@ def _post_with_retry(
             resp = requests.post(url, headers=headers, json=json_body, timeout=timeout)
             if resp.status_code not in TRANSIENT_STATUS_CODES:
                 return resp
-            wait_sec = min(30, 3 * (2 ** attempt))
+            wait_sec = min(10, 2 * (2 ** attempt))
             print(f"[providers] Transient HTTP {resp.status_code}, retrying in {wait_sec}s (attempt {attempt + 1}/{max_attempts})...")
             time.sleep(wait_sec)
         except requests.RequestException as exc:
             last_exc = exc
-            wait_sec = min(30, 3 * (2 ** attempt))
+            wait_sec = min(10, 2 * (2 ** attempt))
             print(f"[providers] Network error ({exc}), retrying in {wait_sec}s (attempt {attempt + 1}/{max_attempts})...")
             time.sleep(wait_sec)
     if resp is not None:
@@ -291,13 +291,19 @@ def call_structured_agent(
             tried: list[str] = []
             candidates = [model, *[m for m in GEMINI_FALLBACK_MODELS if m != model]]
             resp = None
-            for cand_model in candidates:
+            for cand_idx, cand_model in enumerate(candidates):
                 tried.append(cand_model)
                 url = (
                     f"https://generativelanguage.googleapis.com/v1beta/models/"
                     f"{cand_model}:generateContent?key={api_key}"
                 )
-                resp = _post_with_retry(url, json_body=body, max_attempts=3)
+                has_more = cand_idx < len(candidates) - 1
+                try:
+                    resp = _post_with_retry(url, json_body=body, max_attempts=2 if has_more else 3)
+                except requests.RequestException as exc:
+                    print(f"[providers] Gemini model '{cand_model}' timeout/network error ({exc}), trying next fallback...")
+                    resp = None
+                    continue
                 if resp.status_code == 200:
                     break
                 if cand_model == "gemini-4-hydrogen" and resp.status_code in (402, 403, 404, 429):
@@ -305,7 +311,7 @@ def call_structured_agent(
                 if resp.status_code not in (402, 403, 404, *TRANSIENT_STATUS_CODES):
                     break
                 print(f"[providers] Gemini model '{cand_model}' returned HTTP {resp.status_code}, trying next fallback...")
-            if resp is not None and resp.status_code in (404, *TRANSIENT_STATUS_CODES):
+            if resp is None or resp.status_code in (404, *TRANSIENT_STATUS_CODES):
                 discovered = _discover_gemini_flash_model(api_key)
                 if discovered and discovered not in tried:
                     url = (

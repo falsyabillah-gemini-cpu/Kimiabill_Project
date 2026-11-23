@@ -65,6 +65,23 @@ DISALLOWED_TITLE_TOKENS = (
     "promo",
     "donation",
     "scp-",
+    "tutorial",
+    "ukulele",
+    "guitar",
+    "horseback",
+    "flamingo",
+    "cctv",
+    "wallet theft",
+    "brush pack",
+    "painter",
+    "hubblecast",
+    "esocast",
+    "sora in action",
+    "graduation",
+    "from farm to plate",
+    "recipe",
+    "street light",
+    "full moon",
 )
 
 # Family-safety blocklist (checked against title + categories + description metadata)
@@ -247,17 +264,16 @@ def search_wikimedia_videos(query: str, limit: int = 12) -> list[VideoCandidate]
     return out
 
 
-def download_and_normalize_clip(
+def _download_raw_clip(
     candidate: VideoCandidate,
-    dest_mp4: Path,
-    max_download_mb: int = 80,
+    raw_path: Path,
+    max_download_mb: int = 32,
 ) -> Optional[dict]:
-    """Download candidate video and normalize to clean H.264 MP4 (max 20s slice) for fast rendering."""
-    dest_mp4.parent.mkdir(parents=True, exist_ok=True)
-    raw_path = dest_mp4.with_suffix(".raw_dl")
+    """Download candidate video up to max_download_mb and verify it is decodable before screening."""
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
     headers = {"User-Agent": USER_AGENT}
     try:
-        with requests.get(candidate.download_url, headers=headers, stream=True, timeout=45) as r:
+        with requests.get(candidate.download_url, headers=headers, stream=True, timeout=25) as r:
             r.raise_for_status()
             total = 0
             limit_bytes = max_download_mb * 1024 * 1024
@@ -272,7 +288,15 @@ def download_and_normalize_clip(
         if not info or info["duration"] < 2.5 or info["width"] < 320:
             raw_path.unlink(missing_ok=True)
             return None
-        # Transcode up to 25s (starting slightly after 0 if long clip) into clean yuv420p H.264 MP4
+        return info
+    except Exception:
+        raw_path.unlink(missing_ok=True)
+        return None
+
+
+def _transcode_to_mp4(raw_path: Path, info: dict, dest_mp4: Path) -> Optional[dict]:
+    """Transcode approved raw clip (up to 25s slice) into clean yuv420p H.264 MP4."""
+    try:
         start_at = 1.5 if info["duration"] > 18.0 else 0.0
         subprocess.run(
             [
@@ -301,11 +325,25 @@ def download_and_normalize_clip(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        raw_path.unlink(missing_ok=True)
         return probe_video(dest_mp4)
     except Exception:
-        raw_path.unlink(missing_ok=True)
         return None
+    finally:
+        raw_path.unlink(missing_ok=True)
+
+
+def download_and_normalize_clip(
+    candidate: VideoCandidate,
+    dest_mp4: Path,
+    max_download_mb: int = 32,
+) -> Optional[dict]:
+    """Download candidate video and normalize to clean H.264 MP4 (max 25s slice) for fast rendering."""
+    dest_mp4.parent.mkdir(parents=True, exist_ok=True)
+    raw_path = dest_mp4.with_suffix(".raw_dl")
+    info = _download_raw_clip(candidate, raw_path, max_download_mb=max_download_mb)
+    if not info:
+        return None
+    return _transcode_to_mp4(raw_path, info, dest_mp4)
 
 
 def _build_frame_strip(clip: Path, out_jpg: Path) -> Optional[Path]:
@@ -422,12 +460,14 @@ def scout_assets_for_scenes(
     exclude_urls: Optional[set[str]] = None,
     existing_assets: Optional[dict[str, SceneAsset]] = None,
     target_scene_ids: Optional[set[str]] = None,
+    tried_urls_out: Optional[set[str]] = None,
 ) -> Agent6Output:
     """Scout real video footage + cached SFX for each scene (supports targeted re-scouting)."""
     assets_dir.mkdir(parents=True, exist_ok=True)
     results: list[SceneAsset] = []
     used_urls: set[str] = set(exclude_urls or ())
-    max_screens = int(os.environ.get("ASSET_MAX_SCREENS_PER_SCENE", "12"))
+    used_stems: set[str] = set()
+    max_screens = int(os.environ.get("ASSET_MAX_SCREENS_PER_SCENE", "6"))
 
     for scene in scenes:
         if target_scene_ids is not None and scene.scene_id not in target_scene_ids and existing_assets and scene.scene_id in existing_assets:
@@ -440,7 +480,7 @@ def scout_assets_for_scenes(
         chosen_info: Optional[dict] = None
         fallback_cand: Optional[VideoCandidate] = None
         fallback_info: Optional[dict] = None
-        fallback_path: Optional[Path] = None
+        fallback_raw: Optional[Path] = None
         screens_done = 0
 
         if manual_overrides and scene.scene_id in manual_overrides:
@@ -485,36 +525,48 @@ def scout_assets_for_scenes(
                 cands.sort(key=lambda c: (0 if c.width >= 720 else 1, -min(c.width, 1920)))
                 per_query_screens = 0
                 for cand in cands:
-                    if cand.download_url in used_urls or cand.page_url in used_urls:
+                    stem = cand.title.lower()[:32]
+                    if cand.download_url in used_urls or cand.page_url in used_urls or stem in used_stems:
                         continue
-                    if screens_done >= max_screens or per_query_screens >= 3:
+                    if screens_done >= max_screens or per_query_screens >= 2:
                         break
-                    info = download_and_normalize_clip(cand, dest_mp4)
-                    if not info:
-                        continue
+                    raw_path = dest_mp4.with_suffix(".raw_dl")
+                    raw_info = _download_raw_clip(cand, raw_path)
                     used_urls.add(cand.download_url)
                     used_urls.add(cand.page_url)
+                    used_stems.add(stem)
+                    if not raw_info:
+                        continue
                     screens_done += 1
                     per_query_screens += 1
-                    ok, clean, reason = vision_screen_clip(dest_mp4, scene)
+                    ok, clean, reason = vision_screen_clip(raw_path, scene)
                     print(f"[asset_scout] {scene.scene_id} screen '{cand.title[:60]}': ok={ok} ({reason[:160]})")
                     if ok:
-                        chosen_cand, chosen_info = cand, info
-                        break
+                        chosen_info = _transcode_to_mp4(raw_path, raw_info, dest_mp4)
+                        if chosen_info:
+                            chosen_cand = cand
+                            if fallback_raw is not None:
+                                fallback_raw.unlink(missing_ok=True)
+                                fallback_raw = None
+                            break
+                        continue
                     if clean and fallback_cand is None:
-                        # Family-safe but weakly relevant: keep as last-resort fallback
-                        fb_path = dest_mp4.with_name(f"{dest_mp4.stem}_fallback.mp4")
-                        dest_mp4.replace(fb_path)
-                        fallback_cand, fallback_info, fallback_path = cand, info, fb_path
+                        fb_raw = dest_mp4.with_name(f"{dest_mp4.stem}_fb.raw")
+                        raw_path.replace(fb_raw)
+                        fallback_cand, fallback_info, fallback_raw = cand, raw_info, fb_raw
                     else:
-                        dest_mp4.unlink(missing_ok=True)
+                        raw_path.unlink(missing_ok=True)
                 if chosen_cand or screens_done >= max_screens:
                     break
 
-            if chosen_cand is None and fallback_cand is not None:
-                fallback_path.replace(dest_mp4)
-                chosen_cand, chosen_info = fallback_cand, fallback_info
-                print(f"[asset_scout] {scene.scene_id}: memakai fallback aman (relevansi rendah)")
+            if chosen_cand is None and fallback_cand is not None and fallback_raw is not None:
+                norm_info = _transcode_to_mp4(fallback_raw, fallback_info or {}, dest_mp4)
+                if norm_info:
+                    chosen_cand, chosen_info = fallback_cand, norm_info
+                    print(f"[asset_scout] {scene.scene_id}: memakai fallback aman (relevansi rendah)")
+
+        if fallback_raw is not None and fallback_raw.exists():
+            fallback_raw.unlink(missing_ok=True)
 
         if (chosen_cand is None or chosen_info is None) and existing_assets and scene.scene_id in existing_assets:
             # Re-scout found nothing better/safer: keep the previous footage instead of crashing the episode
@@ -543,4 +595,6 @@ def scout_assets_for_scenes(
             )
         )
 
+    if tried_urls_out is not None:
+        tried_urls_out.update(used_urls)
     return Agent6Output(assets=results, bgm_path=memory.get_bgm_path())

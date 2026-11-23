@@ -364,12 +364,18 @@ def run_agent_6_scout(episode_id: str) -> EpisodeState:
     if handoff_a6.exists():
         state.agent6 = Agent6Output.model_validate_json(handoff_a6.read_text(encoding="utf-8"))
     else:
+        tried_urls: set[str] = set()
         state.agent6 = scout_assets_for_scenes(
             scenes=state.agent3.scenes,
             assets_dir=paths["assets"],
             memory=memory,
+            tried_urls_out=tried_urls,
         )
         handoff_a6.write_text(state.agent6.model_dump_json(indent=2), encoding="utf-8")
+        if tried_urls:
+            (paths["handoffs"] / "rejected_urls.json").write_text(
+                json.dumps(sorted(tried_urls), indent=2), encoding="utf-8"
+            )
 
     state.status = "assets_ready"
     save_state(state)
@@ -398,7 +404,7 @@ def rescout_affected_scenes(episode_id: str, affected_scenes: list[str]) -> Epis
 
     existing_map = {a.scene_id: a for a in state.agent6.assets}
     exclude_urls = prev_rejected | {a.source_url for a in state.agent6.assets}
-    rejected_file.write_text(json.dumps(sorted(exclude_urls), indent=2), encoding="utf-8")
+    tried_urls: set[str] = set(exclude_urls)
 
     state.agent6 = scout_assets_for_scenes(
         scenes=state.agent3.scenes,
@@ -407,7 +413,9 @@ def rescout_affected_scenes(episode_id: str, affected_scenes: list[str]) -> Epis
         exclude_urls=exclude_urls,
         existing_assets=existing_map,
         target_scene_ids=target_ids,
+        tried_urls_out=tried_urls,
     )
+    rejected_file.write_text(json.dumps(sorted(tried_urls), indent=2), encoding="utf-8")
     (paths["handoffs"] / "agent6_assets.json").write_text(
         state.agent6.model_dump_json(indent=2), encoding="utf-8"
     )

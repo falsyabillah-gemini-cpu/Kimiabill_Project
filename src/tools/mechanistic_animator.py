@@ -191,16 +191,21 @@ def draw_takeaway_card(
     if local_t < appear_at:
         return
     p = ease_out_back((local_t - appear_at) / 0.35)
+    sub_lines = _wrap_text(draw, sub_label, fonts["tiny_bold"], max(260, card_w - 72), max_lines=2)
+    base_h = 266 if len(sub_lines) >= 2 else 235
     w = int(card_w * min(p, 1.03))
-    h = int(235 * min(p, 1.03))
+    h = int(base_h * min(p, 1.03))
     x0 = center_x - w // 2
-    yc = y0 + 118
+    yc = y0 + base_h // 2
     top_y = yc - h // 2
     draw_comic_box(draw, (x0, top_y, x0 + w, top_y + h), fill=CARD_BG, radius=26, border_w=5, shadow_offset=8)
     if p > 0.65:
-        draw.text((center_x, top_y + 44), top_label, font=fonts["small_bold"], fill=INK, anchor="mm")
-        draw_outlined_text(draw, (center_x, top_y + 118), big_word, fonts["big_kw"], fill=big_color, stroke_w=5)
-        draw.text((center_x, top_y + 188), sub_label, font=fonts["tiny_bold"], fill=(60, 68, 86, 255), anchor="mm")
+        draw.text((center_x, top_y + 42), top_label, font=fonts["small_bold"], fill=INK, anchor="mm")
+        draw_outlined_text(draw, (center_x, top_y + 114), big_word, fonts["big_kw"], fill=big_color, stroke_w=5)
+        sy = top_y + 184
+        for ln in sub_lines:
+            draw.text((center_x, sy), ln, font=fonts["tiny_bold"], fill=(60, 68, 86, 255), anchor="mm")
+            sy += 34
 
 
 def draw_diagonal_wipe(draw: ImageDraw.ImageDraw, progress: float, w: int = 1080, h: int = 1920) -> None:
@@ -1125,8 +1130,6 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFon
         else:
             lines.append(cur)
             cur = w
-            if len(lines) >= max_lines - 1:
-                break
     if cur:
         lines.append(cur)
     return lines[:max_lines]
@@ -1830,7 +1833,7 @@ def render_hybrid_science_video(
                         "EDISI WEEKEND • RISET TERBARU" if is_karat else "FENOMENA SAINS HARI INI",
                         "KARAT • SAINS" if is_karat else plan.discipline.upper(),
                         ORANGE if is_karat else BLUE,
-                        plan.title[:44],
+                        plan.title,
                         fonts,
                         local_t,
                         appear_at=0.25,
