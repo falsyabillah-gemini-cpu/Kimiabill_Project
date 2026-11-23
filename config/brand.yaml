@@ -67,6 +67,7 @@ publishing:
   generate_thumbnail: true
 
 guardrails:
-  max_revisions: 2
+  max_revisions: 4
+  max_topic_attempts: 3
   min_idea_score: 7.5
   min_qa_score: 8.0

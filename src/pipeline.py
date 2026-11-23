@@ -190,7 +190,11 @@ def build_render_plan(
     )
 
 
-def run_agent_1_to_3(episode_id: str, topic_hint: Optional[str] = None) -> EpisodeState:
+def run_agent_1_to_3(
+    episode_id: str,
+    topic_hint: Optional[str] = None,
+    avoid_titles: Optional[list[str]] = None,
+) -> EpisodeState:
     brand, agents_cfg = load_configs()
     memory = StudioMemory(BASE_DIR)
     paths = episode_paths(episode_id)
@@ -219,12 +223,14 @@ def run_agent_1_to_3(episode_id: str, topic_hint: Optional[str] = None) -> Episo
             "engaging Indonesian short-video ideas (`source_mode: 'viral_trend'`). "
             "PRIORITY 2 (Fallback): If no strong viral topic is available, select and enrich unused ideas "
             "from `idea_bank_fallback_candidates` (`source_mode: 'idea_bank'`), keeping all 5 disciplines balanced. "
-            "Every idea must be visualizable with REAL footage (never full animation)."
+            "Every idea must be visualizable with REAL, concrete, filmable science/nature footage (never full animation), "
+            "and MUST NOT repeat any topic in `avoid_titles`."
         ),
         user_payload={
             "brand": brand["brand"],
             "trend_brief": trend_brief,
             "topic_hint": topic_hint,
+            "avoid_titles": avoid_titles or [],
         },
         response_model=Agent1Output,
         handoff_path=paths["handoffs"] / "agent1_ideas.json",
@@ -320,8 +326,17 @@ def rescout_affected_scenes(episode_id: str, affected_scenes: list[str]) -> Epis
     if not target_ids:
         return state
 
+    rejected_file = paths["handoffs"] / "rejected_urls.json"
+    prev_rejected: set[str] = set()
+    if rejected_file.exists():
+        try:
+            prev_rejected = set(json.loads(rejected_file.read_text(encoding="utf-8")))
+        except Exception:
+            prev_rejected = set()
+
     existing_map = {a.scene_id: a for a in state.agent6.assets}
-    exclude_urls = {a.source_url for a in state.agent6.assets}
+    exclude_urls = prev_rejected | {a.source_url for a in state.agent6.assets}
+    rejected_file.write_text(json.dumps(sorted(exclude_urls), indent=2), encoding="utf-8")
 
     state.agent6 = scout_assets_for_scenes(
         scenes=state.agent3.scenes,
@@ -351,14 +366,37 @@ def run_agent_4_proxy_and_gate0(
     if state.agent3 is None or state.agent6 is None:
         raise RuntimeError("Need Agent 3 script and Agent 6 assets before rendering.")
 
-    voice_cfg = brand["voice"]
-    voice_path, scene_timings, subtitles, _ = generate_episode_voiceover(
-        scenes=state.agent3.scenes,
-        out_dir=paths["renders"] / f"audio_v{version}",
-        voice=voice_cfg["voice_name"],
-        rate=voice_cfg["rate"],
-        pitch=voice_cfg["pitch"],
-    )
+    if (
+        version > 1
+        and state.render_plan is not None
+        and Path(state.render_plan.voiceover_path).exists()
+        and len(state.render_plan.segments) == len(state.agent3.scenes)
+    ):
+        from src.tools.tts_engine import SceneVoiceResult
+
+        voice_path = state.render_plan.voiceover_path
+        scene_timings = [
+            SceneVoiceResult(
+                scene_id=seg.scene_id,
+                audio_path=voice_path,
+                start_sec=seg.start_sec,
+                end_sec=seg.end_sec,
+                duration_sec=seg.duration_sec,
+                subtitles=[],
+            )
+            for seg in state.render_plan.segments
+        ]
+        subtitles = list(state.render_plan.subtitles)
+        print(f"[tts] Memakai ulang audio voiceover dari v1 untuk revisi v{version} (hemat kuota ElevenLabs)")
+    else:
+        voice_cfg = brand["voice"]
+        voice_path, scene_timings, subtitles, _ = generate_episode_voiceover(
+            scenes=state.agent3.scenes,
+            out_dir=paths["renders"] / f"audio_v{version}",
+            voice=voice_cfg["voice_name"],
+            rate=voice_cfg["rate"],
+            pitch=voice_cfg["pitch"],
+        )
 
     plan = build_render_plan(
         state=state,

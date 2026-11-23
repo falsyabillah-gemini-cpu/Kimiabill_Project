@@ -32,6 +32,25 @@ from src.tools.gdrive_sync import can_upload_to_gdrive
 WIB = ZoneInfo("Asia/Jakarta")
 
 
+import re
+
+
+def _extract_affected_scenes(audit, valid_scene_ids: list[str]) -> list[str]:
+    """Collect affected scene IDs from audit.affected_scenes + regex scan of issues/instructions."""
+    found: list[str] = []
+    valid_set = set(valid_scene_ids)
+    for sc in audit.affected_scenes or []:
+        sc_norm = sc.strip().lower().replace(" ", "_")
+        if sc_norm in valid_set and sc_norm not in found:
+            found.append(sc_norm)
+    blob = " ".join((audit.issues or []) + (audit.patch_instructions or []))
+    for m in re.finditer(r"scene[\s_]*(\d+)", blob, flags=re.IGNORECASE):
+        sc_norm = f"scene_{m.group(1)}"
+        if sc_norm in valid_set and sc_norm not in found:
+            found.append(sc_norm)
+    return found
+
+
 def run_one_automated_episode() -> None:
     load_dotenv()
     brand_cfg, agents_cfg = load_configs()
@@ -43,110 +62,125 @@ def run_one_automated_episode() -> None:
         )
         return
 
-    now = datetime.now(WIB)
-    episode_id = f"ep_{now.strftime('%Y%m%d_%H%M')}"
-    print(f"[scheduler] Memulai produksi otomatis: {episode_id}")
+    guardrails = brand_cfg.get("guardrails", {})
+    max_revisions = int(guardrails.get("max_revisions", 4))
+    max_topic_attempts = int(guardrails.get("max_topic_attempts", 3))
+    avoid_titles: list[str] = []
 
-    state = run_agent_1_to_3(episode_id)
-    print(f"[scheduler] Agent 1-3 selesai: {state.agent3.title if state.agent3 else '-'}")
-
-    state = run_agent_6_scout(episode_id)
-    print(f"[scheduler] Agent 6 selesai: {len(state.agent6.assets) if state.agent6 else 0} klip real footage")
-
-    max_revisions = int(brand_cfg.get("guardrails", {}).get("max_revisions", 2))
-    font_ratio = 0.052
-    scene_offsets: dict[str, float] = {}
-    qa_passed = False
-    last_audit = None
-    best = None  # (score, version, audit, render_plan, agent6) of the best-scoring proxy version
-
-    for version in range(1, max_revisions + 2):
-        state, proxy_video, sheet_path = run_agent_4_proxy_and_gate0(
-            episode_id,
-            version=version,
-            subtitle_font_size_ratio=font_ratio,
-            scene_offsets=scene_offsets,
-        )
+    for topic_attempt in range(1, max_topic_attempts + 1):
+        now = datetime.now(WIB)
+        suffix = "" if topic_attempt == 1 else f"_t{topic_attempt}"
+        episode_id = f"ep_{now.strftime('%Y%m%d_%H%M')}{suffix}"
         print(
-            f"[scheduler] Agent 4 proxy v{version} + Gate 0: "
-            f"passed={state.gate0.passed if state.gate0 else False} ({proxy_video})"
+            f"[scheduler] Memulai produksi otomatis (percobaan topik {topic_attempt}/{max_topic_attempts}): {episode_id}"
         )
 
-        state, audit = run_agent_5_video_qa(episode_id, sheet_path=sheet_path, version=version)
-        last_audit = audit
-        if best is None or audit.overall_score > best[0]:
-            best = (
-                audit.overall_score,
-                version,
-                audit,
-                state.render_plan.model_copy(deep=True) if state.render_plan else None,
-                state.agent6.model_copy(deep=True) if state.agent6 else None,
+        try:
+            state = run_agent_1_to_3(episode_id, avoid_titles=avoid_titles)
+            title = state.agent3.title if state.agent3 else "-"
+            print(f"[scheduler] Agent 1-3 selesai: {title}")
+
+            state = run_agent_6_scout(episode_id)
+            print(f"[scheduler] Agent 6 selesai: {len(state.agent6.assets) if state.agent6 else 0} klip real footage")
+        except Exception as exc:
+            print(f"[scheduler] Percobaan topik #{topic_attempt} gagal di tahap skrip/footage: {exc}")
+            traceback.print_exc()
+            continue
+
+        font_ratio = 0.052
+        scene_offsets: dict[str, float] = {}
+        qa_passed = False
+        last_audit = None
+        valid_scene_ids = [s.scene_id for s in (state.agent3.scenes if state.agent3 else [])]
+
+        for version in range(1, max_revisions + 2):
+            state, proxy_video, sheet_path = run_agent_4_proxy_and_gate0(
+                episode_id,
+                version=version,
+                subtitle_font_size_ratio=font_ratio,
+                scene_offsets=scene_offsets,
             )
-        print(
-            f"[scheduler] Agent 5 QA v{version}: passed={audit.passed}, "
-            f"score={audit.overall_score}/10 (visual={audit.visual_relevance_score}, "
-            f"sub={audit.subtitle_readability_score}, audio={audit.pacing_and_audio_score}), "
-            f"target={audit.revision_target}, issues={audit.issues}"
+            print(
+                f"[scheduler] Agent 4 proxy v{version} + Gate 0: "
+                f"passed={state.gate0.passed if state.gate0 else False} ({proxy_video})"
+            )
+
+            state, audit = run_agent_5_video_qa(episode_id, sheet_path=sheet_path, version=version)
+            last_audit = audit
+            print(
+                f"[scheduler] Agent 5 QA v{version}: passed={audit.passed}, "
+                f"score={audit.overall_score}/10 (visual={audit.visual_relevance_score}, "
+                f"sub={audit.subtitle_readability_score}, audio={audit.pacing_and_audio_score}), "
+                f"target={audit.revision_target}, issues={audit.issues}"
+            )
+
+            if audit.passed:
+                qa_passed = True
+                break
+
+            if version <= max_revisions:
+                print(f"[scheduler] Audit ditolak -> menjalankan revisi #{version}/{max_revisions}...")
+                affected = _extract_affected_scenes(audit, valid_scene_ids)
+                need_rescout = (
+                    audit.revision_target in ("asset_scout", "both")
+                    or audit.visual_relevance_score < 8.0
+                )
+                if need_rescout:
+                    target_scenes = affected or valid_scene_ids[1:-1] or valid_scene_ids
+                    try:
+                        state = rescout_affected_scenes(episode_id, target_scenes)
+                        print(f"[scheduler] Agent 6 mengganti footage untuk scene: {target_scenes}")
+                    except Exception as exc:
+                        print(f"[scheduler] Re-scout gagal untuk {target_scenes}: {exc}")
+                if audit.revision_target in ("editor", "both") or not need_rescout:
+                    for sc_id in affected or valid_scene_ids:
+                        scene_offsets[sc_id] = round(scene_offsets.get(sc_id, 0.0) + 2.0, 2)
+                    font_ratio = 0.050 if audit.subtitle_readability_score < 8.0 else font_ratio
+
+        if not qa_passed:
+            print(
+                f"[scheduler] Topik '{title}' belum lolos QA setelah {max_revisions} revisi. "
+                f"TIDAK di-upload ke Drive/YouTube; mengganti ke topik baru..."
+            )
+            state.status = "rejected_by_qa"
+            save_state(state)
+            if title and title != "-":
+                avoid_titles.append(title)
+            continue
+
+        # QA PASSED! Render final 1080p HD and verify Gate 0 HD
+        state, final_video, _ = run_final_hd_render(episode_id)
+        hd_ok = bool(state.gate0 and state.gate0.passed)
+        print(f"[scheduler] Render final 1080p selesai: {final_video} (Gate 0 HD passed={hd_ok})")
+        if not hd_ok:
+            print("[scheduler] Gate 0 HD gagal; mencoba topik berikutnya...")
+            if title and title != "-":
+                avoid_titles.append(title)
+            continue
+
+        qa_summary = (
+            f"LOLOS AUDIT QA | Skor Akhir: {last_audit.overall_score}/10 | "
+            f"Visual: {last_audit.visual_relevance_score} | Subtitle: {last_audit.subtitle_readability_score} | "
+            f"Audio: {last_audit.pacing_and_audio_score} | Revisi: {state.revision_count}x"
+            if last_audit
+            else "LOLOS AUDIT QA"
         )
 
-        if audit.passed:
-            qa_passed = True
-            break
+        state = run_agent_7_publish(episode_id)
+        print(f"[scheduler] Agent 7 selesai: {[r.model_dump() for r in (state.agent7.publish_results if state.agent7 else [])]}")
 
-        if version <= max_revisions:
-            print(f"[scheduler] Menjalankan revisi #{version} sesuai catatan Agent 5...")
-            if audit.revision_target in ("asset_scout", "both") and audit.affected_scenes:
-                state = rescout_affected_scenes(episode_id, audit.affected_scenes)
-                print(f"[scheduler] Agent 6 mengganti footage untuk scene: {audit.affected_scenes}")
-            if audit.revision_target in ("editor", "both"):
-                # Shift footage start offsets slightly and adjust subtitle sizing for readability
-                for sc_id in audit.affected_scenes or [s.scene_id for s in (state.agent3.scenes if state.agent3 else [])]:
-                    scene_offsets[sc_id] = round(scene_offsets.get(sc_id, 0.0) + 2.0, 2)
-                font_ratio = 0.050 if audit.subtitle_readability_score < 8.0 else font_ratio
+        if os.environ.get("AUTO_UPLOAD_GDRIVE", "true").lower() == "true":
+            if can_upload_to_gdrive():
+                state = run_upload(episode_id, allow_youtube=True, qa_summary=qa_summary)
+                print(f"[scheduler] Uploaded ke Google Drive & YouTube Shorts: {state.gdrive_folder_url}")
+            else:
+                print("[scheduler] Melewati upload Google Drive (GDRIVE_WEBHOOK_URL belum diisi dan CLI 'gdrive' tidak terpasang).")
+        return
 
-    # If QA never passed, render the final from the BEST-scoring version (not simply the last attempt,
-    # which may be worse after re-scouting).
-    if not qa_passed and best is not None and best[1] != version:
-        state = load_or_init_state(episode_id)
-        if best[3] is not None:
-            state.render_plan = best[3]
-        if best[4] is not None:
-            state.agent6 = best[4]
-            (episode_paths(episode_id)["handoffs"] / "agent6_assets.json").write_text(
-                best[4].model_dump_json(indent=2), encoding="utf-8"
-            )
-        save_state(state)
-        last_audit = best[2]
-        print(f"[scheduler] QA belum lolos; memakai versi terbaik v{best[1]} (skor {best[0]}) untuk render final.")
-
-    state, final_video, _ = run_final_hd_render(episode_id)
-    print(f"[scheduler] Render final 1080p selesai: {final_video} (Gate 0 HD passed={state.gate0.passed if state.gate0 else False})")
-
-    # Hard quality gate before YouTube upload
-    hd_ok = bool(state.gate0 and state.gate0.passed)
-    allow_youtube = qa_passed and hd_ok
-    if not allow_youtube:
-        state.status = "needs_human_review"
-        save_state(state)
-
-    qa_summary = (
-        f"Skor Akhir: {last_audit.overall_score}/10 | Lolos QA: {allow_youtube} | "
-        f"Visual: {last_audit.visual_relevance_score} | Subtitle: {last_audit.subtitle_readability_score} | "
-        f"Audio: {last_audit.pacing_and_audio_score}"
-        + (f" | Catatan: {'; '.join(last_audit.issues)}" if last_audit.issues else "")
-        if last_audit
-        else "Audit QA belum dijalankan"
+    raise RuntimeError(
+        f"Semua {max_topic_attempts} percobaan topik harian gagal lolos Agent 5 QA. "
+        f"Tidak ada video yang di-upload ke Google Drive maupun YouTube."
     )
-
-    state = run_agent_7_publish(episode_id)
-    print(f"[scheduler] Agent 7 selesai: {[r.model_dump() for r in (state.agent7.publish_results if state.agent7 else [])]}")
-
-    if os.environ.get("AUTO_UPLOAD_GDRIVE", "true").lower() == "true":
-        if can_upload_to_gdrive():
-            state = run_upload(episode_id, allow_youtube=allow_youtube, qa_summary=qa_summary)
-            print(f"[scheduler] Uploaded ke Google Drive: {state.gdrive_folder_url}")
-        else:
-            print("[scheduler] Melewati upload Google Drive (GDRIVE_WEBHOOK_URL belum diisi dan CLI 'gdrive' tidak terpasang).")
 
 
 def main() -> None:

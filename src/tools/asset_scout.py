@@ -354,6 +354,11 @@ def vision_screen_clip(clip: Path, scene: SceneSpec) -> tuple[bool, bool, str]:
             relevance_score: float = Field(ge=0, le=10, description="How well the frames visually match the scene narration and visual query")
             has_watermark_or_ui: bool = Field(description="True if frames show music-player/album art, app UI, big logos, text slides, or channel watermarks")
             is_real_footage: bool = Field(description="True if real camera footage (not cartoon/animation/slide)")
+            is_scientific_visualization: bool = Field(
+                default=False,
+                description="True if it is a serious scientific visualization (molecular/protein model, microscopy, "
+                "research simulation render) - NOT a cartoon, fractal screensaver, or text slide",
+            )
             reason: str = ""
 
         verdict = call_structured_agent(
@@ -373,15 +378,16 @@ def vision_screen_clip(clip: Path, scene: SceneSpec) -> tuple[bool, bool, str]:
             image_paths=[strip],
         )
     except Exception as exc:  # noqa: BLE001
-        return True, True, f"vision screening error (accepted on metadata only): {exc}"
+        return False, False, f"vision screening error (rejected for safety): {exc}"
     finally:
         strip.unlink(missing_ok=True)
 
     min_rel = float(os.environ.get("ASSET_MIN_RELEVANCE", "5"))
-    clean = verdict.family_safe and verdict.is_real_footage and not verdict.has_watermark_or_ui
+    sci_ok = verdict.is_scientific_visualization and verdict.relevance_score >= 6.5
+    clean = verdict.family_safe and (verdict.is_real_footage or sci_ok) and not verdict.has_watermark_or_ui
     ok = clean and verdict.relevance_score >= min_rel
     return ok, clean, (
-        f"safe={verdict.family_safe} real={verdict.is_real_footage} "
+        f"safe={verdict.family_safe} real={verdict.is_real_footage} sci={verdict.is_scientific_visualization} "
         f"ui={verdict.has_watermark_or_ui} rel={verdict.relevance_score} {verdict.reason}"
     )
 
@@ -410,7 +416,7 @@ def scout_assets_for_scenes(
     assets_dir.mkdir(parents=True, exist_ok=True)
     results: list[SceneAsset] = []
     used_urls: set[str] = set(exclude_urls or ())
-    max_screens = int(os.environ.get("ASSET_MAX_SCREENS_PER_SCENE", "10"))
+    max_screens = int(os.environ.get("ASSET_MAX_SCREENS_PER_SCENE", "12"))
 
     for scene in scenes:
         if target_scene_ids is not None and scene.scene_id not in target_scene_ids and existing_assets and scene.scene_id in existing_assets:
@@ -437,6 +443,8 @@ def scout_assets_for_scenes(
             stop_words = {
                 "the", "and", "with", "from", "into", "that", "this", "for", "are", "was",
                 "in", "on", "of", "to", "a", "an", "at", "by", "or", "as", "is", "be",
+                "video", "clip", "footage", "close", "closeup", "shot", "view", "real",
+                "screen", "monitor", "computer", "dark", "background", "human", "person", "hand",
             }
             broadened: list[str] = []
             for q in raw_queries:
@@ -444,16 +452,13 @@ def scout_assets_for_scenes(
                 if len(words) >= 2:
                     broadened.append(" ".join(words[:2]))
                     broadened.append(" ".join(words[-2:]))
-                for w in words[:3]:
-                    broadened.append(w)
             generic_science_fallbacks = [
-                "chemistry laboratory",
-                "science experiment",
-                "microscope",
-                "laboratory",
-                "physics experiment",
-                "water",
-                "nature",
+                "chemistry laboratory experiment",
+                "chemical reaction beaker",
+                "optical microscope cells",
+                "physics laboratory experiment",
+                "crystal growth microscope",
+                "science laboratory glassware",
             ]
             seen_q: set[str] = set()
             queries: list[str] = []
@@ -497,6 +502,12 @@ def scout_assets_for_scenes(
                 fallback_path.replace(dest_mp4)
                 chosen_cand, chosen_info = fallback_cand, fallback_info
                 print(f"[asset_scout] {scene.scene_id}: memakai fallback aman (relevansi rendah)")
+
+        if (chosen_cand is None or chosen_info is None) and existing_assets and scene.scene_id in existing_assets:
+            # Re-scout found nothing better/safer: keep the previous footage instead of crashing the episode
+            print(f"[asset_scout] {scene.scene_id}: tidak ada pengganti yang lolos screening; memakai footage sebelumnya")
+            results.append(existing_assets[scene.scene_id])
+            continue
 
         if chosen_cand is None or chosen_info is None:
             raise RuntimeError(
