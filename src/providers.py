@@ -58,26 +58,31 @@ def _extract_json(text: str) -> dict[str, Any]:
 
 
 DEFAULT_MODELS: dict[str, str] = {
-    "gemini_api": "gemini-3.5-flash-lite",
+    "gemini_api": "gemini-3.8-flash",
     "anthropic_api": "claude-sonnet-4-5",
-    "openrouter": "google/gemini-3.5-flash-lite",
+    "openrouter": "google/gemini-3.8-flash",
     "claude_code_cli": "claude-sonnet-4-5",
 }
 
+# Ordered strictly from highest-intelligence free tier model down to lightweight fallbacks
 GEMINI_FALLBACK_MODELS: tuple[str, ...] = (
-    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
     "gemini-3.6-flash",
     "gemini-3.5-flash",
-    "gemini-3.8-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-2.5-pro",
     "gemini-2.5-flash-lite",
 )
 
 TRANSIENT_STATUS_CODES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
 _HYDROGEN_ALERT_SENT = False
+# Per-run in-memory skip cache so once Hydrogen (or any model) hits 429/402/403/404 during a run,
+# subsequent calls in the same run switch instantly to highest free Flash; next run automatically retries Hydrogen first.
+_EXHAUSTED_MODELS_THIS_RUN: set[str] = set()
 
 
 def _notify_hydrogen_alert(status_code: int, detail: str) -> None:
-    """Send a one-time-per-run email alert if gemini-4-hydrogen becomes paid/restricted on the API key."""
+    """Send a one-time-per-run email alert ONLY if gemini-4-hydrogen requires billing/paid access (402/403)."""
     global _HYDROGEN_ALERT_SENT
     if _HYDROGEN_ALERT_SENT:
         return
@@ -94,13 +99,13 @@ def _notify_hydrogen_alert(status_code: int, detail: str) -> None:
         msg = (
             "PEMBERITAHUAN PENTING — STATUS MODEL GEMINI 4 HYDROGEN\n\n"
             f"Model 'gemini-4-hydrogen' mengembalikan HTTP {status_code} pada GEMINI_API_KEY Anda.\n"
-            "Kemungkinan penyebab: Gemini 4 Hydrogen sudah berbayar / memerlukan billing, "
-            "atau kuota Free Tier harian untuk Hydrogen habis.\n\n"
+            "Kemungkinan penyebab: Gemini 4 Hydrogen kini memerlukan billing / akses terbatas.\n\n"
             "Tindakan Otomatis Sistem:\n"
-            "- Sistem OTOMATIS beralih sementara ke 'gemini-3.5-flash-lite' (gratis) agar produksi video tetap jalan normal.\n\n"
+            "- Sistem OTOMATIS beralih ke model Gemini Flash gratis tertinggi ('gemini-3.8-flash' -> fallback berjenjang) "
+            "agar produksi video tetap berjalan normal.\n\n"
             "Keputusan Selanjutnya untuk Anda:\n"
-            "1. Tetap pakai mode gratis (gemini-3.5-flash-lite), ATAU\n"
-            "2. Aktifkan billing di Google AI Studio jika ingin tetap memakai gemini-4-hydrogen.\n\n"
+            "1. Tidak perlu apa-apa — tetap pakai Gemini Flash tertinggi yang gratis, ATAU\n"
+            "2. Aktifkan billing di Google AI Studio jika ingin kembali memakai gemini-4-hydrogen.\n\n"
             f"Detail teknis: {detail}"
         )
         requests.post(
@@ -110,7 +115,7 @@ def _notify_hydrogen_alert(status_code: int, detail: str) -> None:
                 "token": token,
                 "to": notify_to,
                 "episode_name": "alert_gemini_hydrogen",
-                "title": "PERHATIAN: Gemini 4 Hydrogen Tidak Tersedia / Berbayar — Butuh Keputusan",
+                "title": "INFO: Gemini 4 Hydrogen Berbayar/Dibatasi — Otomatis Pakai Gemini Flash Tertinggi",
                 "captions_preview": msg,
             },
             timeout=25,
@@ -127,14 +132,17 @@ def _post_with_retry(
     headers: dict[str, str] | None = None,
     max_attempts: int = 3,
     timeout: int = 28,
+    fail_fast_429: bool = False,
 ) -> requests.Response:
-    """POST with bounded backoff on transient 429/5xx errors or network hiccups."""
+    """POST with bounded backoff on transient 5xx/network errors; fast-fail on 429 when fallbacks exist."""
     last_exc: Exception | None = None
     resp: requests.Response | None = None
     for attempt in range(max_attempts):
         try:
             resp = requests.post(url, headers=headers, json=json_body, timeout=timeout)
             if resp.status_code not in TRANSIENT_STATUS_CODES:
+                return resp
+            if resp.status_code == 429 and fail_fast_429:
                 return resp
             wait_sec = min(10, 2 * (2 ** attempt))
             print(f"[providers] Transient HTTP {resp.status_code}, retrying in {wait_sec}s (attempt {attempt + 1}/{max_attempts})...")
@@ -151,7 +159,7 @@ def _post_with_retry(
 
 
 def _discover_gemini_flash_model(api_key: str) -> str | None:
-    """Query Gemini /v1beta/models to find an available Flash model supporting generateContent."""
+    """Query Gemini /v1beta/models to find the highest-tier available Flash model supporting generateContent."""
     try:
         resp = requests.get(
             f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}",
@@ -168,7 +176,8 @@ def _discover_gemini_flash_model(api_key: str) -> str | None:
                 if not any(skip in name for skip in ("tts", "image", "audio", "live", "embedding")):
                     candidates.append(name)
         if candidates:
-            candidates.sort(reverse=True)
+            # Prefer full non-lite, non-preview Flash models of the highest generation
+            candidates.sort(key=lambda n: ("lite" not in n, "preview" not in n, n), reverse=True)
             return candidates[0]
     except Exception:
         return None
@@ -289,7 +298,8 @@ def call_structured_agent(
         last_parse_err: Exception | None = None
         for parse_try in range(2):
             tried: list[str] = []
-            candidates = [model, *[m for m in GEMINI_FALLBACK_MODELS if m != model]]
+            raw_candidates = [model, *[m for m in GEMINI_FALLBACK_MODELS if m != model]]
+            candidates = [m for m in raw_candidates if m not in _EXHAUSTED_MODELS_THIS_RUN] or raw_candidates
             resp = None
             for cand_idx, cand_model in enumerate(candidates):
                 tried.append(cand_model)
@@ -299,18 +309,26 @@ def call_structured_agent(
                 )
                 has_more = cand_idx < len(candidates) - 1
                 try:
-                    resp = _post_with_retry(url, json_body=body, max_attempts=2 if has_more else 3)
+                    resp = _post_with_retry(
+                        url,
+                        json_body=body,
+                        max_attempts=2 if has_more else 3,
+                        fail_fast_429=has_more,
+                    )
                 except requests.RequestException as exc:
                     print(f"[providers] Gemini model '{cand_model}' timeout/network error ({exc}), trying next fallback...")
                     resp = None
                     continue
                 if resp.status_code == 200:
                     break
-                if cand_model == "gemini-4-hydrogen" and resp.status_code in (402, 403, 404, 429):
+                if resp.status_code in (402, 403, 404, 429) and has_more:
+                    _EXHAUSTED_MODELS_THIS_RUN.add(cand_model)
+                if cand_model == "gemini-4-hydrogen" and resp.status_code in (402, 403):
                     _notify_hydrogen_alert(resp.status_code, resp.text[:400])
                 if resp.status_code not in (402, 403, 404, *TRANSIENT_STATUS_CODES):
                     break
-                print(f"[providers] Gemini model '{cand_model}' returned HTTP {resp.status_code}, trying next fallback...")
+                label = "limit/quota" if resp.status_code == 429 else f"HTTP {resp.status_code}"
+                print(f"[providers] Model '{cand_model}' ({label}), otomatis beralih ke fallback berikutnya...")
             if resp is None or resp.status_code in (404, *TRANSIENT_STATUS_CODES):
                 discovered = _discover_gemini_flash_model(api_key)
                 if discovered and discovered not in tried:

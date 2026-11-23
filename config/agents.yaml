@@ -1,8 +1,8 @@
 # Konfigurasi routing model untuk 7 Agent Kimiabill_videos.
 # Mode default: "production" dengan provider "auto" — otomatis memakai API key yang tersedia di .env / Secrets:
-#   1. GEMINI_API_KEY     -> gemini_api (gemini-3.5-flash-lite)
+#   1. GEMINI_API_KEY     -> gemini_api (gemini-4-hydrogen / tertinggi gratis -> gemini-3.8-flash)
 #   2. ANTHROPIC_API_KEY  -> anthropic_api (claude-sonnet-4-5)
-#   3. OPENROUTER_API_KEY -> openrouter (google/gemini-3.5-flash-lite)
+#   3. OPENROUTER_API_KEY -> openrouter (google/gemini-3.8-flash)
 # Anda tetap dapat memilih provider spesifik per agent:
 # - "auto" | "gemini_api" | "anthropic_api" | "claude_code_cli" | "openrouter" | "antigravity_local"
 
@@ -13,7 +13,7 @@ agents:
     role: "Viral Pure-Science Trend Scout & Ideation"
     provider: "auto"
     recommended_prod_provider: "gemini_api"
-    recommended_prod_model: "gemini-3.5-flash-lite"
+    recommended_prod_model: "gemini-3.8-flash"
 
   agent_2_editorial_auditor:
     role: "Hook & Editorial Auditor"
@@ -53,7 +53,7 @@ agents:
     role: "Packaging (Thumbnail + SEO Caption) & Multi-Platform Social Publisher"
     provider: "auto"
     recommended_prod_provider: "gemini_api"
-    recommended_prod_model: "gemini-3.5-flash-lite"
+    recommended_prod_model: "gemini-3.8-flash"
     platforms:
       - "youtube_shorts"
       # Aktifkan nanti saat sudah siap:
