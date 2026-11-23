@@ -143,15 +143,47 @@ def _fetch_webhook_youtube_stats() -> dict[str, Any]:
     return {}
 
 
-def _format_audit_markdown(audit: Agent8WeeklyAuditOutput, enriched_videos: list[dict[str, Any]]) -> str:
+def _format_monetization_section(channel: dict[str, Any]) -> list[str]:
+    """Compute exact progress toward YouTube Partner Program (YPP) Shorts monetization (0 tokens)."""
+    subs = int(channel.get("subscribers") or 0)
+    views = int(channel.get("total_views") or 0)
+
+    def _pct(val: int, target: int) -> str:
+        return f"{min(100.0, (val / target) * 100.0):.2f}%"
+
+    sub_500_left = max(0, 500 - subs)
+    sub_1k_left = max(0, 1000 - subs)
+    views_3m_left = max(0, 3_000_000 - views)
+    views_10m_left = max(0, 10_000_000 - views)
+
+    return [
+        "## Progres Menuju Monetisasi YouTube (YPP Shorts)",
+        f"- **Status Channel Saat Ini:** {subs:,} Subscriber | {views:,} Total Views",
+        f"- **Tahap 1 — Fan Funding (500 Subs + 3 Juta Views Shorts 90 hari):**",
+        f"  - Subscriber: {subs:,} / 500 ({_pct(subs, 500)}) — kurang **{sub_500_left:,} subscriber lagi**",
+        f"  - Views: {views:,} / 3.000.000 ({_pct(views, 3_000_000)}) — kurang **{views_3m_left:,} views lagi**",
+        f"- **Tahap 2 — Monetisasi Penuh Iklan Shorts (1.000 Subs + 10 Juta Views Shorts 90 hari):**",
+        f"  - Subscriber: {subs:,} / 1.000 ({_pct(subs, 1000)}) — kurang **{sub_1k_left:,} subscriber lagi**",
+        f"  - Views: {views:,} / 10.000.000 ({_pct(views, 10_000_000)}) — kurang **{views_10m_left:,} views lagi**",
+    ]
+
+
+def _format_audit_markdown(
+    audit: Agent8WeeklyAuditOutput,
+    enriched_videos: list[dict[str, Any]],
+    channel_stats: Optional[dict[str, Any]] = None,
+) -> str:
     lines = [
         f"# Laporan Audit Mingguan Sosial Media Kimiabill ({audit.week_ending})",
         "",
         "## Ringkasan Performa Minggu Ini",
         audit.summary,
         "",
-        "## Data Video yang Diaudit",
     ]
+    if channel_stats:
+        lines.extend(_format_monetization_section(channel_stats))
+        lines.append("")
+    lines.append("## Data Video yang Diaudit")
     if enriched_videos:
         for v in enriched_videos:
             views = v.get("views", "N/A")
@@ -330,8 +362,9 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             "You are Agent 8 (Chief Weekly System, Engagement & Workflow Efficiency Auditor) for Kimiabill, an Indonesian "
             "pure-science YouTube Shorts studio (Kimia, Fisika, Matematika, Medisinal, Biologi). "
             "Perform TWO deep audits in clear Indonesian from this week's data:\n"
-            "1. SOCIAL MEDIA ENGAGEMENT AUDIT: Analyze views, likes, comments, QA scores, hooks, topics, and durations "
-            "to maximize watch-through retention, likes, comments, and follows.\n"
+            "1. SOCIAL MEDIA ENGAGEMENT & MONETIZATION AUDIT: Analyze views, likes, comments, retention %, avg view duration, "
+            "QA scores, hooks, topics, and durations. Also state clearly in `summary` how far the channel is from YouTube "
+            "Partner Program Shorts monetization (500 subs / 3M views and 1,000 subs / 10M views) and what will accelerate it.\n"
             "2. WORKFLOW & TOKEN EFFICIENCY AUDIT: Analyze production_seconds, revisions_used, and topic_attempts_used "
             "to spot wasted Gemini/ElevenLabs tokens, slow footage queries, or unnecessary revisions, and recommend "
             "concrete efficiency improvements.\n"
@@ -341,6 +374,7 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
         user_payload={
             "week_ending": today_wib,
             "channel_stats": webhook_stats.get("channel", {}),
+            "ypp_targets": {"tier1_subs": 500, "tier1_shorts_views_90d": 3000000, "full_subs": 1000, "full_shorts_views_90d": 10000000},
             "recent_videos": enriched,
             "previous_week_directives": prev_directives,
         },
@@ -352,7 +386,7 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
     DIRECTIVES_PATH.write_text(audit.model_dump_json(indent=2), encoding="utf-8")
 
     AUDITS_DIR.mkdir(parents=True, exist_ok=True)
-    report_md = _format_audit_markdown(audit, enriched)
+    report_md = _format_audit_markdown(audit, enriched, channel_stats=webhook_stats.get("channel", {}))
     report_path = AUDITS_DIR / f"weekly_audit_{today_wib}.md"
     report_path.write_text(report_md, encoding="utf-8")
 
