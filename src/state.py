@@ -152,6 +152,8 @@ class RenderPlan(BaseModel):
     resolution_mode: Literal["proxy_480p", "final_1080p"] = "proxy_480p"
     title: str = ""
     discipline: str = "kimia"
+    section_tag: str = "REGULER"
+    section_tagline: str = ""
     use_mascot: bool = True
     references: list[str] = Field(default_factory=list)
     voice_path: str
@@ -284,4 +286,8 @@ class Agent8WeeklyAuditOutput(BaseModel):
     next_week_experiments: list[str] = Field(
         default_factory=list,
         description="2-3 concrete engagement experiments to test next week (hook style, CTA, pacing, topic angle)",
+    )
+    recommended_weekend_hours_wib: list[str] = Field(
+        default_factory=lambda: ["12:00", "19:00"],
+        description="Top 2 optimal HH:MM WIB upload times for Saturday/Sunday KARAT Research Edition based on analytics",
     )

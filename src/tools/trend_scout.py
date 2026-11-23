@@ -71,6 +71,16 @@ FEEDS: list[dict[str, str]] = [
         "url": "https://api.quantamagazine.org/feed/",
         "lang": "en",
     },
+    {
+        "name": "Nature Latest Research Papers",
+        "url": "https://www.nature.com/nature.rss",
+        "lang": "en",
+    },
+    {
+        "name": "Science / AAAS Breaking Research",
+        "url": "https://www.science.org/rss/news_current.xml",
+        "lang": "en",
+    },
 ]
 
 
@@ -101,8 +111,9 @@ def _parse_pub_date(raw: str | None) -> datetime | None:
 def fetch_viral_science_topics(
     lookback_hours: int = 96,
     max_items: int = 10,
+    weekend_paper_mode: bool = False,
 ) -> list[dict[str, Any]]:
-    """Fetch fresh trending pure-science headlines from live RSS feeds (0 LLM tokens)."""
+    """Fetch fresh trending pure-science headlines & papers from live RSS feeds (0 LLM tokens)."""
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=lookback_hours)
     results: list[dict[str, Any]] = []
@@ -134,10 +145,12 @@ def fetch_viral_science_topics(
                     continue
 
                 seen_titles.add(title.lower())
-                # Boost Indonesian local trending items slightly + multi-keyword pure science relevance
                 recency_bonus = 2.0 if (pub_dt and (now - pub_dt).total_seconds() < 36 * 3600) else 1.0
                 lang_bonus = 1.5 if feed["lang"] == "id" else 1.0
-                viral_score = round(hits * 2.0 + recency_bonus + lang_bonus, 2)
+                paper_bonus = 2.5 if (
+                    weekend_paper_mode and any(k in feed["name"] for k in ("Nature", "Science", "Phys.org", "ScienceDaily"))
+                ) else 0.0
+                viral_score = round(hits * 2.0 + recency_bonus + lang_bonus + paper_bonus, 2)
 
                 results.append(
                     {
@@ -145,7 +158,7 @@ def fetch_viral_science_topics(
                         "lang": feed["lang"],
                         "discipline": disc,
                         "title": title,
-                        "summary": desc[:260],
+                        "summary": desc[:320],
                         "url": link,
                         "published_at": pub_dt.isoformat() if pub_dt else None,
                         "viral_score": viral_score,
@@ -162,18 +175,26 @@ def build_agent1_brief(
     base_dir: Path,
     lookback_hours: int = 96,
     min_viral_matches: int = 2,
+    weekend_paper_mode: bool = False,
 ) -> dict[str, Any]:
-    """Build the viral-first brief for Agent 1, falling back to Idea Bank automatically."""
+    """Build the viral-first brief for Agent 1, including Weekend KARAT research paper focus."""
     memory = StudioMemory(base_dir)
     past = memory.list_past_topics(limit=50)
     past_titles = {p["title"].lower() for p in past}
 
-    viral_raw = fetch_viral_science_topics(lookback_hours=lookback_hours, max_items=12)
+    effective_lookback = 72 if weekend_paper_mode else lookback_hours
+    viral_raw = fetch_viral_science_topics(
+        lookback_hours=effective_lookback,
+        max_items=14,
+        weekend_paper_mode=weekend_paper_mode,
+    )
     viral_fresh = [v for v in viral_raw if v["title"].lower() not in past_titles]
 
     fallback_ideas = memory.get_balanced_unused_ideas(count=5)
 
-    if len(viral_fresh) >= min_viral_matches:
+    if weekend_paper_mode:
+        mode = "karat_weekend_research_paper"
+    elif len(viral_fresh) >= min_viral_matches:
         mode = "viral_trend"
     elif len(viral_fresh) > 0:
         mode = "hybrid"
@@ -182,8 +203,10 @@ def build_agent1_brief(
 
     return {
         "mode_recommended": mode,
+        "section": "KARAT" if weekend_paper_mode else "REGULER",
+        "section_tagline": "KARAT — Kabar Riset Terkini • Dari Saintis untuk Masyarakat" if weekend_paper_mode else "",
         "viral_count": len(viral_fresh),
-        "viral_candidates": viral_fresh[:6],
+        "viral_candidates": viral_fresh[:8],
         "idea_bank_fallback_candidates": fallback_ideas,
         "discipline_balance_so_far": memory.discipline_counts(),
         "past_topics_to_avoid": past[:15],

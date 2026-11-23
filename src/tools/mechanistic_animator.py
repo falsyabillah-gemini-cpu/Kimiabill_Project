@@ -1106,7 +1106,12 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFon
     return lines[:max_lines]
 
 
-def _draw_discipline_pill(draw: ImageDraw.ImageDraw, discipline: str, fonts: dict) -> None:
+def _draw_discipline_pill(
+    draw: ImageDraw.ImageDraw,
+    discipline: str,
+    fonts: dict,
+    section_tag: str = "REGULER",
+) -> None:
     colors = {
         "kimia": BLUE,
         "fisika": PURPLE,
@@ -1114,8 +1119,8 @@ def _draw_discipline_pill(draw: ImageDraw.ImageDraw, discipline: str, fonts: dic
         "medisinal": RED,
         "biologi": GREEN,
     }
-    col = colors.get(discipline.lower(), BLUE)
-    label = f"SAINS • {discipline.upper()}"
+    col = ORANGE if section_tag == "KARAT" else colors.get(discipline.lower(), BLUE)
+    label = f"KARAT • {discipline.upper()}" if section_tag == "KARAT" else f"SAINS • {discipline.upper()}"
     bbox = draw.textbbox((0, 0), label, font=fonts["tiny_bold"])
     pw = (bbox[2] - bbox[0]) + 46
     x1 = 1032
@@ -1783,13 +1788,21 @@ def render_hybrid_science_video(
             is_last = seg_idx == num_segs - 1
 
             if is_first:
-                draw_header_pill(draw, "KOK BISA?!", RED, fonts, local_t, y_center=225)
+                is_karat = getattr(plan, "section_tag", "REGULER") == "KARAT"
+                draw_header_pill(
+                    draw,
+                    "KARAT • KABAR RISET TERKINI" if is_karat else "KOK BISA?!",
+                    ORANGE if is_karat else RED,
+                    fonts,
+                    local_t,
+                    y_center=225,
+                )
                 if plan.title:
                     draw_takeaway_card(
                         draw,
-                        "FENOMENA SAINS HARI INI",
-                        plan.discipline.upper(),
-                        BLUE,
+                        "EDISI WEEKEND • RISET TERBARU" if is_karat else "FENOMENA SAINS HARI INI",
+                        "KARAT • SAINS" if is_karat else plan.discipline.upper(),
+                        ORANGE if is_karat else BLUE,
                         plan.title[:44],
                         fonts,
                         local_t,
@@ -1827,7 +1840,7 @@ def render_hybrid_science_video(
             # Persistent top brand & discipline pills
             draw = ImageDraw.Draw(canvas)
             draw_brand_pill(draw, fonts)
-            _draw_discipline_pill(draw, plan.discipline, fonts)
+            _draw_discipline_pill(draw, plan.discipline, fonts, section_tag=getattr(plan, "section_tag", "REGULER"))
 
             proc.stdin.write(canvas.tobytes())
     finally:

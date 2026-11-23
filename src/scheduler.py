@@ -172,15 +172,27 @@ def run_one_automated_episode() -> None:
 
         prod_elapsed = time.monotonic() - run_t0
 
-        # Wait for prime-time publish window if configured (e.g., TARGET_PUBLISH_TIME_WIB="19:00")
+        # Wait for prime-time publish window (uses Agent 8's optimal weekend hours on Sat/Sun when available)
         target_pub = os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
+        if target_pub and datetime.now(WIB).weekday() in (5, 6):
+            try:
+                from src.tools.weekly_growth_auditor import load_latest_agent_directives
+
+                rec_hours = load_latest_agent_directives().get("recommended_weekend_hours_wib") or []
+                is_evening_slot = int(target_pub.split(":", 1)[0]) >= 16
+                picked = [h for h in rec_hours if ":" in h and (int(h.split(":", 1)[0]) >= 16) == is_evening_slot]
+                if picked:
+                    target_pub = picked[0].strip()
+                    print(f"[scheduler] Edisi Weekend KARAT memakai jam ter-rame hasil audit Agent 8: {target_pub} WIB")
+            except Exception:
+                pass
         if target_pub and ":" in target_pub:
             try:
                 th, tm = (int(x) for x in target_pub.split(":", 1))
                 now_wib = datetime.now(WIB)
                 target_dt = now_wib.replace(hour=th, minute=tm, second=0, microsecond=0)
                 wait_sec = (target_dt - now_wib).total_seconds()
-                if 0 < wait_sec <= 3600:
+                if 0 < wait_sec <= 5400:
                     print(
                         f"[scheduler] Video sudah siap & lolos QA! Menunggu jam prime time {target_pub} WIB "
                         f"({int(wait_sec // 60)}m {int(wait_sec % 60)}s lagi) sebelum upload..."

@@ -172,6 +172,17 @@ def build_render_plan(
     else:
         out_mp4 = paths["renders"] / f"proxy_v{version}_480p.mp4"
 
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    wib_now = datetime.now(ZoneInfo("Asia/Jakarta"))
+    is_karat = (
+        os.environ.get("FORCE_KARAT_WEEKEND", "").lower() == "true"
+        or wib_now.weekday() in (5, 6)
+    )
+    section_tag = "KARAT" if is_karat else "REGULER"
+    section_tagline = "KARAT — Kabar Riset Terkini" if is_karat else ""
+
     total_dur = segments[-1].end_sec if segments else 0.0
     use_mascot = bool(brand.get("video", {}).get("mascot", {}).get("enabled", True))
     return RenderPlan(
@@ -179,6 +190,8 @@ def build_render_plan(
         resolution_mode=resolution_mode,
         title=state.agent3.title,
         discipline=winner_disc,
+        section_tag=section_tag,
+        section_tagline=section_tagline,
         use_mascot=use_mascot,
         references=_collect_episode_references(state),
         voice_path=voice_path,
@@ -191,6 +204,15 @@ def build_render_plan(
     )
 
 
+def _is_weekend_karat_mode() -> bool:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    if os.environ.get("FORCE_KARAT_WEEKEND", "").lower() == "true":
+        return True
+    return datetime.now(ZoneInfo("Asia/Jakarta")).weekday() in (5, 6)
+
+
 def run_agent_1_to_3(
     episode_id: str,
     topic_hint: Optional[str] = None,
@@ -200,30 +222,41 @@ def run_agent_1_to_3(
     memory = StudioMemory(BASE_DIR)
     paths = episode_paths(episode_id)
     state = load_or_init_state(episode_id)
+    is_karat = _is_weekend_karat_mode()
 
-    # Pre-Agent 1 (0-Token): Scan viral pure-science trends first, fallback to Idea Bank
+    # Pre-Agent 1 (0-Token): Scan viral pure-science trends & recent papers (KARAT mode on weekends)
     ideation_cfg = brand["brand"].get("ideation_policy", {})
     trend_brief = build_agent1_brief(
         BASE_DIR,
         lookback_hours=ideation_cfg.get("viral_lookback_hours", 96),
         min_viral_matches=ideation_cfg.get("min_viral_matches", 2),
+        weekend_paper_mode=is_karat,
     )
     (paths["handoffs"] / "agent0_trend_brief.json").write_text(
         json.dumps(trend_brief, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    # Agent 1: Batch Ideation (5 ideas — Viral-First across 5 Pure Sciences, fallback to Idea Bank)
+    # Agent 1: Batch Ideation
     from src.tools.weekly_growth_auditor import load_latest_agent_directives
 
     weekly_dir = load_latest_agent_directives()
     a1_cfg = agents_cfg["agents"]["agent_1_ideation"]
+    karat_a1_note = (
+        "WEEKEND SPECIAL SECTION ACTIVE — 'KARAT (Kabar Riset Terkini)': Select and pitch 5 ideas centered on "
+        "RECENT PEER-REVIEWED RESEARCH PAPERS or breaking scientific breakthroughs from the last 72 hours "
+        "(Nature, Science, Phys.org, ScienceDaily, national/international science news) that bring cutting-edge "
+        "discoveries from scientists directly to the Indonesian public ('Dari Saintis untuk Masyarakat'). "
+        if is_karat
+        else ""
+    )
     state.agent1 = call_structured_agent(
         provider=a1_cfg["provider"],
         model=a1_cfg.get("model", a1_cfg["recommended_prod_model"]),
         system_prompt=(
             "You are Agent 1 (Viral Pure-Science Trend Scout) for Kimiabill. "
             "Cover strictly pure science phenomena across: kimia, fisika, matematika, medisinal, biologi. "
-            "PRIORITY 1: If `viral_candidates` has fresh viral science topics, prioritize turning them into "
+            f"{karat_a1_note}"
+            "PRIORITY 1: If `viral_candidates` has fresh viral science topics/papers, prioritize turning them into "
             "engaging Indonesian short-video ideas (`source_mode: 'viral_trend'`). "
             "PRIORITY 2 (Fallback): If no strong viral topic is available, select and enrich unused ideas "
             "from `idea_bank_fallback_candidates` (`source_mode: 'idea_bank'`), keeping all 5 disciplines balanced. "
@@ -232,6 +265,7 @@ def run_agent_1_to_3(
         ),
         user_payload={
             "brand": brand["brand"],
+            "section": "KARAT — Kabar Riset Terkini" if is_karat else "REGULER",
             "trend_brief": trend_brief,
             "topic_hint": topic_hint,
             "avoid_titles": avoid_titles or [],
@@ -271,6 +305,15 @@ def run_agent_1_to_3(
     )
     if winner.source_mode == "idea_bank":
         memory.mark_idea_used(winner.id, episode_id)
+    karat_a3_note = (
+        "THIS IS A WEEKEND 'KARAT — Kabar Riset Terkini' EPISODE: "
+        "Open scene_1 narration with a crisp mention like 'Selamat datang di KARAT — Kabar Riset Terkini!' "
+        "and clearly break down 1 latest scientific research paper/discovery (who/which institution discovered it, "
+        "what mechanism they found, and why it matters to everyday society). In `references`, cite the exact "
+        "journal / research institution / year & title. "
+        if is_karat
+        else ""
+    )
     state.agent3 = call_structured_agent(
         provider=a3_cfg["provider"],
         model=a3_cfg.get("model", a3_cfg["recommended_prod_model"]),
@@ -279,6 +322,7 @@ def run_agent_1_to_3(
             "Write a cheerful, clear, moderate-pace Indonesian short script (~55-65s total spoken, 6-7 scenes, "
             "~18-24 words narration per scene so the viewer gets rich, deep scientific insight) applying Agent 2's notes "
             "and Agent 8's `weekly_growth_directives`. "
+            f"{karat_a3_note}"
             "Each scene MUST specify an English real-footage visual_query (no cartoons/animations) that names a "
             "CONCRETE, FAMILY-SAFE, filmable object or lab process (e.g. 'gel cube compressed by hand in laboratory', "
             "'rust on iron chain close up'). NEVER use words about human bodies, skin, stretching people, clothing, "
