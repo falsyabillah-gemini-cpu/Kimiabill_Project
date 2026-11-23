@@ -312,7 +312,70 @@ def _upload_via_webhook(
     except Exception:
         model_block = ""
 
+    sheet_id = os.environ.get("KIMIABILL_SHEET_ID", "").strip()
+    if not sheet_id:
+        try:
+            import yaml
+
+            brand_cfg = yaml.safe_load((episode_dir.parent.parent / "config" / "brand.yaml").read_text(encoding="utf-8"))
+            sheet_id = str(brand_cfg.get("publishing", {}).get("tracking_sheet_id") or "").strip()
+        except Exception:
+            sheet_id = ""
+    if not sheet_id:
+        sheet_id = "1HltIwSA5VK5ehVg_WLhNf_oFCah2A2aJed6VahKYlHc"
+    sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit" if sheet_id else ""
+
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    now_wib_str = datetime.now(ZoneInfo("Asia/Jakarta")).isoformat(timespec="seconds")
+    ep_disc = "-"
+    ep_sec_tag = "REGULER"
+    ep_dur: Any = "-"
+    ep_qa: Any = "-"
+    if state_json.exists():
+        try:
+            st_data = json.loads(state_json.read_text(encoding="utf-8"))
+            rp = st_data.get("render_plan") or {}
+            ep_disc = rp.get("discipline") or "-"
+            ep_sec_tag = rp.get("section_tag") or "REGULER"
+            ep_dur = rp.get("total_duration_sec") or "-"
+            hist5 = st_data.get("agent5_history") or []
+            if hist5:
+                ep_qa = hist5[-1].get("overall_score") or "-"
+        except Exception:
+            pass
+
+    model_short = "-"
+    try:
+        from src.providers import get_model_usage_summary
+
+        ms = get_model_usage_summary()
+        if ms:
+            model_short = " | ".join(f"{k.split(' ')[1]}: {v}" for k, v in ms.items())
+    except Exception:
+        pass
+
+    sheet_row = [
+        now_wib_str,
+        episode_name,
+        ep_sec_tag,
+        title,
+        ep_disc,
+        ep_dur,
+        ep_qa,
+        youtube_privacy or publish_mode,
+        youtube_url or "-",
+        folder_url,
+        model_short,
+        req_by or "-",
+        f"Email ke {notify_to}",
+        "-",
+    ]
+
     sections = []
+    if sheet_url:
+        sections.append(f"📊 Google Sheet Tracker: {sheet_url}")
     if req_by:
         sections.append(f"[MEMENUHI REQUEST KOMENTAR PENONTON]\nRequester: {req_by} (sudah di-mention di video, caption & komentar!)")
     if qa_summary:
@@ -337,10 +400,12 @@ def _upload_via_webhook(
                 "youtube_privacy": youtube_privacy,
                 "youtube_note": youtube_note,
                 "captions_preview": email_preview,
+                "sheet_id": sheet_id,
+                "sheet_row": sheet_row,
             },
             timeout=60,
         )
-        print(f"[gdrive] Notifikasi email terkirim ke {notify_to}")
+        print(f"[gdrive] Notifikasi email & update Tracker Sheet terkirim ke {notify_to}")
     except Exception as exc:
         print(f"[gdrive] Peringatan: upload Drive sukses, namun gagal kirim email ({exc})")
 

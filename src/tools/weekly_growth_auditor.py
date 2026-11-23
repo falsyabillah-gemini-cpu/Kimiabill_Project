@@ -345,13 +345,31 @@ def _format_audit_markdown(
     return "\n".join(lines) + "\n"
 
 
+def _get_tracking_sheet_id() -> str:
+    env_id = os.environ.get("KIMIABILL_SHEET_ID", "").strip()
+    if env_id:
+        return env_id
+    brand_path = BASE_DIR / "config" / "brand.yaml"
+    if brand_path.exists():
+        try:
+            brand_cfg = yaml.safe_load(brand_path.read_text(encoding="utf-8")) or {}
+            sid = str(brand_cfg.get("publishing", {}).get("tracking_sheet_id", "")).strip()
+            if sid:
+                return sid
+        except Exception:
+            pass
+    return "1HltIwSA5VK5ehVg_WLhNf_oFCah2A2aJed6VahKYlHc"
+
+
 def _deliver_audit_to_drive_and_email(
     audit: Agent8WeeklyAuditOutput,
     report_md: str,
     report_path: Path,
     pdf_path: Optional[Path] = None,
+    channel_stats: Optional[dict[str, Any]] = None,
+    recent_videos: Optional[list[dict[str, Any]]] = None,
 ) -> None:
-    """Upload weekly audit PDF + Markdown to Google Drive (Kimiabill_Studio/Weekly_Audits) & email research inbox."""
+    """Upload weekly audit PDF + Markdown to Google Drive, sync Google Sheets tracker, & email research inbox."""
     raw_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
     if not raw_url:
         print("[agent8] GDRIVE_WEBHOOK_URL tidak diset; melewati upload Drive & email.")
@@ -409,9 +427,66 @@ def _deliver_audit_to_drive_and_email(
     except Exception as exc:
         print(f"[agent8] Peringatan upload Drive laporan mingguan: {exc}")
 
+    sheet_id = _get_tracking_sheet_id()
+    sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit" if sheet_id else ""
+    if sheet_id:
+        try:
+            ch = channel_stats or {}
+            vids = recent_videos or []
+            subs = int(ch.get("subscribers", 0) or 0)
+            views = int(ch.get("total_views", 0) or 0)
+            qa_scores = [float(v.get("qa_score")) for v in vids if v.get("qa_score") is not None]
+            avg_qa: Any = round(sum(qa_scores) / len(qa_scores), 1) if qa_scores else "-"
+            karat_line = "; ".join(audit.karat_weekend_directives[:2]) if audit.karat_weekend_directives else "-"
+            summary_cell = f"{audit.summary} | KARAT: {karat_line}"[:900]
+            audit_row = [
+                audit.week_ending,
+                subs,
+                views,
+                f"{subs / 500 * 100:.2f}%",
+                f"{views / 3_000_000 * 100:.2f}%",
+                f"{subs / 1000 * 100:.2f}%",
+                f"{views / 10_000_000 * 100:.2f}%",
+                len(vids),
+                avg_qa,
+                summary_cell,
+            ]
+            request_rows = [
+                [
+                    req.get("request_id", "-"),
+                    req.get("created_week", "-"),
+                    req.get("requester_name", "-"),
+                    str(req.get("source_comment", "-"))[:220],
+                    req.get("topic_title", "-"),
+                    req.get("discipline", "-"),
+                    req.get("status", "pending"),
+                    req.get("fulfilled_youtube_url") or req.get("fulfilled_episode_id") or "-",
+                ]
+                for req in load_audience_requests()
+            ]
+            s_resp = requests.post(
+                webhook_url,
+                json={
+                    "action": "sync_audit_sheet",
+                    "token": token,
+                    "sheet_id": sheet_id,
+                    "audit_row": audit_row,
+                    "request_rows": request_rows,
+                },
+                timeout=45,
+            ).json()
+            if s_resp.get("ok"):
+                print(f"[agent8] Google Sheet tracker diperbarui (Audit Mingguan & Request Penonton): {sheet_url}")
+            else:
+                print(f"[agent8] Peringatan sync Google Sheet audit: {s_resp}")
+        except Exception as exc:
+            print(f"[agent8] Peringatan gagal sync Google Sheet audit: {exc}")
+
     header_links = []
     if pdf_url:
         header_links.append(f"📄 BUKA LAPORAN PDF VISUAL (GRAFIK & MONETISASI): {pdf_url}")
+    if sheet_url:
+        header_links.append(f"📊 BUKA GOOGLE SHEET TRACKER LIVE (Upload & Audit YPP): {sheet_url}")
     if folder_url:
         header_links.append(f"📁 Folder Arsip Audit Drive: {folder_url}")
     try:
@@ -595,6 +670,13 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
         print(f"[agent8] Peringatan gagal membuat PDF visual: {exc}")
         pdf_path = None
 
-    _deliver_audit_to_drive_and_email(audit, report_md, report_path, pdf_path=pdf_path)
+    _deliver_audit_to_drive_and_email(
+        audit,
+        report_md,
+        report_path,
+        pdf_path=pdf_path,
+        channel_stats=ch_stats,
+        recent_videos=enriched,
+    )
     print(f"[agent8] Audit mingguan selesai ({today_wib}). Instruksi terbaru disimpan di {DIRECTIVES_PATH}")
     return audit

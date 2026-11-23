@@ -202,7 +202,56 @@ function doPost(e) {
         subject: subject,
         body: bodyLines.join("\n"),
       });
-      return _jsonResponse({ ok: true, emailed_to: to });
+
+      let sheetUpdated = false;
+      const sheetId = payload.sheet_id || "1HltIwSA5VK5ehVg_WLhNf_oFCah2A2aJed6VahKYlHc";
+      if (sheetId && Array.isArray(payload.sheet_row) && payload.sheet_row.length > 0 && typeof SpreadsheetApp !== "undefined") {
+        try {
+          const ss = SpreadsheetApp.openById(sheetId);
+          let sh = ss.getSheetByName("Upload Video");
+          if (!sh) {
+            sh = ss.insertSheet("Upload Video");
+            sh.appendRow([
+              "Waktu (WIB)", "Episode ID", "Section", "Judul Video", "Disiplin",
+              "Durasi (dtk)", "Skor QA", "Mode Tayang", "Link YouTube",
+              "Link Google Drive", "Model AI Dipakai", "Request Penonton",
+              "Status Notifikasi", "Waktu Produksi (dtk)"
+            ]);
+          }
+          sh.appendRow(payload.sheet_row);
+          sheetUpdated = true;
+        } catch (shErr) {
+          sheetUpdated = false;
+        }
+      }
+
+      return _jsonResponse({ ok: true, emailed_to: to, sheet_updated: sheetUpdated });
+    }
+
+    if (action === "sync_audit_sheet") {
+      const sheetId = payload.sheet_id || "1HltIwSA5VK5ehVg_WLhNf_oFCah2A2aJed6VahKYlHc";
+      if (!sheetId || typeof SpreadsheetApp === "undefined") {
+        return _jsonResponse({ ok: false, error: "SpreadsheetApp atau sheet_id tidak tersedia." });
+      }
+      const ss = SpreadsheetApp.openById(sheetId);
+      if (Array.isArray(payload.audit_row) && payload.audit_row.length > 0) {
+        let aSh = ss.getSheetByName("Audit Mingguan & YPP");
+        if (!aSh) aSh = ss.insertSheet("Audit Mingguan & YPP");
+        aSh.appendRow(payload.audit_row);
+      }
+      if (Array.isArray(payload.request_rows)) {
+        let rSh = ss.getSheetByName("Request Penonton");
+        if (!rSh) rSh = ss.insertSheet("Request Penonton");
+        rSh.clearContents();
+        rSh.appendRow([
+          "Request ID", "Tanggal", "Penonton (@Username)", "Komentar Asli",
+          "Topik Sains", "Disiplin", "Status", "Link Video Jadi"
+        ]);
+        payload.request_rows.forEach(function (rw) {
+          if (Array.isArray(rw)) rSh.appendRow(rw);
+        });
+      }
+      return _jsonResponse({ ok: true, sheet_id: sheetId });
     }
 
     if (action === "get_youtube_stats") {
