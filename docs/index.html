@@ -206,17 +206,22 @@
       document.getElementById("wibClock").textContent = `${hh}:${mm}:${ss}`;
 
       const minsNow = wib.getHours() * 60 + wib.getMinutes();
-      const prodStart = 18 * 60 + 25;
-      const postTime = 19 * 60;
+      const s1Start = 11 * 60 + 25, s1Post = 12 * 60;
+      const s2Start = 18 * 60 + 25, s2Post = 19 * 60;
       let msg = "";
-      if (minsNow < prodStart) {
-        const diff = prodStart - minsNow;
-        msg = `Shift mulai ${Math.floor(diff / 60)}j ${diff % 60}m lagi`;
-      } else if (minsNow < postTime) {
-        msg = `Sedang jam produksi → post ${postTime - minsNow}m lagi`;
+      if (minsNow < s1Start) {
+        const diff = s1Start - minsNow;
+        msg = `Shift Siang ${Math.floor(diff / 60)}j ${diff % 60}m lagi`;
+      } else if (minsNow < s1Post) {
+        msg = `Produksi Siang → post ${s1Post - minsNow}m lagi`;
+      } else if (minsNow < s2Start) {
+        const diff = s2Start - minsNow;
+        msg = `Shift Malam ${Math.floor(diff / 60)}j ${diff % 60}m lagi`;
+      } else if (minsNow < s2Post) {
+        msg = `Produksi Malam → post ${s2Post - minsNow}m lagi`;
       } else {
-        const diff = (24 * 60 - minsNow) + prodStart;
-        msg = `Shift besok ${Math.floor(diff / 60)}j ${diff % 60}m lagi`;
+        const diff = (24 * 60 - minsNow) + s1Start;
+        msg = `Shift Besok ${Math.floor(diff / 60)}j ${diff % 60}m lagi`;
       }
       document.getElementById("countdownText").textContent = msg;
     }
@@ -237,7 +242,9 @@
         return agent.id === activeId ? "working" : (PIPELINE_ORDER.indexOf(agent.id) < cycle ? "done" : "idle");
       }
       if (wib.getDay() === 0 && wib.getHours() === 20 && agent.id === 8) return "working";
-      if (mins >= 18 * 60 + 25 && mins <= 19 * 60 + 5 && agent.id !== 8) return "working";
+      const inLunch = mins >= 11 * 60 + 25 && mins <= 12 * 60 + 5;
+      const inEvening = mins >= 18 * 60 + 25 && mins <= 19 * 60 + 5;
+      if ((inLunch || inEvening) && agent.id !== 8) return "working";
       return "idle";
     }
 
