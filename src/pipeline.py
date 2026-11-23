@@ -160,6 +160,7 @@ def build_render_plan(
                 footage_start_offset=offsets.get(timing.scene_id, 0.0),
                 narration=sc.narration,
                 overlay_badge=sc.overlay_badge,
+                mechanism=sc.mechanism,
                 sfx_path=ast.sfx_path,
                 sfx_gain_db=-10.5,
                 motion=sc.motion,
@@ -274,8 +275,12 @@ def run_agent_1_to_3(
             "CONCRETE, FAMILY-SAFE, filmable object or lab process (e.g. 'gel cube compressed by hand in laboratory', "
             "'rust on iron chain close up'). NEVER use words about human bodies, skin, stretching people, clothing, "
             "dance, music, or vague single words; provide 2-3 equally concrete fallback_queries. "
-            "For middle explanation scenes, ALWAYS provide a concise mechanistic overlay_badge using arrows "
-            "to show cause-and-effect (e.g. 'Enzim COX → Prostaglandin Turun → Nyeri Reda' or 'Fe + O₂ + H₂O → Fe₂O₃'). "
+            "For middle explanation scenes (scenes 2, 3, 4), ALWAYS provide BOTH `overlay_badge` AND `mechanism` "
+            "so the renderer draws a REAL animated scientific diagram (NOT just text boxes!): choose `mechanism.kind` from "
+            "'electron_transfer' (redox/electron flow arrows), 'polymer_crosslink' (chains bending & crosslinking into rigid lattice), "
+            "'molecular_reaction' (bonds breaking/forming with curved arrows), 'receptor_binding' (enzyme/drug lock-and-key docking), "
+            "'force_wave' (physics wave/force vectors), or 'math_geometry' (live mathematical curve/growth), and fill concise "
+            "`title`, `actor_a`, `actor_b`, `result`, and `caption` matching the scene's exact mechanism. "
             "ALWAYS populate `references` with 1-3 real, accurate scientific references (journal, textbook, university, or source article)."
         ),
         user_payload={
@@ -369,12 +374,12 @@ def run_agent_4_proxy_and_gate0(
     if (
         version > 1
         and state.render_plan is not None
-        and Path(state.render_plan.voiceover_path).exists()
+        and Path(state.render_plan.voice_path).exists()
         and len(state.render_plan.segments) == len(state.agent3.scenes)
     ):
         from src.tools.tts_engine import SceneVoiceResult
 
-        voice_path = state.render_plan.voiceover_path
+        voice_path = state.render_plan.voice_path
         scene_timings = [
             SceneVoiceResult(
                 scene_id=seg.scene_id,

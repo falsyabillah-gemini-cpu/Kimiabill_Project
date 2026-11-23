@@ -983,13 +983,12 @@ def _prepare_smart_real_footage_base(
     seg_dir.mkdir(parents=True, exist_ok=True)
     seg_files: list[Path] = []
 
-    # Landscape foreground window: full frame width, ~45% of frame height. The clip is scaled
-    # to fill this window (cropping only ~25-30% of the sides) -> big & sharp, never a tiny PiP,
-    # and never the brutal ~3x crop of a full 9:16 fill.
+    # Landscape foreground window: full frame width, ~33.3% of frame height (1080x640, near 16:9).
+    # Sharp and un-zoomed, leaving y=945..1345 completely clean for the animated mechanistic simulation!
     fg_w = width - (width % 2)
-    fg_h = int(height * 0.45)
+    fg_h = int(height * 0.333)
     fg_h -= fg_h % 2
-    fg_y = int(height * 0.17)
+    fg_y = int(height * 0.15)
 
     for seg in plan.segments:
         out_seg = seg_dir / f"{seg.scene_id}.mp4"
@@ -1125,32 +1124,411 @@ def _draw_discipline_pill(draw: ImageDraw.ImageDraw, discipline: str, fonts: dic
     draw_outlined_text(draw, ((x0 + x1) // 2, 106), label, fonts["tiny_bold"], fill=WHITE, stroke_w=3)
 
 
+def _draw_curved_arrow(
+    draw: ImageDraw.ImageDraw,
+    p0: tuple[float, float],
+    ctrl: tuple[float, float],
+    p2: tuple[float, float],
+    color: tuple[int, int, int, int],
+    width: int = 6,
+    steps: int = 24,
+) -> list[tuple[float, float]]:
+    """Draw a smooth quadratic Bezier curved reaction arrow and return sampled points."""
+    pts: list[tuple[float, float]] = []
+    for i in range(steps + 1):
+        u = i / steps
+        x = (1 - u) ** 2 * p0[0] + 2 * (1 - u) * u * ctrl[0] + u ** 2 * p2[0]
+        y = (1 - u) ** 2 * p0[1] + 2 * (1 - u) * u * ctrl[1] + u ** 2 * p2[1]
+        pts.append((x, y))
+    for i in range(len(pts) - 1):
+        draw.line([pts[i], pts[i + 1]], fill=color, width=width)
+    # Arrowhead at p2
+    dx = pts[-1][0] - pts[-3][0]
+    dy = pts[-1][1] - pts[-3][1]
+    ang = math.atan2(dy, dx)
+    head_len = 20
+    a1 = (pts[-1][0] - head_len * math.cos(ang - 0.5), pts[-1][1] - head_len * math.sin(ang - 0.5))
+    a2 = (pts[-1][0] - head_len * math.cos(ang + 0.5), pts[-1][1] - head_len * math.sin(ang + 0.5))
+    draw.polygon([pts[-1], a1, a2], fill=color, outline=INK)
+    return pts
+
+
+def _infer_mechanism_params(seg: TimelineSegment, discipline: str = "kimia") -> dict[str, str]:
+    """Return structured mechanism parameters from seg.mechanism or smartly infer from narration/badge."""
+    if seg.mechanism is not None:
+        m = seg.mechanism
+        return {
+            "kind": m.kind,
+            "title": (m.title or "MEKANISME SAINS")[:34],
+            "actor_a": (m.actor_a or "A")[:16],
+            "actor_b": (m.actor_b or "B")[:16],
+            "result": (m.result or "Hasil")[:22],
+            "caption": (m.caption or "")[:54],
+        }
+
+    import re
+    blob = f"{seg.narration} {seg.overlay_badge or ''} {discipline}".lower()
+    if any(k in blob for k in ("polimer", "hidrogel", "tekuk", "elastis", "rigid", "rantai", "silang", "crosslink", "serat", "kuat")):
+        kind = "polymer_crosslink"
+        default_title = "PENGUATAN STRUKTUR POLIMER"
+    elif any(k in blob for k in ("elektron", "redoks", "oksidasi", "karat", "ion", "baterai", "arus", "muatan")):
+        kind = "electron_transfer"
+        default_title = "ARAH TRANSFER ELEKTRON"
+    elif any(k in blob for k in ("enzim", "reseptor", "obat", "sel", "protein", "hormon", "antibodi", "virus", "bakteri")):
+        kind = "receptor_binding"
+        default_title = "INTERAKSI MOLEKUL & RESEPTOR"
+    elif any(k in blob for k in ("gelombang", "gaya", "energi", "cahaya", "suara", "frekuensi", "tekanan", "panas", "gravitasi")):
+        kind = "force_wave"
+        default_title = "MEKANISME GAYA & GELOMBANG"
+    elif any(k in blob for k in ("matematika", "grafik", "eksponensial", "pola", "kurva", "probabilitas", "fraktal", "geometri")):
+        kind = "math_geometry"
+        default_title = "POLA & KURVA MATEMATIKA"
+    else:
+        kind = "molecular_reaction"
+        default_title = "MEKANISME REAKSI KIMIA"
+
+    badge = (seg.overlay_badge or "").strip()
+    parts = [p.strip() for p in re.split(r"\s*(?:→|->|=>|=|\+)\s*", badge) if p.strip()]
+    actor_a = parts[0][:16] if len(parts) >= 1 else "Molekul A"
+    actor_b = parts[1][:16] if len(parts) >= 2 else "Molekul B"
+    result = parts[-1][:22] if len(parts) >= 3 else (parts[1][:22] if len(parts) == 2 else "Struktur Baru")
+    return {
+        "kind": kind,
+        "title": default_title,
+        "actor_a": actor_a,
+        "actor_b": actor_b,
+        "result": result,
+        "caption": badge[:54] if badge else seg.narration[:50],
+    }
+
+
+def _anim_polymer_crosslink(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate polymer chains flexing under bending force -> crosslinks snapping -> rigid lattice!"""
+    x0, y0, x1, y1 = box
+    prog = clamp(t / max(dur * 0.78, 1.8))
+    # Bending phase peaks around prog=0.38, then locks straight & rigid by prog=0.85
+    bend_phase = math.sin(min(prog / 0.55, 1.0) * math.pi) if prog < 0.55 else 0.0
+    crosslink_prog = clamp((prog - 0.28) / 0.45)
+    rigid_prog = clamp((prog - 0.55) / 0.35)
+
+    n_nodes = 7
+    row_ys = [y0 + 92, y0 + 158, y0 + 224]
+    left_x, right_x = x0 + 95, x1 - 95
+    xs = [left_x + i * (right_x - left_x) / (n_nodes - 1) for i in range(n_nodes)]
+
+    # Animated bending force arrows during early phase
+    if bend_phase > 0.08:
+        pulse = int(12 * math.sin(t * 10))
+        for fx in (x0 + 42, x1 - 42):
+            ay0 = y0 + 18 + pulse
+            ay1 = y0 + 82 + pulse
+            draw.line([(fx, ay0), (fx, ay1)], fill=RED, width=8)
+            draw.polygon([(fx, ay1 + 14), (fx - 13, ay1 - 4), (fx + 13, ay1 - 4)], fill=RED, outline=INK)
+        draw.text((x0 + (x1 - x0) // 2, y0 + 24), "GAYA TEKUK / TEKANAN", font=fonts["micro_bold"], fill=RED, anchor="mm")
+    elif rigid_prog > 0.2:
+        draw.text(
+            (x0 + (x1 - x0) // 2, y0 + 24),
+            f"✓ {params['result'].upper()}",
+            font=fonts["tiny_bold"],
+            fill=GREEN,
+            anchor="mm",
+        )
+
+    # Compute node positions: arch upward/downward when bent, lock tight when rigid
+    grid_pts: list[list[tuple[int, int]]] = []
+    for r_idx, base_y in enumerate(row_ys):
+        row_pts: list[tuple[int, int]] = []
+        # Pull rows closer together as crosslinks form
+        tighten = int((1 - r_idx) * 14 * rigid_prog)
+        for i, gx in enumerate(xs):
+            u = (i / (n_nodes - 1)) * 2 - 1  # -1..1
+            arch = int((1 - u * u) * 44 * bend_phase)
+            jitter = int(math.sin(t * 7 + i + r_idx) * 5 * (1.0 - rigid_prog))
+            row_pts.append((int(gx), int(base_y - arch + tighten + jitter)))
+        grid_pts.append(row_pts)
+
+    # Draw vertical crosslink bridges snapping between rows!
+    if crosslink_prog > 0.02:
+        total_links = n_nodes * 2
+        active_links = int(crosslink_prog * total_links)
+        link_idx = 0
+        for r_idx in range(2):
+            for i in range(n_nodes):
+                link_idx += 1
+                if link_idx <= active_links:
+                    p_top = grid_pts[r_idx][i]
+                    p_bot = grid_pts[r_idx + 1][i]
+                    draw.line([p_top, p_bot], fill=CYAN if rigid_prog < 0.7 else GREEN, width=7)
+                    # Flash ring on newly formed crosslink
+                    mid_y = (p_top[1] + p_bot[1]) // 2
+                    draw.ellipse([p_top[0] - 9, mid_y - 9, p_top[0] + 9, mid_y + 9], fill=YELLOW, outline=INK, width=2)
+
+    # Draw horizontal polymer chains & monomer spheres
+    chain_col = BLUE if rigid_prog < 0.5 else (20, 120, 95, 255)
+    for r_idx, row_pts in enumerate(grid_pts):
+        for i in range(len(row_pts) - 1):
+            draw.line([row_pts[i], row_pts[i + 1]], fill=INK, width=9)
+            draw.line([row_pts[i], row_pts[i + 1]], fill=chain_col, width=5)
+        for i, (px, py) in enumerate(row_pts):
+            node_col = GREEN if rigid_prog > 0.75 else (ORANGE if bend_phase > 0.35 else BLUE)
+            draw.ellipse([px - 16, py - 16, px + 16, py + 16], fill=node_col, outline=INK, width=3)
+
+    # Live Rigidity / Strength meter bar at bottom
+    bar_x0, bar_y0, bar_x1, bar_y1 = x0 + 40, y1 - 44, x1 - 40, y1 - 14
+    draw.rounded_rectangle([bar_x0, bar_y0, bar_x1, bar_y1], radius=12, fill=(225, 232, 240, 255), outline=INK, width=3)
+    pct = int(22 + 76 * clamp(crosslink_prog * 0.6 + rigid_prog * 0.4))
+    fill_x1 = bar_x0 + int((bar_x1 - bar_x0) * (pct / 100.0))
+    bar_col = ORANGE if pct < 55 else GREEN
+    draw.rounded_rectangle([bar_x0 + 2, bar_y0 + 2, max(bar_x0 + 22, fill_x1), bar_y1 - 2], radius=10, fill=bar_col)
+    draw.text(
+        ((bar_x0 + bar_x1) // 2, (bar_y0 + bar_y1) // 2),
+        f"{params['actor_b'].upper()} → KEKUATAN / RIGIDITAS: {pct}%",
+        font=fonts["micro_bold"],
+        fill=INK,
+        anchor="mm",
+    )
+
+
+def _anim_electron_transfer(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate donor atoms -> curved electron-transfer arrow + flying yellow e⁻ -> acceptor & product."""
+    x0, y0, x1, y1 = box
+    prog = clamp(t / max(dur * 0.80, 1.6))
+    cx = (x0 + x1) // 2
+    cy = y0 + 150
+
+    # Left Donor cluster (3 atoms)
+    donor_x = x0 + 175
+    donor_col = RUST_LIGHT if prog > 0.55 else IRON_GRAY
+    for dy_off in (-55, 0, 55):
+        draw.ellipse([donor_x - 36, cy + dy_off - 32, donor_x + 36, cy + dy_off + 32], fill=donor_col, outline=INK, width=4)
+    draw.text((donor_x, cy), params["actor_a"], font=fonts["tiny_bold"], fill=WHITE, anchor="mm")
+    draw.text((donor_x, cy + 102), "DONOR (Oksidasi)", font=fonts["micro_bold"], fill=RUST_DARK, anchor="mm")
+
+    # Right Acceptor cluster (3 atoms)
+    acc_x = x1 - 175
+    acc_col = GREEN if prog > 0.65 else BLUE
+    for dy_off in (-55, 0, 55):
+        draw.ellipse([acc_x - 36, cy + dy_off - 32, acc_x + 36, cy + dy_off + 32], fill=acc_col, outline=INK, width=4)
+    draw.text((acc_x, cy), params["actor_b"], font=fonts["tiny_bold"], fill=WHITE, anchor="mm")
+    draw.text((acc_x, cy + 102), "AKSEPTOR (Reduksi)", font=fonts["micro_bold"], fill=BLUE, anchor="mm")
+
+    # Curved mechanistic reaction arrow arching from Donor -> Acceptor
+    p0 = (donor_x + 48, cy - 30)
+    ctrl = (cx, y0 + 16)
+    p2 = (acc_x - 48, cy - 30)
+    arc_pts = _draw_curved_arrow(draw, p0, ctrl, p2, ORANGE, width=7, steps=30)
+
+    # 3 glowing yellow electrons (e⁻) flying along the curved reaction arrow!
+    for k in range(3):
+        u = (t * 0.65 + k * 0.33) % 1.0
+        idx = min(len(arc_pts) - 1, int(u * (len(arc_pts) - 1)))
+        ex, ey = arc_pts[idx]
+        draw.ellipse([ex - 20, ey - 20, ex + 20, ey + 20], fill=YELLOW, outline=INK, width=3)
+        draw.text((ex, ey), "e⁻", font=fonts["micro_bold"], fill=INK, anchor="mm")
+
+    # Product badge pulsing at bottom-center once transfer progresses
+    if prog > 0.30:
+        draw.rounded_rectangle([cx - 210, y1 - 54, cx + 210, y1 - 12], radius=16, fill=GREEN, outline=INK, width=3)
+        draw.text((cx, y1 - 33), f"HASIL: {params['result']}", font=fonts["tiny_bold"], fill=WHITE, anchor="mm")
+
+
+def _anim_molecular_reaction(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate two ball-and-stick molecules approaching -> curved arrow -> new covalent bond & product."""
+    x0, y0, x1, y1 = box
+    prog = clamp(t / max(dur * 0.78, 1.8))
+    cx = (x0 + x1) // 2
+    cy = y0 + 138
+
+    approach = ease_out_cubic(min(prog / 0.55, 1.0))
+    bonded = prog >= 0.55
+    ax = int((x0 + 175) + approach * 165)
+    bx = int((x1 - 175) - approach * 165)
+
+    # Molecule A (ball-and-stick cluster)
+    for ox, oy in ((-48, -36), (-48, 36)):
+        draw.line([(ax, cy), (ax + ox, cy + oy)], fill=INK, width=6)
+        draw.ellipse([ax + ox - 18, cy + oy - 18, ax + ox + 18, cy + oy + 18], fill=CYAN, outline=INK, width=3)
+    draw.ellipse([ax - 38, cy - 38, ax + 38, cy + 38], fill=BLUE, outline=INK, width=4)
+    draw.text((ax, cy), params["actor_a"][:10], font=fonts["micro_bold"], fill=WHITE, anchor="mm")
+
+    # Molecule B (ball-and-stick cluster)
+    for ox, oy in ((48, -36), (48, 36)):
+        draw.line([(bx, cy), (bx + ox, cy + oy)], fill=INK, width=6)
+        draw.ellipse([bx + ox - 18, cy + oy - 18, bx + ox + 18, cy + oy + 18], fill=ORANGE, outline=INK, width=3)
+    draw.ellipse([bx - 38, cy - 38, bx + 38, cy + 38], fill=PURPLE, outline=INK, width=4)
+    draw.text((bx, cy), params["actor_b"][:10], font=fonts["micro_bold"], fill=WHITE, anchor="mm")
+
+    if not bonded:
+        # Curved electron-pushing arrow while approaching
+        pts = _draw_curved_arrow(draw, (ax + 24, cy - 40), (cx, y0 + 26), (bx - 24, cy - 40), RED, width=6)
+        idx = min(len(pts) - 1, int(((t * 1.1) % 1.0) * (len(pts) - 1)))
+        ex, ey = pts[idx]
+        draw.ellipse([ex - 14, ey - 14, ex + 14, ey + 14], fill=YELLOW, outline=INK, width=3)
+    else:
+        # New covalent bond snaps together with glowing pulse ring!
+        draw.line([(ax + 36, cy - 8), (bx - 36, cy - 8)], fill=GREEN, width=8)
+        draw.line([(ax + 36, cy + 8), (bx - 36, cy + 8)], fill=GREEN, width=8)
+        r_pulse = int(28 + 18 * math.sin(t * 8))
+        draw.ellipse([cx - r_pulse, cy - r_pulse, cx + r_pulse, cy + r_pulse], outline=YELLOW, width=5)
+
+    draw.rounded_rectangle([cx - 240, y1 - 54, cx + 240, y1 - 12], radius=16, fill=GREEN if bonded else CARD_DARK, outline=INK, width=3)
+    lbl = f"IKATAN TERBENTUK: {params['result']}" if bonded else f"{params['actor_a']} + {params['actor_b']} → REAKSI"
+    draw.text((cx, y1 - 33), lbl[:40], font=fonts["tiny_bold"], fill=WHITE if bonded else YELLOW, anchor="mm")
+
+
+def _anim_receptor_binding(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate enzyme/receptor pocket + ligand/drug docking into active site + conformational lock."""
+    x0, y0, x1, y1 = box
+    prog = clamp(t / max(dur * 0.78, 1.8))
+    dock = ease_out_cubic(min(prog / 0.62, 1.0))
+    locked = prog >= 0.62
+    cy = y0 + 135
+
+    # Receptor body centered-right with C-shaped active-site pocket
+    cx = (x0 + x1) // 2
+    rx = cx + 80
+    rec_col = GREEN if locked else PURPLE
+    draw.rounded_rectangle([rx - 40, cy - 82, rx + 205, cy + 82], radius=40, fill=rec_col, outline=INK, width=5)
+    # Cutout pocket (card background color)
+    draw.pieslice([rx - 78, cy - 48, rx + 20, cy + 48], start=300, end=60, fill=CARD_BG, outline=INK, width=4)
+    draw.text((rx + 108, cy), params["actor_b"][:12], font=fonts["tiny_bold"], fill=WHITE, anchor="mm")
+
+    # Ligand / drug molecule gliding smoothly into pocket
+    lx = int((x0 + 165) + dock * (rx - 62 - (x0 + 165)))
+    ly = int(cy + math.sin(t * 5) * 14 * (1.0 - dock))
+    draw.polygon(
+        [(lx - 78, ly - 32), (lx + 18, ly - 32), (lx + 48, ly), (lx + 18, ly + 32), (lx - 78, ly + 32)],
+        fill=ORANGE,
+        outline=INK,
+    )
+    draw.text((lx - 24, ly), params["actor_a"][:10], font=fonts["micro_bold"], fill=WHITE, anchor="mm")
+
+    if locked:
+        r_glow = int(52 + 8 * math.sin(t * 9))
+        draw.ellipse([rx - 28 - r_glow, cy - r_glow, rx - 28 + r_glow, cy + r_glow], outline=YELLOW, width=5)
+
+    draw.rounded_rectangle([cx - 240, y1 - 54, cx + 240, y1 - 12], radius=16, fill=GREEN if locked else CARD_DARK, outline=INK, width=3)
+    lbl = f"✓ TERIKAT: {params['result']}" if locked else f"{params['actor_a']} → MENUJU {params['actor_b']}"
+    draw.text((cx, y1 - 33), lbl[:40], font=fonts["tiny_bold"], fill=WHITE if locked else YELLOW, anchor="mm")
+
+
+def _anim_force_wave(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate live traveling physics wave + oscillating particles + force/energy vectors."""
+    x0, y0, x1, y1 = box
+    cy = y0 + 132
+    left_x, right_x = x0 + 60, x1 - 60
+    # Equilibrium axis
+    draw.line([(left_x, cy), (right_x, cy)], fill=(180, 190, 205, 255), width=3)
+    # Continuous sine wave
+    pts: list[tuple[int, int]] = []
+    for px in range(left_x, right_x, 8):
+        u = (px - left_x) / max(1, right_x - left_x)
+        py = int(cy - 68 * math.sin(u * 3.5 * math.pi - t * 6.5))
+        pts.append((px, py))
+    for i in range(len(pts) - 1):
+        draw.line([pts[i], pts[i + 1]], fill=BLUE, width=7)
+    # Oscillating particles + vertical force vectors
+    for k in range(8):
+        u = k / 7.0
+        px = int(left_x + u * (right_x - left_x))
+        dy = int(-68 * math.sin(u * 3.5 * math.pi - t * 6.5))
+        py = cy + dy
+        draw.line([(px, cy), (px, py)], fill=ORANGE, width=4)
+        draw.ellipse([px - 13, py - 13, px + 13, py + 13], fill=YELLOW, outline=INK, width=3)
+
+    cx = (x0 + x1) // 2
+    draw.text((left_x + 90, y0 + 26), params["actor_a"], font=fonts["tiny_bold"], fill=BLUE, anchor="mm")
+    draw.text((right_x - 90, y0 + 26), params["actor_b"], font=fonts["tiny_bold"], fill=ORANGE, anchor="mm")
+    draw.rounded_rectangle([cx - 240, y1 - 54, cx + 240, y1 - 12], radius=16, fill=BLUE, outline=INK, width=3)
+    draw.text((cx, y1 - 33), f"EFEK: {params['result']}", font=fonts["tiny_bold"], fill=WHITE, anchor="mm")
+
+
+def _anim_math_geometry(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate live mathematical coordinate curve drawing itself with moving glowing point & tangent."""
+    x0, y0, x1, y1 = box
+    prog = clamp(t / max(dur * 0.82, 1.8))
+    gx0, gy0, gx1, gy1 = x0 + 80, y0 + 30, x1 - 80, y1 - 68
+    # Grid & axes
+    for i in range(1, 5):
+        gy = gy0 + i * (gy1 - gy0) // 5
+        draw.line([(gx0, gy), (gx1, gy)], fill=(225, 232, 240, 255), width=2)
+    draw.line([(gx0, gy1), (gx1, gy1)], fill=INK, width=5)
+    draw.line([(gx0, gy1), (gx0, gy0)], fill=INK, width=5)
+    # Curve drawing progressively
+    steps = max(2, int(prog * 48))
+    pts: list[tuple[int, int]] = []
+    for i in range(steps + 1):
+        u = i / 48.0
+        px = int(gx0 + u * (gx1 - gx0))
+        val = u ** 2.1
+        py = int(gy1 - val * (gy1 - gy0 - 12))
+        pts.append((px, py))
+    for i in range(len(pts) - 1):
+        draw.line([pts[i], pts[i + 1]], fill=PURPLE, width=7)
+    lx, ly = pts[-1]
+    draw.ellipse([lx - 14, ly - 14, lx + 14, ly + 14], fill=YELLOW, outline=INK, width=3)
+    draw.text((gx0 + 110, gy0 + 16), params["actor_a"], font=fonts["tiny_bold"], fill=PURPLE, anchor="mm")
+    cx = (x0 + x1) // 2
+    draw.rounded_rectangle([cx - 240, y1 - 54, cx + 240, y1 - 12], radius=16, fill=PURPLE, outline=INK, width=3)
+    draw.text((cx, y1 - 33), f"HASIL: {params['result']}", font=fonts["tiny_bold"], fill=WHITE, anchor="mm")
+
+
 def _draw_mechanistic_diagram_card(
     draw: ImageDraw.ImageDraw,
     seg: TimelineSegment,
     seg_idx: int,
     local_t: float,
     fonts: dict,
+    discipline: str = "kimia",
 ) -> None:
-    """Draw an animated 30fps comic-science mechanistic card (nodes + pulsing arrows + energy particles)."""
-    badge = (seg.overlay_badge or "").strip()
-    if not badge:
-        # Derive concise mechanistic highlight from narration
-        words = [w.strip(".,!?") for w in seg.narration.split() if len(w.strip(".,!?")) > 3]
-        badge = " → ".join(words[:3]).upper() if len(words) >= 3 else (seg.narration[:36] or "MEKANISME SAINS")
-
-    # Split into process nodes by arrow/equals/plus/colon
-    import re
-    raw_nodes = [p.strip() for p in re.split(r"\s*(?:→|->|=>|=|\+)\s*", badge) if p.strip()]
-    if not raw_nodes:
-        raw_nodes = [badge]
-    nodes = raw_nodes[:3]
-
-    p = ease_out_back(local_t / 0.38)
+    """Draw a genuine 30fps comic-science mechanistic visual simulation (atoms, electrons, chains, receptors, waves, graphs)."""
+    p = ease_out_back(local_t / 0.35)
     if p <= 0.05:
         return
 
-    card_x0, card_y0, card_x1, card_y1 = 56, 985, 1024, 1265
+    card_x0, card_y0, card_x1, card_y1 = 56, 945, 1024, 1345
     cy = (card_y0 + card_y1) // 2
     half_h = int(((card_y1 - card_y0) // 2) * min(p, 1.02))
     draw_comic_box(
@@ -1165,66 +1543,31 @@ def _draw_mechanistic_diagram_card(
     if p < 0.65:
         return
 
-    # Top strip title inside mechanistic card
-    draw.rounded_rectangle([card_x0 + 18, card_y0 + 16, card_x0 + 360, card_y0 + 62], radius=16, fill=CARD_DARK)
-    draw.text((card_x0 + 189, card_y0 + 39), f"MEKANISME #{seg_idx}", font=fonts["tiny_bold"], fill=YELLOW, anchor="mm")
+    params = _infer_mechanism_params(seg, discipline=discipline)
+    # Header bar inside simulation box
+    draw.rounded_rectangle([card_x0 + 18, card_y0 + 14, card_x1 - 18, card_y0 + 62], radius=16, fill=CARD_DARK)
+    draw.text(
+        ((card_x0 + card_x1) // 2, card_y0 + 38),
+        f"SIMULASI MEKANISME • {params['title'].upper()}",
+        font=fonts["tiny_bold"],
+        fill=YELLOW,
+        anchor="mm",
+    )
 
-    # Animated molecular/particle orbit indicator at top-right of card
-    ox, oy = card_x1 - 76, card_y0 + 44
-    draw.ellipse([ox - 24, oy - 12, ox + 24, oy + 12], outline=BLUE, width=3)
-    draw.ellipse([ox - 12, oy - 24, ox + 12, oy + 24], outline=CYAN, width=3)
-    draw.ellipse([ox - 6, oy - 6, ox + 6, oy + 6], fill=ORANGE, outline=INK, width=2)
-    ex = ox + int(22 * math.cos(local_t * 5.0))
-    ey = oy + int(11 * math.sin(local_t * 5.0))
-    draw.ellipse([ex - 5, ey - 5, ex + 5, ey + 5], fill=YELLOW, outline=INK, width=2)
-
-    node_colors = [BLUE, PURPLE, GREEN]
-    n = len(nodes)
-    inner_w = (card_x1 - card_x0) - 64
-    if n == 1:
-        lines = _wrap_text(draw, nodes[0], fonts["summary"], inner_w - 40, max_lines=2)
-        box_y0, box_y1 = card_y0 + 82, card_y1 - 24
-        draw_comic_box(draw, (card_x0 + 32, box_y0, card_x1 - 32, box_y1), fill=(238, 246, 255, 255), radius=20, border_w=4, shadow_offset=4)
-        ty = (box_y0 + box_y1) // 2 - (len(lines) - 1) * 24
-        for ln in lines:
-            draw_outlined_text(draw, (540, ty), ln, fonts["summary"], fill=WHITE, outline_color=INK, stroke_w=4)
-            ty += 48
+    sim_box = (card_x0 + 18, card_y0 + 68, card_x1 - 18, card_y1 - 14)
+    kind = params["kind"]
+    if kind == "polymer_crosslink":
+        _anim_polymer_crosslink(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "electron_transfer":
+        _anim_electron_transfer(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "receptor_binding":
+        _anim_receptor_binding(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "force_wave":
+        _anim_force_wave(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "math_geometry":
+        _anim_math_geometry(draw, sim_box, local_t, seg.duration_sec, params, fonts)
     else:
-        gap = 58
-        node_w = (inner_w - gap * (n - 1)) // n
-        start_x = card_x0 + 32
-        box_y0, box_y1 = card_y0 + 88, card_y1 - 28
-        box_cy = (box_y0 + box_y1) // 2
-        for i, nd in enumerate(nodes):
-            np_anim = ease_out_back((local_t - i * 0.28) / 0.35)
-            if np_anim <= 0.05:
-                continue
-            nx0 = start_x + i * (node_w + gap)
-            nx1 = nx0 + node_w
-            col = node_colors[i % len(node_colors)]
-            pulse = int(4 * math.sin(local_t * 5.0 + i))
-            draw_comic_box(
-                draw,
-                (nx0, box_y0 - pulse, nx1, box_y1 - pulse),
-                fill=col,
-                radius=20,
-                border_w=4,
-                shadow_offset=5,
-            )
-            lines = _wrap_text(draw, nd, fonts["small_bold"], node_w - 20, max_lines=2)
-            ty = box_cy - pulse - (len(lines) - 1) * 18
-            for ln in lines:
-                draw_outlined_text(draw, ((nx0 + nx1) // 2, ty), ln, fonts["small_bold"], fill=WHITE, stroke_w=3)
-                ty += 36
-            # Animated arrow + moving energy dot to next node
-            if i < n - 1:
-                ax0 = nx1 + 6
-                ax1 = nx1 + gap - 6
-                draw.line([(ax0, box_cy), (ax1 - 12, box_cy)], fill=INK, width=7)
-                draw.polygon([(ax1, box_cy), (ax1 - 16, box_cy - 12), (ax1 - 16, box_cy + 12)], fill=ORANGE, outline=INK)
-                dot_prog = (local_t * 1.4 + i * 0.3) % 1.0
-                dx = int(ax0 + dot_prog * (ax1 - ax0 - 10))
-                draw.ellipse([dx - 7, box_cy - 7, dx + 7, box_cy + 7], fill=YELLOW, outline=INK, width=2)
+        _anim_molecular_reaction(draw, sim_box, local_t, seg.duration_sec, params, fonts)
 
 
 def _draw_references_card(
@@ -1384,8 +1727,8 @@ def render_hybrid_science_video(
 
             if is_first:
                 draw_header_pill(draw, "KOK BISA?!", RED, fonts, local_t, y_center=225)
-                if seg.overlay_badge:
-                    _draw_mechanistic_diagram_card(draw, seg, 1, local_t, fonts)
+                if seg.mechanism or seg.overlay_badge:
+                    _draw_mechanistic_diagram_card(draw, seg, 1, local_t, fonts, discipline=plan.discipline)
                 elif plan.title:
                     draw_takeaway_card(
                         draw,
@@ -1400,28 +1743,28 @@ def render_hybrid_science_video(
                         card_w=860,
                     )
                 if mascots:
-                    mascots.paste(canvas, "male_curious", center_x=175, bottom_y=1470, target_h=300, local_t=local_t, appear_at=0.15)
-                    mascots.paste(canvas, "female_curious", center_x=905, bottom_y=1470, target_h=300, local_t=local_t, appear_at=0.25)
+                    mascots.paste(canvas, "male_curious", center_x=175, bottom_y=1470, target_h=280, local_t=local_t, appear_at=0.15)
+                    mascots.paste(canvas, "female_curious", center_x=905, bottom_y=1470, target_h=280, local_t=local_t, appear_at=0.25)
             elif is_last:
                 # Final scene: TERJAWAB! + celebrating duo mascots + Referensi & Sumber card
                 outro_start = max(0.2, seg.duration_sec - 3.6)
                 draw_header_pill(draw, "TERJAWAB!", GREEN, fonts, local_t, y_center=225)
-                if local_t < outro_start and seg.overlay_badge:
-                    _draw_mechanistic_diagram_card(draw, seg, seg_idx, local_t, fonts)
+                if local_t < outro_start and (seg.mechanism or seg.overlay_badge):
+                    _draw_mechanistic_diagram_card(draw, seg, seg_idx, local_t, fonts, discipline=plan.discipline)
                 _draw_references_card(draw, plan.references, fonts, local_t, appear_at=outro_start)
                 if mascots:
                     mascots.paste(canvas, "male_celebrate", center_x=170, bottom_y=1030, target_h=270, local_t=local_t, appear_at=0.1)
                     mascots.paste(canvas, "female_celebrate", center_x=910, bottom_y=1030, target_h=270, local_t=local_t, appear_at=0.2)
             else:
-                # Middle scenes: Mechanistic comic-science card + alternating explaining mascot
+                # Middle scenes: Genuine 30fps scientific mechanistic simulation + alternating mascot
                 h_col = header_colors[seg_idx % len(header_colors)]
                 draw_header_pill(draw, f"TAHAP {seg_idx} • PROSES SAINS", h_col, fonts, local_t, y_center=225)
-                _draw_mechanistic_diagram_card(draw, seg, seg_idx, local_t, fonts)
+                _draw_mechanistic_diagram_card(draw, seg, seg_idx, local_t, fonts, discipline=plan.discipline)
                 if mascots:
                     if seg_idx % 2 == 1:
-                        mascots.paste(canvas, "male_explain", center_x=165, bottom_y=1475, target_h=285, local_t=local_t, appear_at=0.12)
+                        mascots.paste(canvas, "male_explain", center_x=150, bottom_y=1490, target_h=245, local_t=local_t, appear_at=0.12)
                     else:
-                        mascots.paste(canvas, "female_explain", center_x=915, bottom_y=1475, target_h=285, local_t=local_t, appear_at=0.12)
+                        mascots.paste(canvas, "female_explain", center_x=930, bottom_y=1490, target_h=245, local_t=local_t, appear_at=0.12)
 
             # Diagonal comic wipe transition between scenes
             if seg_idx > 0 and local_t < 0.30:

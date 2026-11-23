@@ -48,6 +48,37 @@ class Agent2Output(BaseModel):
     )
 
 
+class MechanismVisual(BaseModel):
+    kind: Literal[
+        "electron_transfer",
+        "polymer_crosslink",
+        "molecular_reaction",
+        "receptor_binding",
+        "force_wave",
+        "math_geometry",
+    ] = "molecular_reaction"
+    title: str = Field(
+        default="MEKANISME SAINS",
+        description="Short Indonesian simulation title, e.g. 'TRANSFER ELEKTRON' or 'PENGUATAN STRUKTUR POLIMER'",
+    )
+    actor_a: str = Field(
+        default="A",
+        description="Short formula/actor label (max 14 chars), e.g. 'Fe', 'Rantai Gula', 'Obat'",
+    )
+    actor_b: str = Field(
+        default="B",
+        description="Second formula/actor/force label (max 14 chars), e.g. 'O₂', 'Ikatan Silang', 'Enzim COX'",
+    )
+    result: str = Field(
+        default="Produk",
+        description="Outcome label (max 18 chars), e.g. 'Fe₂O₃ (Karat)', 'Struktur Rigid', 'Nyeri Reda'",
+    )
+    caption: str = Field(
+        default="",
+        description="Concise Indonesian caption under the animation (max 48 chars)",
+    )
+
+
 class SceneSpec(BaseModel):
     scene_id: str
     narration: str = Field(description="Indonesian spoken line for this scene")
@@ -56,6 +87,10 @@ class SceneSpec(BaseModel):
     overlay_badge: Optional[str] = Field(
         default=None,
         description="Optional short formula or callout badge ONLY if helpful (e.g. 'Fe + O₂ + H₂O → Karat')",
+    )
+    mechanism: Optional[MechanismVisual] = Field(
+        default=None,
+        description="Structured scientific animation spec for visual mechanistic illustration (atoms, electrons, chains, receptors, waves, graphs)",
     )
     sfx_cue: Optional[Literal["whoosh", "pop", "riser", "chime", "ding", "none"]] = "none"
     motion: Literal["slow_zoom_in", "slow_zoom_out", "pan_right", "static"] = "slow_zoom_in"
@@ -106,6 +141,7 @@ class TimelineSegment(BaseModel):
     footage_start_offset: float = 0.0
     narration: str = ""
     overlay_badge: Optional[str] = None
+    mechanism: Optional[MechanismVisual] = None
     sfx_path: Optional[str] = None
     sfx_gain_db: float = -10.0
     motion: str = "slow_zoom_in"
