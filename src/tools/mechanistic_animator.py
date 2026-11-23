@@ -112,7 +112,7 @@ def draw_brand_pill(draw: ImageDraw.ImageDraw, fonts: dict) -> None:
     x0, y0, x1, y1 = 48, 68, 355, 144
     draw.rounded_rectangle([x0 + 4, y0 + 6, x1 + 4, y1 + 6], radius=38, fill=(0, 0, 0, 120))
     draw.rounded_rectangle([x0, y0, x1, y1], radius=38, fill=(20, 26, 48, 225), outline=WHITE, width=4)
-    # Mini Erlenmeyer flask icon
+    # Mini Erlenmeyer flask icon (covered by Duo Mascot badge when watermark_kimiabill.png is present)
     fx, fy = x0 + 44, (y0 + y1) // 2
     draw.rectangle([fx - 7, fy - 22, fx + 7, fy - 8], fill=WHITE, outline=INK, width=2)
     draw.polygon(
@@ -126,6 +126,32 @@ def draw_brand_pill(draw: ImageDraw.ImageDraw, fonts: dict) -> None:
     )
     draw.line([(fx - 10, fy - 22), (fx + 10, fy - 22)], fill=INK, width=3)
     draw.text((x0 + 84, (y0 + y1) // 2), "@kimiabill", font=fonts["brand"], fill=WHITE, anchor="lm")
+
+
+def _load_watermark_badges() -> tuple[Optional[Image.Image], Optional[Image.Image]]:
+    """Load and pre-scale the Duo Mascot watermark PNG (pill badge + translucent corner stamp)."""
+    wm_path = Path(__file__).resolve().parent.parent.parent / "assets" / "watermark_kimiabill.png"
+    if not wm_path.exists():
+        return None, None
+    src = Image.open(wm_path).convert("RGBA")
+    pill_icon = src.resize((68, 68), Image.Resampling.LANCZOS)
+    corner = src.resize((96, 96), Image.Resampling.LANCZOS)
+    r, g, b, a = corner.split()
+    a = a.point(lambda v: int(v * 0.62))
+    corner = Image.merge("RGBA", (r, g, b, a))
+    return pill_icon, corner
+
+
+def draw_mascot_watermark(
+    canvas: Image.Image,
+    pill_icon: Optional[Image.Image],
+    corner_stamp: Optional[Image.Image],
+) -> None:
+    """Paste Kimiabill Mascot badge onto @kimiabill pill + subtle translucent corner watermark."""
+    if pill_icon is not None:
+        canvas.alpha_composite(pill_icon, (54, 72))
+    if corner_stamp is not None:
+        canvas.alpha_composite(corner_stamp, (952, 815))
 
 
 def draw_header_pill(
@@ -1768,6 +1794,7 @@ def render_hybrid_science_video(
     segs = plan.segments
     num_segs = len(segs)
     header_colors = [RED, BLUE, PURPLE, ORANGE, GREEN, BLUE]
+    wm_pill_icon, wm_corner_stamp = _load_watermark_badges()
 
     try:
         for f_idx in range(total_frames):
@@ -1837,9 +1864,10 @@ def render_hybrid_science_video(
                 draw = ImageDraw.Draw(canvas)
                 draw_diagonal_wipe(draw, local_t / 0.30, canvas_w, canvas_h)
 
-            # Persistent top brand & discipline pills
+            # Persistent top brand + Kimiabill Mascot watermark & discipline pills
             draw = ImageDraw.Draw(canvas)
             draw_brand_pill(draw, fonts)
+            draw_mascot_watermark(canvas, wm_pill_icon, wm_corner_stamp)
             _draw_discipline_pill(draw, plan.discipline, fonts, section_tag=getattr(plan, "section_tag", "REGULER"))
 
             proc.stdin.write(canvas.tobytes())
