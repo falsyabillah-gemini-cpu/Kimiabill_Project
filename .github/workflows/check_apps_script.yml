@@ -1,0 +1,77 @@
+name: Kimiabill Check Google Apps Script Deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify-apps-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Minimal Requests Package
+        run: pip install -q requests pyyaml
+
+      - name: Ping & Verify Deployed Google Apps Script Webhook
+        env:
+          GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
+          GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import requests
+          import yaml
+          from src.tools.gdrive_sync import _normalize_webhook_url
+
+          raw_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
+          if not raw_url:
+              print("ERROR: GDRIVE_WEBHOOK_URL secret is empty!")
+              sys.exit(1)
+
+          url = _normalize_webhook_url(raw_url)
+          token = os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
+          brand = yaml.safe_load(open("config/brand.yaml", encoding="utf-8"))
+          sheet_id = brand["publishing"]["tracking_sheet_id"]
+
+          # 1. Check doGet
+          g = requests.get(url, timeout=30)
+          print("1. GET status:", g.status_code, "body:", g.text[:300])
+
+          # 2. Check sync_audit_sheet without audit_row/request_rows (read-only openById check -> proves new script + Sheets permission)
+          p_sheet = requests.post(
+              url,
+              json={"action": "sync_audit_sheet", "token": token, "sheet_id": sheet_id},
+              timeout=45,
+          ).json()
+          print("2. sync_audit_sheet check:", json.dumps(p_sheet, ensure_ascii=False))
+
+          # 3. Check get_youtube_stats -> proves YouTube Data API + Analytics + Comments still active
+          p_yt = requests.post(
+              url,
+              json={"action": "get_youtube_stats", "token": token, "max_results": 2},
+              timeout=45,
+          ).json()
+          ch = p_yt.get("channel", {})
+          yt_summary = {
+              "ok": p_yt.get("ok"),
+              "error": p_yt.get("error"),
+              "analytics_enabled": p_yt.get("analytics_enabled"),
+              "channel": ch.get("title"),
+              "subscribers": ch.get("subscribers"),
+              "total_views": ch.get("total_views"),
+              "videos_checked": len(p_yt.get("videos", [])),
+              "recent_comments_count": len(p_yt.get("recent_comments", [])),
+          }
+          print("3. get_youtube_stats check:", json.dumps(yt_summary, ensure_ascii=False))
+
+          if not p_sheet.get("ok") or not p_yt.get("ok"):
+              sys.exit(1)
+          print("ALL APPS SCRIPT CHECKS PASSED!")
+          PY
