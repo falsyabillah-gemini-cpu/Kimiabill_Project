@@ -73,6 +73,51 @@ GEMINI_FALLBACK_MODELS: tuple[str, ...] = (
 )
 
 TRANSIENT_STATUS_CODES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
+_HYDROGEN_ALERT_SENT = False
+
+
+def _notify_hydrogen_alert(status_code: int, detail: str) -> None:
+    """Send a one-time-per-run email alert if gemini-4-hydrogen becomes paid/restricted on the API key."""
+    global _HYDROGEN_ALERT_SENT
+    if _HYDROGEN_ALERT_SENT:
+        return
+    _HYDROGEN_ALERT_SENT = True
+    raw_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
+    if not raw_url:
+        return
+    try:
+        from src.tools.gdrive_sync import _normalize_webhook_url
+
+        webhook_url = _normalize_webhook_url(raw_url)
+        token = os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
+        notify_to = os.environ.get("NOTIFY_EMAIL_TO", "researchfalsyabillah@gmail.com").strip()
+        msg = (
+            "PEMBERITAHUAN PENTING — STATUS MODEL GEMINI 4 HYDROGEN\n\n"
+            f"Model 'gemini-4-hydrogen' mengembalikan HTTP {status_code} pada GEMINI_API_KEY Anda.\n"
+            "Kemungkinan penyebab: Gemini 4 Hydrogen sudah berbayar / memerlukan billing, "
+            "atau kuota Free Tier harian untuk Hydrogen habis.\n\n"
+            "Tindakan Otomatis Sistem:\n"
+            "- Sistem OTOMATIS beralih sementara ke 'gemini-3.5-flash-lite' (gratis) agar produksi video tetap jalan normal.\n\n"
+            "Keputusan Selanjutnya untuk Anda:\n"
+            "1. Tetap pakai mode gratis (gemini-3.5-flash-lite), ATAU\n"
+            "2. Aktifkan billing di Google AI Studio jika ingin tetap memakai gemini-4-hydrogen.\n\n"
+            f"Detail teknis: {detail}"
+        )
+        requests.post(
+            webhook_url,
+            json={
+                "action": "notify_email",
+                "token": token,
+                "to": notify_to,
+                "episode_name": "alert_gemini_hydrogen",
+                "title": "PERHATIAN: Gemini 4 Hydrogen Tidak Tersedia / Berbayar — Butuh Keputusan",
+                "captions_preview": msg,
+            },
+            timeout=25,
+        )
+        print(f"[providers] Notifikasi status Gemini 4 Hydrogen terkirim ke {notify_to}")
+    except Exception as exc:
+        print(f"[providers] Gagal kirim notifikasi alert Hydrogen: {exc}")
 
 
 def _post_with_retry(
@@ -255,7 +300,9 @@ def call_structured_agent(
                 resp = _post_with_retry(url, json_body=body, max_attempts=3)
                 if resp.status_code == 200:
                     break
-                if resp.status_code not in (404, *TRANSIENT_STATUS_CODES):
+                if cand_model == "gemini-4-hydrogen" and resp.status_code in (402, 403, 404, 429):
+                    _notify_hydrogen_alert(resp.status_code, resp.text[:400])
+                if resp.status_code not in (402, 403, 404, *TRANSIENT_STATUS_CODES):
                     break
                 print(f"[providers] Gemini model '{cand_model}' returned HTTP {resp.status_code}, trying next fallback...")
             if resp is not None and resp.status_code in (404, *TRANSIENT_STATUS_CODES):
