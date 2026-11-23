@@ -232,9 +232,20 @@ def _fetch_webhook_youtube_stats() -> dict[str, Any]:
         if resp.status_code == 200:
             data = resp.json()
             if data.get("ok"):
+                ch = data.get("channel") or {}
+                print(
+                    f"[agent8] YouTube webhook OK: channel='{ch.get('title', '-')}', "
+                    f"analytics_enabled={data.get('analytics_enabled')}, "
+                    f"has_recent_comments={'recent_comments' in data}, "
+                    f"recent_comments_count={len(data.get('recent_comments') or [])}, "
+                    f"videos={len(data.get('videos') or [])}"
+                )
                 return data
-    except Exception:
-        pass
+            print(f"[agent8] YouTube webhook returned ok=False: {data}")
+        else:
+            print(f"[agent8] YouTube webhook HTTP {resp.status_code}")
+    except Exception as exc:
+        print(f"[agent8] YouTube webhook exception: {exc}")
     return {}
 
 
