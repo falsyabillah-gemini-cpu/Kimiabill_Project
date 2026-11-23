@@ -108,6 +108,12 @@ def run_one_automated_episode() -> None:
     run_t0 = time.monotonic()
 
     for topic_attempt in range(1, max_topic_attempts + 1):
+        try:
+            from src.providers import reset_model_usage_log
+
+            reset_model_usage_log()
+        except Exception:
+            pass
         now = datetime.now(WIB)
         suffix = "" if topic_attempt == 1 else f"_t{topic_attempt}"
         episode_id = f"ep_{now.strftime('%Y%m%d_%H%M')}{suffix}"

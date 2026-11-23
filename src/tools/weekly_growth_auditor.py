@@ -57,6 +57,13 @@ def record_published_episode(
         except Exception:
             items = []
 
+    try:
+        from src.providers import get_model_usage_summary
+
+        agent_models = get_model_usage_summary()
+    except Exception:
+        agent_models = {}
+
     record = {
         "episode_id": episode_id,
         "published_at_wib": datetime.now(WIB).isoformat(timespec="seconds"),
@@ -71,6 +78,7 @@ def record_published_episode(
         "topic_attempts_used": topic_attempts_used,
         "production_seconds": round(production_seconds, 1) if production_seconds is not None else None,
         "publish_mode": os.environ.get("PUBLISH_MODE", "public"),
+        "agent_models": agent_models,
     }
     items = [x for x in items if x.get("episode_id") != episode_id]
     items.append(record)
@@ -301,7 +309,15 @@ def _deliver_audit_to_drive_and_email(
         header_links.append(f"📄 BUKA LAPORAN PDF VISUAL (GRAFIK & MONETISASI): {pdf_url}")
     if folder_url:
         header_links.append(f"📁 Folder Arsip Audit Drive: {folder_url}")
-    email_body = ("\n".join(header_links) + "\n\n" if header_links else "") + report_md
+    try:
+        from src.providers import format_model_usage_summary
+
+        a8_model_note = format_model_usage_summary("[MODEL AI YANG DIPAKAI AUDIT MINGGUAN]")
+        if a8_model_note:
+            header_links.append(a8_model_note)
+    except Exception:
+        pass
+    email_body = ("\n\n".join(header_links) + "\n\n" if header_links else "") + report_md
 
     # Email full report via send_custom_email (new Apps Script) or fallback to notify_email
     subject = f"[Kimiabill] Laporan Audit Mingguan Visual PDF ({audit.week_ending})"
@@ -349,12 +365,14 @@ def _deliver_audit_to_drive_and_email(
 def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
     """Execute Sunday Agent 8 Weekly Social Media & Cross-Agent Growth Audit."""
     from src.pipeline import load_dotenv
+    from src.providers import reset_model_usage_log
 
     load_dotenv()
+    reset_model_usage_log()
     agents_cfg = yaml.safe_load((BASE_DIR / "config" / "agents.yaml").read_text(encoding="utf-8"))
     a8_cfg = agents_cfg.get("agents", {}).get(
         "agent_8_growth_auditor",
-        {"provider": "auto", "recommended_prod_model": "gemini-3.5-flash-lite"},
+        {"provider": "auto", "recommended_prod_model": "gemini-3.8-flash"},
     )
 
     history: list[dict[str, Any]] = []

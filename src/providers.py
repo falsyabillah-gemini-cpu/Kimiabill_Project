@@ -215,6 +215,79 @@ def _save_handoff(result: BaseModel, handoff_path: Path | None) -> None:
         handoff_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
 
 
+_RUN_MODEL_USAGE: list[dict[str, Any]] = []
+
+
+def reset_model_usage_log() -> None:
+    """Clear recorded model telemetry (call at start of each episode attempt or weekly audit)."""
+    _RUN_MODEL_USAGE.clear()
+
+
+def _infer_agent_label(handoff_path: Path | None, system_prompt: str) -> str:
+    if handoff_path is not None:
+        stem = handoff_path.stem.lower()
+        if stem.startswith("agent1"):
+            return "Agent 1 (Ideasi Topik)"
+        if stem.startswith("agent2"):
+            return "Agent 2 (Auditor Hook)"
+        if stem.startswith("agent3"):
+            return "Agent 3 (Skrip & Storyboard)"
+        if stem.startswith("agent5"):
+            ver = stem.split("_v")[-1] if "_v" in stem else "1"
+            return f"Agent 5 (QA Video v{ver})"
+        if stem.startswith("agent7"):
+            return "Agent 7 (Packaging & SEO)"
+        if stem.startswith("agent8"):
+            return "Agent 8 (Auditor Mingguan)"
+    low = system_prompt.lower()
+    if "visual safety" in low or "screener" in low:
+        return "Agent 6 (Screening Klip)"
+    return "Agent Lain"
+
+
+def _record_model_usage(agent_label: str, requested_model: str, actual_model: str) -> None:
+    _RUN_MODEL_USAGE.append(
+        {
+            "agent": agent_label,
+            "requested": requested_model,
+            "actual": actual_model,
+            "fallback": actual_model != requested_model,
+        }
+    )
+
+
+def get_model_usage_summary() -> dict[str, str]:
+    """Return ordered {agent_label: 'actual_model (notes)'} summary for comparison & history."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in _RUN_MODEL_USAGE:
+        grouped.setdefault(row["agent"], []).append(row)
+
+    out: dict[str, str] = {}
+    for agent, rows in grouped.items():
+        actuals = [r["actual"] for r in rows]
+        last = rows[-1]
+        if len(rows) > 1:
+            unique_actuals = list(dict.fromkeys(actuals))
+            models_str = " / ".join(unique_actuals)
+            out[agent] = f"{models_str} ({len(rows)}x)"
+        elif last["fallback"]:
+            out[agent] = f"{last['actual']} (fallback dari {last['requested']})"
+        else:
+            out[agent] = last["actual"]
+    return out
+
+
+def format_model_usage_summary(header: str = "[MODEL AI YANG DIPAKAI]") -> str:
+    """Format a clean human-readable model comparison block for email alerts."""
+    summary = get_model_usage_summary()
+    if not summary:
+        return ""
+    lines = [header]
+    for agent, desc in summary.items():
+        lines.append(f"- {agent}: {desc}")
+    return "\n".join(lines)
+
+
 def call_structured_agent(
     *,
     provider: str,
@@ -226,7 +299,10 @@ def call_structured_agent(
     image_paths: list[Path] | None = None,
 ) -> T:
     """Route an agent step to the configured provider and validate against a Pydantic schema."""
+    requested_model = model
+    agent_label = _infer_agent_label(handoff_path, system_prompt)
     provider, model = resolve_provider_and_model(provider, model)
+    requested_model = model or requested_model
     schema_hint = json.dumps(response_model.model_json_schema(), indent=2)
     prompt_body = (
         f"{system_prompt}\n\n"
@@ -301,6 +377,7 @@ def call_structured_agent(
             raw_candidates = [model, *[m for m in GEMINI_FALLBACK_MODELS if m != model]]
             candidates = [m for m in raw_candidates if m not in _EXHAUSTED_MODELS_THIS_RUN] or raw_candidates
             resp = None
+            active_model = model
             for cand_idx, cand_model in enumerate(candidates):
                 tried.append(cand_model)
                 url = (
@@ -320,6 +397,7 @@ def call_structured_agent(
                     resp = None
                     continue
                 if resp.status_code == 200:
+                    active_model = cand_model
                     break
                 if resp.status_code in (402, 403, 404, 429) and has_more:
                     _EXHAUSTED_MODELS_THIS_RUN.add(cand_model)
@@ -337,11 +415,14 @@ def call_structured_agent(
                         f"{discovered}:generateContent?key={api_key}"
                     )
                     resp = _post_with_retry(url, json_body=body, max_attempts=3)
+                    if resp.status_code == 200:
+                        active_model = discovered
             assert resp is not None
             resp.raise_for_status()
             text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
             try:
                 parsed = response_model.model_validate(_extract_json(text))
+                _record_model_usage(agent_label, requested_model, active_model)
                 _save_handoff(parsed, handoff_path)
                 return parsed
             except Exception as exc:
@@ -381,6 +462,7 @@ def call_structured_agent(
         resp.raise_for_status()
         text = resp.json()["content"][0]["text"]
         parsed = response_model.model_validate(_extract_json(text))
+        _record_model_usage(agent_label, requested_model, model)
         _save_handoff(parsed, handoff_path)
         return parsed
 
@@ -413,6 +495,7 @@ def call_structured_agent(
         resp.raise_for_status()
         text = resp.json()["choices"][0]["message"]["content"]
         parsed = response_model.model_validate(_extract_json(text))
+        _record_model_usage(agent_label, requested_model, model)
         _save_handoff(parsed, handoff_path)
         return parsed
 

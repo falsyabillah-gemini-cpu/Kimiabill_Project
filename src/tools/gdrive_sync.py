@@ -250,7 +250,7 @@ def _upload_via_webhook(
             youtube_privacy = yt_res.get("privacy", privacy)
             print(f"[youtube] Berhasil upload ke YouTube Shorts ({youtube_privacy}): {youtube_url}")
             try:
-                hf_dir = ep_dir / "handoffs"
+                hf_dir = episode_dir / "handoffs"
                 hf_dir.mkdir(parents=True, exist_ok=True)
                 (hf_dir / "youtube_upload.json").write_text(
                     json.dumps({"youtube_url": youtube_url, "privacy": youtube_privacy}, indent=2),
@@ -265,9 +265,22 @@ def _upload_via_webhook(
         youtube_note = "Mode dry_run (hanya simpan ke Drive; ubah publish_mode ke draft/public untuk auto-upload YouTube)."
 
     notify_to = os.environ.get("NOTIFY_EMAIL_TO", DEFAULT_NOTIFY_EMAIL).strip() or DEFAULT_NOTIFY_EMAIL
-    email_preview = captions_text[:3200]
+    model_block = ""
+    try:
+        from src.providers import format_model_usage_summary
+
+        model_block = format_model_usage_summary()
+    except Exception:
+        model_block = ""
+
+    sections = []
     if qa_summary:
-        email_preview = f"[HASIL AUDIT QA AGENT 5]\n{qa_summary}\n\n{email_preview}".strip()
+        sections.append(f"[HASIL AUDIT QA AGENT 5]\n{qa_summary}")
+    if model_block:
+        sections.append(model_block)
+    if captions_text:
+        sections.append(captions_text[:3000])
+    email_preview = "\n\n".join(sections).strip()
     try:
         _post_webhook(
             webhook_url,
