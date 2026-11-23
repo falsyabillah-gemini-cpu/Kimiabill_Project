@@ -169,6 +169,23 @@ def run_one_automated_episode() -> None:
         state = run_agent_7_publish(episode_id)
         print(f"[scheduler] Agent 7 selesai: {[r.model_dump() for r in (state.agent7.publish_results if state.agent7 else [])]}")
 
+        # Wait for prime-time publish window if configured (e.g., TARGET_PUBLISH_TIME_WIB="19:00")
+        target_pub = os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
+        if target_pub and ":" in target_pub:
+            try:
+                th, tm = (int(x) for x in target_pub.split(":", 1))
+                now_wib = datetime.now(WIB)
+                target_dt = now_wib.replace(hour=th, minute=tm, second=0, microsecond=0)
+                wait_sec = (target_dt - now_wib).total_seconds()
+                if 0 < wait_sec <= 3600:
+                    print(
+                        f"[scheduler] Video sudah siap & lolos QA! Menunggu jam prime time {target_pub} WIB "
+                        f"({int(wait_sec // 60)}m {int(wait_sec % 60)}s lagi) sebelum upload..."
+                    )
+                    time.sleep(wait_sec)
+            except Exception as exc:
+                print(f"[scheduler] Mengabaikan TARGET_PUBLISH_TIME_WIB='{target_pub}': {exc}")
+
         if os.environ.get("AUTO_UPLOAD_GDRIVE", "true").lower() == "true":
             if can_upload_to_gdrive():
                 state = run_upload(episode_id, allow_youtube=True, qa_summary=qa_summary)

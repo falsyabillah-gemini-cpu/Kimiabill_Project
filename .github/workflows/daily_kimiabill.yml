@@ -2,8 +2,8 @@ name: Kimiabill Daily Auto-Video
 
 on:
   schedule:
-    # Setiap hari jam 08:00 WIB (01:00 UTC)
-    - cron: "0 1 * * *"
+    # Mulai produksi tiap hari jam 18:25 WIB (11:25 UTC), lalu otomatis posting tepat di jam rame 19:00 WIB
+    - cron: "25 11 * * *"
   workflow_dispatch:
     inputs:
       publish_mode:
@@ -43,6 +43,7 @@ jobs:
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID || vars.ELEVENLABS_VOICE_ID }}
           ELEVENLABS_MODEL_ID: ${{ vars.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2' }}
           PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'public' }}
+          TARGET_PUBLISH_TIME_WIB: ${{ github.event_name == 'schedule' && '19:00' || '' }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
