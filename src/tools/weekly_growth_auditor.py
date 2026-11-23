@@ -70,6 +70,7 @@ def record_published_episode(
         "revisions_used": revisions_used,
         "topic_attempts_used": topic_attempts_used,
         "production_seconds": round(production_seconds, 1) if production_seconds is not None else None,
+        "publish_mode": os.environ.get("PUBLISH_MODE", "public"),
     }
     items = [x for x in items if x.get("episode_id") != episode_id]
     items.append(record)
@@ -407,6 +408,7 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
         ),
         user_payload={
             "week_ending": today_wib,
+            "studio_target_duration": "~1 menit (50-72 detik, 6-7 adegan per Shorts)",
             "channel_stats": webhook_stats.get("channel", {}),
             "ypp_targets": {"tier1_subs": 500, "tier1_shorts_views_90d": 3000000, "full_subs": 1000, "full_shorts_views_90d": 10000000},
             "recent_videos": enriched,

@@ -65,7 +65,46 @@ def run_one_automated_episode() -> None:
     guardrails = brand_cfg.get("guardrails", {})
     max_revisions = int(guardrails.get("max_revisions", 4))
     max_topic_attempts = int(guardrails.get("max_topic_attempts", 3))
-    avoid_titles: list[str] = []
+    avoid_titles: list[str] = [
+        "Sunscreen Rahasia DNA yang Bikin Kehidupan Purba Selamat dari Radiasi!",
+    ]
+    try:
+        from src.tools.weekly_growth_auditor import HISTORY_PATH
+        import json as _json
+
+        if HISTORY_PATH.exists():
+            hist_items = _json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
+            for row in hist_items[-12:]:
+                t = (row.get("title") or "").strip()
+                if t and t not in avoid_titles:
+                    avoid_titles.append(t)
+            if os.environ.get("SKIP_IF_SLOT_PUBLISHED", "").lower() == "true":
+                now_wib = datetime.now(WIB)
+                target_pub_env = os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
+                slot_evening = (
+                    int(target_pub_env.split(":", 1)[0]) >= 16
+                    if ":" in target_pub_env
+                    else now_wib.hour >= 16
+                )
+                for row in reversed(hist_items):
+                    pub_at = row.get("published_at_wib") or ""
+                    if (
+                        pub_at.startswith(now_wib.strftime("%Y-%m-%d"))
+                        and row.get("publish_mode", "public") == "public"
+                        and row.get("youtube_url")
+                    ):
+                        try:
+                            pub_hour = datetime.fromisoformat(pub_at).hour
+                            if (pub_hour >= 16) == slot_evening:
+                                print(
+                                    f"[scheduler] Slot hari ini ({'malam' if slot_evening else 'siang'}) "
+                                    f"sudah terbit ({row.get('youtube_url')}) — melewati duplikasi cron."
+                                )
+                                return
+                        except Exception:
+                            pass
+    except Exception:
+        pass
     run_t0 = time.monotonic()
 
     for topic_attempt in range(1, max_topic_attempts + 1):

@@ -17,6 +17,11 @@ on:
           - public
           - draft
           - dry_run
+      target_publish_time_wib:
+        description: "Opsional: tahan upload hingga jam WIB tertentu (mis. 19:00 atau 12:00)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -40,6 +45,7 @@ jobs:
 
       - name: Run Automated Episode Pipeline
         env:
+          PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -48,7 +54,8 @@ jobs:
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID || vars.ELEVENLABS_VOICE_ID }}
           ELEVENLABS_MODEL_ID: ${{ vars.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2' }}
           PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'public' }}
-          TARGET_PUBLISH_TIME_WIB: ${{ github.event.schedule == '25 4 * * *' && '12:00' || (github.event.schedule == '25 11 * * *' && '19:00' || '') }}
+          TARGET_PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || (github.event.schedule == '25 4 * * *' && '12:00' || (github.event.schedule == '25 11 * * *' && '19:00' || '')) }}
+          SKIP_IF_SLOT_PUBLISHED: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
@@ -69,8 +76,12 @@ jobs:
         run: |
           git config user.name "Kimiabill Studio Bot"
           git config user.email "bot@kimiabill.local"
-          git add data/published_history.json data/studio_memory.json 2>/dev/null || true
-          git diff --cached --quiet || (git commit -m "chore: record published episode for weekly growth audit [skip ci]" && git push)
+          git add data/published_history.json 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: record published episode for weekly growth audit [skip ci]"
+            git pull --rebase origin main || true
+            git push
+          fi
 
       - name: Upload Rendered Video Artifact
         uses: actions/upload-artifact@v4
