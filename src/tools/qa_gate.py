@@ -18,7 +18,7 @@ def run_gate0_checks(
     expected_width: int,
     expected_height: int,
     min_duration_sec: float = 20.0,
-    max_duration_sec: float = 65.0,
+    max_duration_sec: float = 85.0,
 ) -> Gate0CheckResult:
     p = Path(video_path)
     issues: list[str] = []

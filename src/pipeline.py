@@ -276,13 +276,14 @@ def run_agent_1_to_3(
         model=a3_cfg.get("model", a3_cfg["recommended_prod_model"]),
         system_prompt=(
             "You are Agent 3 (Script, Shot-List & Mechanistic Storyboard Reviser) for Kimiabill. "
-            "Write a cheerful, clear, moderate-pace Indonesian short script (30-38s total spoken, exactly 5 scenes, "
-            "max ~16 words narration per scene) applying Agent 2's notes. "
+            "Write a cheerful, clear, moderate-pace Indonesian short script (~55-65s total spoken, 6-7 scenes, "
+            "~18-24 words narration per scene so the viewer gets rich, deep scientific insight) applying Agent 2's notes "
+            "and Agent 8's `weekly_growth_directives`. "
             "Each scene MUST specify an English real-footage visual_query (no cartoons/animations) that names a "
             "CONCRETE, FAMILY-SAFE, filmable object or lab process (e.g. 'gel cube compressed by hand in laboratory', "
             "'rust on iron chain close up'). NEVER use words about human bodies, skin, stretching people, clothing, "
             "dance, music, or vague single words; provide 2-3 equally concrete fallback_queries. "
-            "For middle explanation scenes (scenes 2, 3, 4), ALWAYS provide BOTH `overlay_badge` AND `mechanism` "
+            "For ALL middle explanation scenes (scenes 2 through second-to-last), ALWAYS provide BOTH `overlay_badge` AND `mechanism` "
             "so the renderer draws a REAL animated scientific diagram (NOT just text boxes!): choose `mechanism.kind` from "
             "'electron_transfer' (redox/electron flow arrows), 'polymer_crosslink' (chains bending & crosslinking into rigid lattice), "
             "'molecular_reaction' (bonds breaking/forming with curved arrows), 'receptor_binding' (enzyme/drug lock-and-key docking), "

@@ -27,7 +27,7 @@ video:
   proxy_fps: 15
   final_resolution: [1080, 1920]
   final_fps: 30
-  target_duration_sec: [32, 55]
+  target_duration_sec: [50, 72]
   visual_policy:
     real_footage_only: true
     no_full_animation: true
