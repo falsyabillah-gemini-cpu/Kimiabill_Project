@@ -1,7 +1,7 @@
 # Laporan Audit Mingguan Sosial Media Kimiabill (2026-11-23)
 
 ## Ringkasan Performa Minggu Ini
-Performa minggu ini menunjukkan bahwa kanal Kimiabill memiliki total 40 subscriber dan 14.256 total views dari 29 video. Saat ini, kanal masih sangat jauh dari target YouTube Partner Program (YPP) Tier 1 (500 subscriber dan 3 juta views Shorts dalam 90 hari) maupun YPP Penuh (1.000 subscriber dan 10 juta views Shorts dalam 90 hari). Dengan views video terbaru yang berkisar di angka 1-2 views dan minimnya interaksi, percepatan monetisasi hanya dapat dicapai melalui peningkatan volume publikasi harian secara konsisten, diversifikasi ke 5 disiplin sains murni (Kimia, Fisika, Matematika, Medisinal, Biologi), serta penggunaan hook visual dan emosional yang jauh lebih kuat untuk mendobrak algoritma YouTube Shorts.
+Analisis performa minggu ini menunjukkan kanal Kimiabill memiliki 40 subscriber dan total 14.256 views (didominasi sisa video lama di luar pilar sains murni, sementara video sains murni baru menghasilkan rata-rata 1-2 views). Saat ini, kanal masih berada jauh dari target YouTube Partner Program (YPP) Tier 1 (500 subscriber dan 3 juta views Shorts dalam 90 hari) maupun YPP Penuh (1.000 subscriber dan 10 juta views Shorts dalam 90 hari). Jarak yang masif ini akan dipercepat penutupannya melalui peningkatan frekuensi unggahan harian yang konsisten, diversifikasi pilar ke-5 disiplin sains murni, serta penerapan hook visual emosional yang agresif untuk memicu lonjakan retensi dan algoritma rekomendasi YouTube.
 
 ## Progres Menuju Monetisasi YouTube (YPP Shorts)
 - **Status Channel Saat Ini:** 40 Subscriber | 14,256 Total Views
@@ -30,17 +30,17 @@ Performa minggu ini menunjukkan bahwa kanal Kimiabill memiliki total 40 subscrib
 - **Perfect Cut Videos That Will Break You 😭#viral #funny #loop #viralnest #fail** (-) | Views: 0 | Likes: 0 | Komen: 0 | QA: N/A | https://youtube.com/shorts/YEce-Uf3y9s
 
 ## Pola yang Paling Berhasil
-- Skor QA teknis yang tinggi (mencapai 9.5 pada video kimia terbaru) membuktikan kualitas visual dasar dan struktur mekanistik sudah memenuhi standar studio.
-- Durasi video di kisaran 30 detik terbukti sangat pas untuk menjaga keseimbangan antara kedalaman materi sains dan kenyamanan penonton Shorts.
-- Pemilihan topik sains material yang kontraintuitif berhasil memancing rasa ingin tahu awal meskipun belum didukung distribusi optimal.
+- Skor QA teknis mencapai 9.5 pada video kimia terbaru, membuktikan kualitas produksi visual dasar sudah memenuhi standar studio.
+- Durasi video di kisaran 30 detik terbukti ideal untuk menyeimbangkan kedalaman materi sains dan retensi penonton Shorts.
+- Pemilihan topik sains material yang kontraintuitif (bahan makin kuat saat ditekuk) berhasil memancing rasa ingin tahu dasar.
 
 ## Kelemahan & Hambatan Engagement
-- Volume publikasi mingguan sangat rendah (hanya 1 video baru yang relevan dengan sains murni), menghambat momentum algoritma Shorts.
-- Monopoli satu disiplin ilmu saja membuat potensi audiens dari pilar sains lainnya terabaikan sepenuhnya.
-- Rendahnya engagement (0 likes, 0 comments) mengindikasikan hook pada detik pertama dan CTA di akhir video belum mampu memicu tindakan penonton.
+- Volume publikasi konten sains murni masih sangat rendah, menghambat momentum analitik algoritma YouTube Shorts.
+- Ketiadaan engagement (0 likes, 0 comments) menunjukkan hook awal dan CTA akhir belum berhasil memicu interaksi aktif penonton.
+- Kurangnya distribusi merata ke seluruh 5 disiplin sains (Kimia, Fisika, Matematika, Medisinal, Biologi) membatasi jangkauan audiens potensial.
 
 ## Audit Efisiensi Workflow & Penggunaan Token
-Efisiensi alur kerja minggu ini kurang optimal karena rendahnya volume produksi membuat kapasitas token LLM (Gemini) dan ElevenLabs tidak terserap maksimal. Diperlukan pengetatan SOP otomatisasi agar pipeline dari ide hingga render akhir berjalan tanpa hambatan operasional dan meminimalkan revisi yang tidak perlu.
+Efisiensi alur kerja minggu ini kurang optimal karena volume produksi yang rendah membuat kapasitas token LLM (Gemini) dan ElevenLabs tidak terserap maksimal. Diperlukan pengetatan SOP otomatisasi agar pipeline dari ide hingga render akhir berjalan tanpa hambatan operasional dan meminimalkan revisi yang tidak perlu.
 
 ## Optimasi Token, Kuota & Kecepatan Produksi
 - Gunakan template prompt terstandarisasi untuk Agent 1 dan Agent 3 guna meminimalisir iterasi chat Gemini yang berulang.
@@ -48,14 +48,14 @@ Efisiensi alur kerja minggu ini kurang optimal karena rendahnya volume produksi 
 - Terapkan sistem caching pada aset visual dan struktur naskah terbukti sukses agar tidak memerlukan query ulang.
 
 ## Instruksi Upgrade ke Agent 1 (Trend & Ideasi)
-- Wajib menyetor minimal 10 ide topik segar per minggu yang terdistribusi merata ke dalam 5 disiplin sains murni studio.
-- Fokuskan riset pada paradoks sains atau fenomena alam sehari-hari yang memicu perdebatan instan.
-- Sertakan referensi tren kreator global sebagai bahan acuan sudut pandang konten.
+- Setorkan minimal 12 ide topik segar per minggu yang terdistribusi merata ke dalam 5 disiplin sains murni studio.
+- Fokuskan riset pada paradoks sains atau anomali fenomena alam harian yang memicu perdebatan instan.
+- Sertakan referensi tren riset global terbaru sebagai landasan sudut pandang konten.
 
 ## Instruksi Upgrade ke Agent 2 (Editor & Hook)
-- Rombak total struktur editorial hook menjadi tipe pertanyaan retoris ekstrem atau ancaman visual dalam 3 detik pertama.
-- Pastikan judul menggunakan diksi bahasa Indonesia yang memancing rasa penasaran tinggi tanpa terjebak clickbait berlebihan.
-- Lakukan audit ketat pada draf skrip untuk memastikan elemen penghenti gulir (scroll-stopper) benar-benar efektif.
+- Rombak total struktur editorial hook menjadi pertanyaan retoris ekstrem atau ancaman visual dalam 3 detik pertama.
+- Gunakan diksi bahasa Indonesia yang memancing rasa penasaran tingkat tinggi tanpa clickbait menyesatkan.
+- Lakukan audit ketat pada draf skrip untuk memastikan elemen penghenti gulir (scroll-stopper) benar-benar tajam.
 
 ## Instruksi Upgrade ke Agent 3 (Skrip & Animasi Mekanistik)
 - Perketat pacing pada paruh awal naskah untuk mengeliminasi potensi drop-off penonton di detik ke-2 hingga ke-5.
@@ -63,15 +63,22 @@ Efisiensi alur kerja minggu ini kurang optimal karena rendahnya volume produksi 
 - Sisipkan Call-to-Action (CTA) interaktif berupa pertanyaan pancingan di akhir naskah untuk mendongkrak kolom komentar.
 
 ## Instruksi Upgrade ke Agent 5 (Video QA Auditor)
-- Terapkan uji QA yang menilai daya tarik emosional frame pertama, bukan sekadar kepatuhan teknis visual.
+- Terapkan uji QA yang menilai daya tarik emosional frame pertama, bukan sekadar kepatuhan teknis visual semata.
 - Validasi bahwa durasi 25-35 detik benar-benar padat informasi tanpa jeda kosong dalam narasi.
 - Pastikan sinkronisasi ketat antara audio voiceover, teks on-screen, dan animasi visual berjalan tanpa cela.
 
 ## Instruksi Upgrade ke Agent 6 (Pencari Footage Real)
-- Buat folder arsip aset visual berdasarkan kategori keyword sains murni untuk mempercepat query rekaman.
+- Perluas arsip aset visual berdasarkan kategori keyword sains murni untuk mempercepat query rekaman.
 - Kurangi waktu pencarian stok video dengan memanfaatkan template pencarian spesifik di platform repositori media.
 - Sediakan alternatif footage cadangan lebih awal untuk menghindari revisi mendadak yang membuang waktu produksi.
+
+## Rekomendasi Topik & Riset Edisi Weekend KARAT Minggu Depan
+- Eksplorasi riset paper mengenai material seluler hibrida yang tahan tekukan ekstrem untuk segmen Kimia & Fisika Material.
+- Kaji temuan makalah tentang biopolimer purba pelindung DNA di era bumi purba untuk segmen Medisinal & Biologi.
 
 ## Eksperimen Minggu Depan
 - Uji coba format hook 'Pertanyaan Menantang Logika' berdurasi 28 detik untuk mengukur peningkatan retensi penonton.
 - Eksperimen dengan CTA kontroversial di akhir video untuk memicu lonjakan komentar (comment rate) secara signifikan.
+
+## Rekomendasi Jam Rame Edisi Weekend KARAT (Otomatis Diterapkan)
+- 12:30, 19:00 WIB
