@@ -156,10 +156,17 @@ def _format_audit_markdown(audit: Agent8WeeklyAuditOutput, enriched_videos: list
         for v in enriched_videos:
             views = v.get("views", "N/A")
             likes = v.get("likes", "N/A")
+            comments = v.get("comments", "N/A")
+            ret = v.get("avg_view_percentage")
+            avg_s = v.get("avg_view_duration_sec")
+            subs = v.get("subscribers_gained")
             qa = v.get("qa_score", "N/A")
+            extra = ""
+            if ret is not None or avg_s is not None:
+                extra = f" | Retensi: {ret}% ({avg_s}s) | Subs+: {subs}"
             lines.append(
                 f"- **{v.get('title', '-')}** ({v.get('discipline', '-')}) | "
-                f"Views: {views} | Likes: {likes} | QA: {qa} | {v.get('youtube_url') or '-'}"
+                f"Views: {views} | Likes: {likes} | Komen: {comments}{extra} | QA: {qa} | {v.get('youtube_url') or '-'}"
             )
     else:
         lines.append("- Belum ada histori video publik yang tercatat minggu ini (audit berbasis baseline channel).")

@@ -163,6 +163,118 @@ function doPost(e) {
       return _jsonResponse({ ok: true, emailed_to: to });
     }
 
+    if (action === "get_youtube_stats") {
+      if (typeof YouTube === "undefined") {
+        return _jsonResponse({ ok: false, error: "YouTube Data API v3 belum ditambahkan di Services (+)." });
+      }
+      const chResp = YouTube.Channels.list("snippet,statistics,contentDetails", { mine: true });
+      const ch = (chResp.items && chResp.items[0]) || null;
+      if (!ch) {
+        return _jsonResponse({ ok: false, error: "Channel YouTube tidak ditemukan pada akun Google ini." });
+      }
+      const channelStats = {
+        channel_id: ch.id,
+        title: ch.snippet ? ch.snippet.title : "",
+        subscribers: Number((ch.statistics && ch.statistics.subscriberCount) || 0),
+        total_views: Number((ch.statistics && ch.statistics.viewCount) || 0),
+        video_count: Number((ch.statistics && ch.statistics.videoCount) || 0),
+      };
+
+      const maxResults = Math.min(Number(payload.max_results || 15), 25);
+      const uploadsId = ch.contentDetails && ch.contentDetails.relatedPlaylists && ch.contentDetails.relatedPlaylists.uploads;
+      const videoIds = [];
+      if (uploadsId) {
+        const pl = YouTube.PlaylistItems.list("contentDetails", { playlistId: uploadsId, maxResults: maxResults });
+        (pl.items || []).forEach(function (it) {
+          if (it.contentDetails && it.contentDetails.videoId) videoIds.push(it.contentDetails.videoId);
+        });
+      }
+
+      // Fetch private YouTube Studio Analytics (retention %, avg view duration, shares, subs gained)
+      const analyticsById = {};
+      let analyticsEnabled = false;
+      if (typeof YouTubeAnalytics !== "undefined" && videoIds.length > 0) {
+        try {
+          const endDt = new Date();
+          const startDt = new Date(endDt.getTime() - 28 * 24 * 3600 * 1000);
+          const fmt = function (d) { return Utilities.formatDate(d, "Asia/Jakarta", "yyyy-MM-dd"); };
+          const rep = YouTubeAnalytics.Reports.query({
+            ids: "channel==MINE",
+            startDate: fmt(startDt),
+            endDate: fmt(endDt),
+            metrics: "views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,likes,comments,shares,subscribersGained",
+            dimensions: "video",
+            filters: "video==" + videoIds.join(","),
+            maxResults: maxResults,
+          });
+          analyticsEnabled = true;
+          (rep.rows || []).forEach(function (row) {
+            analyticsById[row[0]] = {
+              studio_views: Number(row[1] || 0),
+              watch_minutes: Number(row[2] || 0),
+              avg_view_duration_sec: Number(row[3] || 0),
+              avg_view_percentage: Number(row[4] || 0),
+              studio_likes: Number(row[5] || 0),
+              studio_comments: Number(row[6] || 0),
+              shares: Number(row[7] || 0),
+              subscribers_gained: Number(row[8] || 0),
+            };
+          });
+        } catch (anaErr) {
+          analyticsEnabled = false;
+        }
+      }
+
+      const videos = [];
+      if (videoIds.length > 0) {
+        const vResp = YouTube.Videos.list("snippet,statistics,contentDetails", { id: videoIds.join(",") });
+        (vResp.items || []).forEach(function (v) {
+          const st = v.statistics || {};
+          const ana = analyticsById[v.id] || {};
+          const topComments = [];
+          try {
+            if (Number(st.commentCount || 0) > 0) {
+              const cResp = YouTube.CommentThreads.list("snippet", { videoId: v.id, maxResults: 3, order: "relevance" });
+              (cResp.items || []).forEach(function (c) {
+                const txt = c.snippet && c.snippet.topLevelComment && c.snippet.topLevelComment.snippet && c.snippet.topLevelComment.snippet.textDisplay;
+                if (txt) topComments.push(String(txt).replace(/<[^>]+>/g, "").slice(0, 140));
+              });
+            }
+          } catch (cErr) {}
+
+          videos.push({
+            video_id: v.id,
+            youtube_url: "https://youtube.com/shorts/" + v.id,
+            title: v.snippet ? v.snippet.title : "",
+            published_at: v.snippet ? v.snippet.publishedAt : "",
+            views: Number(st.viewCount || ana.studio_views || 0),
+            likes: Number(st.likeCount || ana.studio_likes || 0),
+            comments: Number(st.commentCount || ana.studio_comments || 0),
+            shares: ana.shares !== undefined ? ana.shares : null,
+            avg_view_duration_sec: ana.avg_view_duration_sec !== undefined ? ana.avg_view_duration_sec : null,
+            avg_view_percentage: ana.avg_view_percentage !== undefined ? ana.avg_view_percentage : null,
+            subscribers_gained: ana.subscribers_gained !== undefined ? ana.subscribers_gained : null,
+            top_comments: topComments,
+          });
+        });
+      }
+
+      return _jsonResponse({
+        ok: true,
+        analytics_enabled: analyticsEnabled,
+        channel: channelStats,
+        videos: videos,
+      });
+    }
+
+    if (action === "send_custom_email") {
+      const to = payload.to || DEFAULT_NOTIFY_EMAIL;
+      const subject = payload.subject || "[Kimiabill] Laporan Otomatis";
+      const body = payload.body || "";
+      MailApp.sendEmail({ to: to, subject: subject, body: body });
+      return _jsonResponse({ ok: true, emailed_to: to });
+    }
+
     return _jsonResponse({ ok: false, error: "Unknown action: " + action });
   } catch (err) {
     return _jsonResponse({ ok: false, error: String(err) });
