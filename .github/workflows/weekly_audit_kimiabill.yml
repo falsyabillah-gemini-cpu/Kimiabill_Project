@@ -1,0 +1,43 @@
+name: Kimiabill Weekly Social Media Audit (Agent 8)
+
+on:
+  schedule:
+    # Setiap hari Minggu jam 20:00 WIB (13:00 UTC) — 1 jam setelah video Minggu jam 19:00 WIB ter-upload
+    - cron: "0 13 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  weekly-growth-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Agent 8 Weekly Social Media & Cross-Agent Growth Audit
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
+          GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
+          NOTIFY_EMAIL_TO: ${{ vars.NOTIFY_EMAIL_TO || 'researchfalsyabillah@gmail.com' }}
+        run: |
+          python -c "from src.tools.weekly_growth_auditor import run_agent_8_weekly_audit; run_agent_8_weekly_audit()"
+
+      - name: Commit Updated Cross-Agent Directives
+        run: |
+          git config user.name "Kimiabill Studio Bot"
+          git config user.email "bot@kimiabill.local"
+          git add data/weekly_agent_directives.json data/weekly_audits/ 2>/dev/null || true
+          git diff --cached --quiet || (git commit -m "chore: Agent 8 weekly engagement audit & agent directives [skip ci]" && git push)

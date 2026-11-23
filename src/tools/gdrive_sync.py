@@ -249,6 +249,15 @@ def _upload_via_webhook(
             youtube_url = yt_res.get("youtube_url")
             youtube_privacy = yt_res.get("privacy", privacy)
             print(f"[youtube] Berhasil upload ke YouTube Shorts ({youtube_privacy}): {youtube_url}")
+            try:
+                hf_dir = ep_dir / "handoffs"
+                hf_dir.mkdir(parents=True, exist_ok=True)
+                (hf_dir / "youtube_upload.json").write_text(
+                    json.dumps({"youtube_url": youtube_url, "privacy": youtube_privacy}, indent=2),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
         except Exception as exc:
             youtube_note = f"Belum ter-upload otomatis ({exc})"
             print(f"[youtube] Peringatan: gagal upload YouTube via webhook ({exc})")

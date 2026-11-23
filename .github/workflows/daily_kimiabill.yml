@@ -16,6 +16,9 @@ on:
           - draft
           - dry_run
 
+permissions:
+  contents: write
+
 jobs:
   produce-video:
     runs-on: ubuntu-latest
@@ -59,6 +62,13 @@ jobs:
           AUTO_UPLOAD_GDRIVE: "true"
         run: |
           python -c "from src.scheduler import run_one_automated_episode; run_one_automated_episode()"
+
+      - name: Save Published Episode History for Weekly Audit
+        run: |
+          git config user.name "Kimiabill Studio Bot"
+          git config user.email "bot@kimiabill.local"
+          git add data/published_history.json data/studio_memory.json 2>/dev/null || true
+          git diff --cached --quiet || (git commit -m "chore: record published episode for weekly growth audit [skip ci]" && git push)
 
       - name: Upload Rendered Video Artifact
         uses: actions/upload-artifact@v4

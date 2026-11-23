@@ -239,3 +239,37 @@ class EpisodeState(BaseModel):
     agent7: Optional[Agent7Output] = None
     final_video_path: Optional[str] = None
     gdrive_folder_url: Optional[str] = None
+    youtube_url: Optional[str] = None
+
+
+class Agent8WeeklyAuditOutput(BaseModel):
+    week_ending: str = Field(description="ISO date YYYY-MM-DD (WIB) of the Sunday audit")
+    summary: str = Field(description="Executive summary in Indonesian of this week's channel & video performance")
+    top_performing_patterns: list[str] = Field(
+        default_factory=list,
+        description="3-5 concrete patterns that worked best (topics, hooks, disciplines, pacing, visuals)",
+    )
+    bottlenecks_and_weaknesses: list[str] = Field(
+        default_factory=list,
+        description="3-5 concrete weaknesses holding back views, retention, likes, or comments",
+    )
+    agent_1_directives: list[str] = Field(
+        default_factory=list,
+        description="2-4 concrete instructions for Agent 1 (Trend Scout & Ideation) for next week",
+    )
+    agent_2_directives: list[str] = Field(
+        default_factory=list,
+        description="2-4 concrete instructions for Agent 2 (Editorial & Hook Auditor) for next week",
+    )
+    agent_3_directives: list[str] = Field(
+        default_factory=list,
+        description="2-4 concrete instructions for Agent 3 (Script, Hook & Mechanistic Storyboarder) for next week",
+    )
+    agent_5_directives: list[str] = Field(
+        default_factory=list,
+        description="2-4 concrete instructions for Agent 5 (Video QA Auditor) for next week",
+    )
+    next_week_experiments: list[str] = Field(
+        default_factory=list,
+        description="2-3 concrete engagement experiments to test next week (hook style, CTA, pacing, topic angle)",
+    )

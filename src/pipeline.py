@@ -213,6 +213,9 @@ def run_agent_1_to_3(
     )
 
     # Agent 1: Batch Ideation (5 ideas — Viral-First across 5 Pure Sciences, fallback to Idea Bank)
+    from src.tools.weekly_growth_auditor import load_latest_agent_directives
+
+    weekly_dir = load_latest_agent_directives()
     a1_cfg = agents_cfg["agents"]["agent_1_ideation"]
     state.agent1 = call_structured_agent(
         provider=a1_cfg["provider"],
@@ -225,13 +228,14 @@ def run_agent_1_to_3(
             "PRIORITY 2 (Fallback): If no strong viral topic is available, select and enrich unused ideas "
             "from `idea_bank_fallback_candidates` (`source_mode: 'idea_bank'`), keeping all 5 disciplines balanced. "
             "Every idea must be visualizable with REAL, concrete, filmable science/nature footage (never full animation), "
-            "and MUST NOT repeat any topic in `avoid_titles`."
+            "MUST NOT repeat any topic in `avoid_titles`, and MUST apply any `weekly_growth_directives` from Agent 8."
         ),
         user_payload={
             "brand": brand["brand"],
             "trend_brief": trend_brief,
             "topic_hint": topic_hint,
             "avoid_titles": avoid_titles or [],
+            "weekly_growth_directives": weekly_dir.get("agent_1_directives", []),
         },
         response_model=Agent1Output,
         handoff_path=paths["handoffs"] / "agent1_ideas.json",
@@ -247,9 +251,12 @@ def run_agent_1_to_3(
         system_prompt=(
             "You are Agent 2 (Editorial Auditor) for Kimiabill. Score all candidates on hook, "
             "plain-language clarity, and real-footage visual strength. Pick the #1 winner and "
-            "give max 4 concrete improvement notes."
+            "give max 4 concrete improvement notes, applying any `weekly_growth_directives` from Agent 8."
         ),
-        user_payload={"candidates": [c.model_dump() for c in state.agent1.candidates]},
+        user_payload={
+            "candidates": [c.model_dump() for c in state.agent1.candidates],
+            "weekly_growth_directives": weekly_dir.get("agent_2_directives", []),
+        },
         response_model=Agent2Output,
         handoff_path=paths["handoffs"] / "agent2_audit.json",
     )
@@ -289,6 +296,7 @@ def run_agent_1_to_3(
             "winner_idea": winner.model_dump(),
             "audit_notes": state.agent2.improvement_notes,
             "voice_style": brand["voice"],
+            "weekly_growth_directives": weekly_dir.get("agent_3_directives", []),
         },
         response_model=Agent3Output,
         handoff_path=paths["handoffs"] / "agent3_script.json",
@@ -479,6 +487,11 @@ def run_agent_5_video_qa(
             "gate0": state.gate0.model_dump(),
             "title": state.agent3.title,
             "references": state.render_plan.references,
+            "weekly_growth_directives": (
+                __import__("src.tools.weekly_growth_auditor", fromlist=["load_latest_agent_directives"])
+                .load_latest_agent_directives()
+                .get("agent_5_directives", [])
+            ),
             "scenes": [
                 {
                     "scene_id": s.scene_id,
@@ -565,9 +578,29 @@ def run_upload(episode_id: str, allow_youtube: bool = True, qa_summary: str = ""
         qa_summary=qa_summary,
     )
     state.gdrive_folder_url = url
+    yt_meta = paths["handoffs"] / "youtube_upload.json"
+    if yt_meta.exists():
+        try:
+            state.youtube_url = json.loads(yt_meta.read_text(encoding="utf-8")).get("youtube_url")
+        except Exception:
+            pass
     if allow_youtube:
         state.status = "uploaded"
     save_state(state)
+
+    if allow_youtube and state.agent3:
+        from src.tools.weekly_growth_auditor import record_published_episode
+
+        record_published_episode(
+            episode_id=episode_id,
+            title=state.agent3.title,
+            discipline=state.render_plan.discipline if state.render_plan else "kimia",
+            youtube_url=state.youtube_url,
+            gdrive_folder_url=state.gdrive_folder_url,
+            qa_score=state.agent5_history[-1].overall_score if state.agent5_history else None,
+            duration_sec=state.render_plan.total_duration_sec if state.render_plan else None,
+            hook_line=state.agent3.scenes[0].narration if state.agent3.scenes else "",
+        )
 
     memory = StudioMemory(BASE_DIR)
     last_score = state.agent5_history[-1].overall_score if state.agent5_history else None
