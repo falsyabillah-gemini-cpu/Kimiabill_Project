@@ -54,6 +54,17 @@ DISALLOWED_TITLE_TOKENS = (
     "gameplay",
     "screen recording",
     "screencast",
+    "wikipedia",
+    "wp25",
+    "wikimedia",
+    "wikimania",
+    "anthem",
+    "caption",
+    "billboard",
+    "commercial",
+    "promo",
+    "donation",
+    "scp-",
 )
 
 # Family-safety blocklist (checked against title + categories + description metadata)
@@ -472,10 +483,11 @@ def scout_assets_for_scenes(
                 cands = search_pexels(q) + search_wikimedia_videos(q)
                 # Prefer crisp >=720p clips first
                 cands.sort(key=lambda c: (0 if c.width >= 720 else 1, -min(c.width, 1920)))
+                per_query_screens = 0
                 for cand in cands:
                     if cand.download_url in used_urls or cand.page_url in used_urls:
                         continue
-                    if screens_done >= max_screens:
+                    if screens_done >= max_screens or per_query_screens >= 3:
                         break
                     info = download_and_normalize_clip(cand, dest_mp4)
                     if not info:
@@ -483,6 +495,7 @@ def scout_assets_for_scenes(
                     used_urls.add(cand.download_url)
                     used_urls.add(cand.page_url)
                     screens_done += 1
+                    per_query_screens += 1
                     ok, clean, reason = vision_screen_clip(dest_mp4, scene)
                     print(f"[asset_scout] {scene.scene_id} screen '{cand.title[:60]}': ok={ok} ({reason[:160]})")
                     if ok:

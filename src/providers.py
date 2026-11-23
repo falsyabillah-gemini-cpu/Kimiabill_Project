@@ -27,6 +27,9 @@ class ProviderError(RuntimeError):
     pass
 
 
+import re
+
+
 def _extract_json(text: str) -> dict[str, Any]:
     text = text.strip()
     if text.startswith("```"):
@@ -40,16 +43,18 @@ def _extract_json(text: str) -> dict[str, Any]:
     if start == -1:
         raise ProviderError(f"No JSON object found in model response: {text[:300]}")
     decoder = json.JSONDecoder()
-    try:
-        obj, _ = decoder.raw_decode(text, start)
-        if isinstance(obj, dict):
-            return obj
-    except json.JSONDecodeError:
-        pass
+    for candidate in (text[start:], re.sub(r",\s*([}\]])", r"\1", text[start:])):
+        try:
+            obj, _ = decoder.raw_decode(candidate, 0)
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            pass
     end = text.rfind("}")
     if end == -1 or end <= start:
         raise ProviderError(f"Invalid JSON object in model response: {text[:300]}")
-    return json.loads(text[start : end + 1])
+    cleaned = re.sub(r",\s*([}\]])", r"\1", text[start : end + 1])
+    return json.loads(cleaned)
 
 
 DEFAULT_MODELS: dict[str, str] = {
@@ -236,35 +241,44 @@ def call_structured_agent(
             "contents": [{"role": "user", "parts": user_parts}],
             "generationConfig": {"responseMimeType": "application/json"},
         }
-        tried: list[str] = []
-        candidates = [model, *[m for m in GEMINI_FALLBACK_MODELS if m != model]]
-        resp = None
-        for cand_model in candidates:
-            tried.append(cand_model)
-            url = (
-                f"https://generativelanguage.googleapis.com/v1beta/models/"
-                f"{cand_model}:generateContent?key={api_key}"
-            )
-            resp = _post_with_retry(url, json_body=body, max_attempts=3)
-            if resp.status_code == 200:
-                break
-            if resp.status_code not in (404, *TRANSIENT_STATUS_CODES):
-                break
-            print(f"[providers] Gemini model '{cand_model}' returned HTTP {resp.status_code}, trying next fallback...")
-        if resp is not None and resp.status_code in (404, *TRANSIENT_STATUS_CODES):
-            discovered = _discover_gemini_flash_model(api_key)
-            if discovered and discovered not in tried:
+        last_parse_err: Exception | None = None
+        for parse_try in range(2):
+            tried: list[str] = []
+            candidates = [model, *[m for m in GEMINI_FALLBACK_MODELS if m != model]]
+            resp = None
+            for cand_model in candidates:
+                tried.append(cand_model)
                 url = (
                     f"https://generativelanguage.googleapis.com/v1beta/models/"
-                    f"{discovered}:generateContent?key={api_key}"
+                    f"{cand_model}:generateContent?key={api_key}"
                 )
                 resp = _post_with_retry(url, json_body=body, max_attempts=3)
-        assert resp is not None
-        resp.raise_for_status()
-        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-        parsed = response_model.model_validate(_extract_json(text))
-        _save_handoff(parsed, handoff_path)
-        return parsed
+                if resp.status_code == 200:
+                    break
+                if resp.status_code not in (404, *TRANSIENT_STATUS_CODES):
+                    break
+                print(f"[providers] Gemini model '{cand_model}' returned HTTP {resp.status_code}, trying next fallback...")
+            if resp is not None and resp.status_code in (404, *TRANSIENT_STATUS_CODES):
+                discovered = _discover_gemini_flash_model(api_key)
+                if discovered and discovered not in tried:
+                    url = (
+                        f"https://generativelanguage.googleapis.com/v1beta/models/"
+                        f"{discovered}:generateContent?key={api_key}"
+                    )
+                    resp = _post_with_retry(url, json_body=body, max_attempts=3)
+            assert resp is not None
+            resp.raise_for_status()
+            text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+            try:
+                parsed = response_model.model_validate(_extract_json(text))
+                _save_handoff(parsed, handoff_path)
+                return parsed
+            except Exception as exc:
+                last_parse_err = exc
+                print(f"[providers] Gemini JSON/schema parse error (attempt {parse_try + 1}/2): {exc}")
+                time.sleep(2)
+        assert last_parse_err is not None
+        raise last_parse_err
 
     if provider == "anthropic_api":
         api_key = os.environ.get("ANTHROPIC_API_KEY")
