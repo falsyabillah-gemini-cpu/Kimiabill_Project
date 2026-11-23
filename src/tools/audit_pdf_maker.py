@@ -253,7 +253,7 @@ def generate_weekly_audit_pdf(
         ty += 6
 
     # Cross-Agent Directives Card
-    _card(d2, (56, 744, A4_W - 56, 1455))
+    _card(d2, (56, 744, A4_W - 56, 1435))
     d2.text((82, 764), "INSTRUKSI UPGRADE OTOMATIS KE SELURUH AGENT", font=fonts["h2"], fill=NAVY)
     agent_blocks = [
         ("AGENT 1 (Trend & Ideasi)", BLUE, audit.agent_1_directives),
@@ -264,30 +264,41 @@ def generate_weekly_audit_pdf(
     ]
     ay = 812
     for label, col, items in agent_blocks:
-        if ay > 1410:
+        if ay > 1390:
             break
         d2.rounded_rectangle([82, ay, 475, ay + 30], radius=8, fill=col)
         d2.text((96, ay + 6), label, font=fonts["small_b"], fill=WHITE)
         ay += 38
         for it in (items or ["Pertahankan standar saat ini."])[:2]:
             for ln in _wrap(d2, f"→ {it}", fonts["small"], A4_W - 180, max_lines=2):
-                if ay > 1435:
+                if ay > 1418:
                     break
                 d2.text((92, ay), ln, font=fonts["small"], fill=NAVY)
                 ay += 21
-        ay += 10
+        ay += 8
 
-    # Next Week Experiments Card
-    _card(d2, (56, 1480, A4_W - 56, A4_H - 56))
-    d2.text((82, 1500), "EKSPERIMEN ENGAGEMENT MINGGU DEPAN", font=fonts["h3"], fill=GREEN)
-    ty = 1538
+    # Bottom Row: Next Week Experiments (Left) + KARAT Weekend Research Recommendations (Right)
+    _card(d2, (56, 1455, 56 + col_w, A4_H - 56))
+    d2.text((82, 1475), "EKSPERIMEN ENGAGEMENT MINGGU DEPAN", font=fonts["h3"], fill=GREEN)
+    ty = 1511
     for item in (audit.next_week_experiments or ["-"])[:3]:
-        for ln in _wrap(d2, f"★ {item}", fonts["small"], A4_W - 168, max_lines=2):
-            if ty > A4_H - 76:
+        for ln in _wrap(d2, f"★ {item}", fonts["small"], col_w - 52, max_lines=3):
+            if ty > A4_H - 72:
                 break
             d2.text((82, ty), ln, font=fonts["small"], fill=NAVY)
-            ty += 22
-        ty += 6
+            ty += 21
+        ty += 5
+
+    _card(d2, (rx0, 1455, A4_W - 56, A4_H - 56))
+    d2.text((rx0 + 26, 1475), "ARAHAN RISET EDISI KARAT (WEEKEND)", font=fonts["h3"], fill=(234, 88, 12))
+    ty = 1511
+    for item in (audit.karat_weekend_directives or ["Angkat riset terbaru dari topik paling rame minggu ini."])[:3]:
+        for ln in _wrap(d2, f"◆ {item}", fonts["small"], col_w - 52, max_lines=3):
+            if ty > A4_H - 72:
+                break
+            d2.text((rx0 + 26, ty), ln, font=fonts["small"], fill=NAVY)
+            ty += 21
+        ty += 5
 
     p1.save(out_pdf, "PDF", resolution=150.0, save_all=True, append_images=[p2])
     return out_pdf

@@ -220,6 +220,8 @@ def _format_audit_markdown(
     _sec("Instruksi Upgrade ke Agent 3 (Skrip & Animasi Mekanistik)", audit.agent_3_directives)
     _sec("Instruksi Upgrade ke Agent 5 (Video QA Auditor)", audit.agent_5_directives)
     _sec("Instruksi Upgrade ke Agent 6 (Pencari Footage Real)", audit.agent_6_directives)
+    if audit.karat_weekend_directives:
+        _sec("Rekomendasi Topik & Riset Edisi Weekend KARAT Minggu Depan", audit.karat_weekend_directives)
     _sec("Eksperimen Minggu Depan", audit.next_week_experiments)
     if audit.recommended_weekend_hours_wib:
         _sec(
@@ -400,7 +402,8 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             "Produce sharp, concrete next-week upgrade directives for Agents 1, 2, 3, 5, and 6 so the entire studio "
             "becomes higher quality, faster, and more token-efficient every single week. "
             "Also populate `recommended_weekend_hours_wib` with 2 optimal HH:MM WIB upload times (1 midday slot around 11:30-13:30 "
-            "and 1 evening slot around 18:30-20:30) for next Saturday & Sunday's 'KARAT — Kabar Riset Terkini' edition."
+            "and 1 evening slot around 18:30-20:30) and populate `karat_weekend_directives` with 2-3 specific research-paper "
+            "themes/angles derived from this week's highest-views/highest-retention topics & comments for next Saturday/Sunday's 'KARAT — Kabar Riset Terkini'."
         ),
         user_payload={
             "week_ending": today_wib,

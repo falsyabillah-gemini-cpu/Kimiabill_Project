@@ -240,12 +240,14 @@ def run_agent_1_to_3(
     from src.tools.weekly_growth_auditor import load_latest_agent_directives
 
     weekly_dir = load_latest_agent_directives()
+    karat_dir = weekly_dir.get("karat_weekend_directives", []) if is_karat else []
     a1_cfg = agents_cfg["agents"]["agent_1_ideation"]
     karat_a1_note = (
         "WEEKEND SPECIAL SECTION ACTIVE — 'KARAT (Kabar Riset Terkini)': Select and pitch 5 ideas centered on "
         "RECENT PEER-REVIEWED RESEARCH PAPERS or breaking scientific breakthroughs from the last 72 hours "
         "(Nature, Science, Phys.org, ScienceDaily, national/international science news) that bring cutting-edge "
         "discoveries from scientists directly to the Indonesian public ('Dari Saintis untuk Masyarakat'). "
+        "PRIORITIZE papers matching Agent 8's `karat_weekend_directives` (derived from this week's hottest/most-engaged topics). "
         if is_karat
         else ""
     )
@@ -269,7 +271,7 @@ def run_agent_1_to_3(
             "trend_brief": trend_brief,
             "topic_hint": topic_hint,
             "avoid_titles": avoid_titles or [],
-            "weekly_growth_directives": weekly_dir.get("agent_1_directives", []),
+            "weekly_growth_directives": weekly_dir.get("agent_1_directives", []) + karat_dir,
         },
         response_model=Agent1Output,
         handoff_path=paths["handoffs"] / "agent1_ideas.json",
@@ -289,7 +291,7 @@ def run_agent_1_to_3(
         ),
         user_payload={
             "candidates": [c.model_dump() for c in state.agent1.candidates],
-            "weekly_growth_directives": weekly_dir.get("agent_2_directives", []),
+            "weekly_growth_directives": weekly_dir.get("agent_2_directives", []) + karat_dir,
         },
         response_model=Agent2Output,
         handoff_path=paths["handoffs"] / "agent2_audit.json",
@@ -341,7 +343,7 @@ def run_agent_1_to_3(
             "winner_idea": winner.model_dump(),
             "audit_notes": state.agent2.improvement_notes,
             "voice_style": brand["voice"],
-            "weekly_growth_directives": weekly_dir.get("agent_3_directives", []),
+            "weekly_growth_directives": weekly_dir.get("agent_3_directives", []) + karat_dir,
         },
         response_model=Agent3Output,
         handoff_path=paths["handoffs"] / "agent3_script.json",

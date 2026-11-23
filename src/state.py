@@ -291,3 +291,7 @@ class Agent8WeeklyAuditOutput(BaseModel):
         default_factory=lambda: ["12:00", "19:00"],
         description="Top 2 optimal HH:MM WIB upload times for Saturday/Sunday KARAT Research Edition based on analytics",
     )
+    karat_weekend_directives: list[str] = Field(
+        default_factory=list,
+        description="2-3 concrete research-paper themes & search angles for next weekend's KARAT edition based on this week's highest-engagement topics & viewer comments",
+    )
