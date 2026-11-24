@@ -1772,6 +1772,16 @@ def render_hybrid_science_video(
     fonts = _load_fonts()
     mascots = MascotLibrary(mascots_dir) if (use_mascot and plan.use_mascot and mascots_dir) else None
 
+    cover_overlay_img: Optional[Image.Image] = None
+    cover_path_str = getattr(plan, "cover_thumbnail_path", None)
+    if cover_path_str and Path(cover_path_str).exists():
+        try:
+            cover_overlay_img = (
+                Image.open(cover_path_str).convert("RGBA").resize((canvas_w, canvas_h), Image.Resampling.LANCZOS)
+            )
+        except Exception:
+            cover_overlay_img = None
+
     # Pre-render bottom gradient scrim at 1080x1920
     bot_scrim = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
     bsd = ImageDraw.Draw(bot_scrim)
@@ -1802,7 +1812,7 @@ def render_hybrid_science_video(
         "-r",
         str(fps),
         "-i",
-        "pipe:0",
+        "-",
         "-i",
         str(mixed_audio_wav),
         "-filter_complex",
@@ -1845,6 +1855,10 @@ def render_hybrid_science_video(
     try:
         for f_idx in range(total_frames):
             t_global = f_idx / fps
+            if cover_overlay_img is not None and t_global < 0.32:
+                proc.stdin.write(cover_overlay_img.tobytes())
+                continue
+
             seg = segs[-1]
             seg_idx = num_segs - 1
             for idx, s in enumerate(segs):
@@ -1957,6 +1971,10 @@ def render_hybrid_science_video(
             draw_brand_pill(draw, fonts)
             draw_mascot_watermark(canvas, wm_pill_icon, wm_corner_stamp)
             _draw_discipline_pill(draw, plan.discipline, fonts, section_tag=getattr(plan, "section_tag", "REGULER"))
+
+            if cover_overlay_img is not None and 0.32 <= t_global < 0.45:
+                fade_alpha = max(0.0, min(1.0, (0.45 - t_global) / 0.13))
+                canvas = Image.blend(canvas, cover_overlay_img, fade_alpha)
 
             proc.stdin.write(canvas.tobytes())
     finally:

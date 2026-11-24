@@ -158,6 +158,7 @@ class RenderPlan(BaseModel):
     requested_by: Optional[str] = None
     use_mascot: bool = True
     references: list[str] = Field(default_factory=list)
+    cover_thumbnail_path: Optional[str] = None
     voice_path: str
     total_duration_sec: float
     segments: list[TimelineSegment]

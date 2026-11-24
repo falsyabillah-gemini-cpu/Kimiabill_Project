@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 from src.pipeline import (
     load_configs,
     load_dotenv,
+    prepare_episode_thumbnail,
     rescout_affected_scenes,
     run_agent_1_to_3,
     run_agent_4_proxy_and_gate0,
@@ -221,7 +222,11 @@ def run_one_automated_episode() -> None:
                 avoid_titles.append(title)
             continue
 
-        # QA PASSED! Render final 1080p HD and verify Gate 0 HD
+        # QA PASSED! Generate poster thumbnail first so it is embedded cleanly at frame 0 of final 1080p MP4
+        try:
+            state = prepare_episode_thumbnail(episode_id)
+        except Exception as exc:
+            print(f"[scheduler] Peringatan gagal prepare cover thumbnail sebelum render final: {exc}")
         state, final_video, _ = run_final_hd_render(episode_id)
         hd_ok = bool(state.gate0 and state.gate0.passed)
         print(f"[scheduler] Render final 1080p selesai: {final_video} (Gate 0 HD passed={hd_ok})")

@@ -147,9 +147,14 @@ def build_render_plan(
             winner_disc = winner.discipline
 
     segments: list[TimelineSegment] = []
-    for timing in scene_timings:
+    for seg_i, timing in enumerate(scene_timings):
         sc = scene_map[timing.scene_id]
         ast = asset_map[timing.scene_id]
+        default_off = (
+            round(min(1.2, max(0.0, ast.duration_sec - timing.duration_sec - 0.5)), 2)
+            if seg_i == 0 and ast.duration_sec > timing.duration_sec + 1.5
+            else 0.0
+        )
         segments.append(
             TimelineSegment(
                 scene_id=timing.scene_id,
@@ -157,7 +162,7 @@ def build_render_plan(
                 end_sec=timing.end_sec,
                 duration_sec=timing.duration_sec,
                 footage_path=ast.footage_path,
-                footage_start_offset=offsets.get(timing.scene_id, 0.0),
+                footage_start_offset=offsets.get(timing.scene_id, default_off),
                 narration=sc.narration,
                 overlay_badge=sc.overlay_badge,
                 mechanism=sc.mechanism,
@@ -692,6 +697,8 @@ def run_final_hd_render(episode_id: str) -> tuple[EpisodeState, str, str]:
 
     final_plan = state.render_plan.model_copy(deep=True)
     final_plan.resolution_mode = "final_1080p"
+    if state.agent7 and state.agent7.thumbnail_path and Path(state.agent7.thumbnail_path).exists():
+        final_plan.cover_thumbnail_path = state.agent7.thumbnail_path
     final_plan.output_video_path = str(
         paths["ep_dir"] / f"FINAL_{state.agent3.episode_slug}_1080p.mp4"
     )
@@ -791,6 +798,86 @@ def run_upload(
     return state
 
 
+def prepare_episode_thumbnail(episode_id: str) -> EpisodeState:
+    """Run Agent 7 copy generation (if needed) and generate 9:16 cover thumbnail BEFORE final 1080p render."""
+    brand, agents_cfg = load_configs()
+    paths = episode_paths(episode_id)
+    state = load_or_init_state(episode_id)
+    if state.agent3 is None:
+        raise RuntimeError("Need Agent 3 script before preparing Agent 7 thumbnail.")
+
+    if state.agent7 is None:
+        a7_cfg = agents_cfg["agents"]["agent_7_publisher"]
+        req_a7_note = (
+            f"IMPORTANT — VIEWER REQUEST SHOUTOUT: This episode fulfills a comment request from '{state.requested_by}' "
+            f"(comment: '{state.request_source_comment or ''}'). Mention '{state.requested_by}' clearly inside BOTH `caption` AND `pinned_comment` "
+            f"thanking them, then ask a quick 1-3 word engagement question tied to the topic plus invite others to drop future science requests!"
+            if state.requested_by
+            else (
+                "ENGAGEMENT CTA & PINNED COMMENT RULE: Both `caption` (ending) and especially `pinned_comment` MUST start with a casual, "
+                "low-friction Indonesian question that casual viewers can answer in just 1-3 words (e.g., "
+                "'Kamu tim yang baru tahu fakta ini atau udah pernah dengar? 👇' or 'Pilih A atau B, atau kasih skor 1-10 buat fenomena ini! 🤔'), "
+                "tailored specifically to THIS video's science twist, then immediately add: "
+                "'Atau mau bahas fenomena sains apa lagi minggu depan? Tulis singkat di komentar ya!' "
+                "Keep `pinned_comment` warm, non-intimidating, and under 240 characters so viewers aren't shy to reply."
+            )
+        )
+        state.agent7 = call_structured_agent(
+            provider=a7_cfg["provider"],
+            model=a7_cfg.get("model", a7_cfg["recommended_prod_model"]),
+            system_prompt=(
+                "You are Agent 7 (Packaging & Social Media Publisher) for @kimiabill. "
+                "Create high-CTR thumbnail copy AND platform-tailored Indonesian title, high-engagement caption (with a quick 1-3 word poll/question CTA), "
+                "hashtags, and a non-empty `pinned_comment` for every platform. "
+                "THUMBNAIL COPY RULE: keep `thumbnail_badge` to 1-3 uppercase words (<=18 chars, e.g. 'RISET TERKINI' or 'SAINS MEDISINAL'), "
+                "`thumbnail_headline_top` to 2-3 punchy words (<=18 chars, e.g. 'TEMBAKAU JADI'), and `thumbnail_headline_main` to 2-3 explosive trigger words "
+                "(<=16 chars, e.g. 'OBAT KANKER?!') creating a curiosity gap instead of repeating the full video title. "
+                f"{req_a7_note}"
+            ),
+            user_payload={
+                "brand": brand["brand"],
+                "script": state.agent3.model_dump(),
+                "requested_by": state.requested_by,
+                "request_source_comment": state.request_source_comment,
+                "platforms": brand.get("publishing", {}).get(
+                    "platforms", ["youtube_shorts", "tiktok", "instagram_reels"]
+                ),
+            },
+            response_model=Agent7Output,
+            handoff_path=paths["handoffs"] / "agent7_package.json",
+        )
+
+    pkg = state.agent7
+    thumb_path = paths["ep_dir"] / f"THUMBNAIL_{state.agent3.episode_slug}_9x16.jpg"
+    if not pkg.thumbnail_path or not Path(pkg.thumbnail_path).exists():
+        if state.render_plan and state.render_plan.segments:
+            bg_clip = Path(state.render_plan.segments[0].footage_path)
+            bg_ts = state.render_plan.segments[0].footage_start_offset + 1.4
+        elif state.agent6 and state.agent6.assets:
+            bg_clip = Path(state.agent6.assets[0].footage_path)
+            bg_ts = 1.6
+        else:
+            raise RuntimeError("Need footage clip to generate cover thumbnail.")
+        use_mascot = brand.get("video", {}).get("mascot", {}).get("enabled", True)
+        generate_cover_thumbnail(
+            bg_video_path=bg_clip,
+            bg_timestamp_sec=bg_ts,
+            headline_top=pkg.thumbnail_headline_top,
+            headline_main=pkg.thumbnail_headline_main,
+            badge_text=pkg.thumbnail_badge,
+            out_jpg=thumb_path,
+            mascots_dir=BASE_DIR / "assets" / "mascots",
+            use_mascot=use_mascot,
+        )
+        pkg.thumbnail_path = str(thumb_path)
+
+    (paths["handoffs"] / "agent7_package.json").write_text(
+        pkg.model_dump_json(indent=2), encoding="utf-8"
+    )
+    save_state(state)
+    return state
+
+
 def run_agent_7_publish(
     episode_id: str,
     mode: Optional[str] = None,
@@ -798,55 +885,15 @@ def run_agent_7_publish(
 ) -> EpisodeState:
     import os
 
-    brand, agents_cfg = load_configs()
+    brand, _ = load_configs()
     paths = episode_paths(episode_id)
-    state = load_or_init_state(episode_id)
-    if state.agent3 is None:
-        raise RuntimeError("Need Agent 3 script before running Agent 7 Publisher.")
+    state = prepare_episode_thumbnail(episode_id)
+    assert state.agent3 is not None and state.agent7 is not None
+    pkg = state.agent7
 
     publish_mode = mode or os.environ.get(
         "PUBLISH_MODE",
         brand.get("publishing", {}).get("default_mode", "draft"),
-    )
-
-    a7_cfg = agents_cfg["agents"]["agent_7_publisher"]
-    req_a7_note = (
-        f"IMPORTANT — VIEWER REQUEST SHOUTOUT: This episode fulfills a comment request from '{state.requested_by}' "
-        f"(comment: '{state.request_source_comment or ''}'). Mention '{state.requested_by}' clearly inside BOTH `caption` AND `pinned_comment` "
-        f"thanking them, then ask a quick 1-3 word engagement question tied to the topic plus invite others to drop future science requests!"
-        if state.requested_by
-        else (
-            "ENGAGEMENT CTA & PINNED COMMENT RULE: Both `caption` (ending) and especially `pinned_comment` MUST start with a casual, "
-            "low-friction Indonesian question that casual viewers can answer in just 1-3 words (e.g., "
-            "'Kamu tim yang baru tahu fakta ini atau udah pernah dengar? 👇' or 'Pilih A atau B, atau kasih skor 1-10 buat fenomena ini! 🤔'), "
-            "tailored specifically to THIS video's science twist, then immediately add: "
-            "'Atau mau bahas fenomena sains apa lagi minggu depan? Tulis singkat di komentar ya!' "
-            "Keep `pinned_comment` warm, non-intimidating, and under 240 characters so viewers aren't shy to reply."
-        )
-    )
-    pkg = call_structured_agent(
-        provider=a7_cfg["provider"],
-        model=a7_cfg.get("model", a7_cfg["recommended_prod_model"]),
-        system_prompt=(
-            "You are Agent 7 (Packaging & Social Media Publisher) for @kimiabill. "
-            "Create high-CTR thumbnail copy AND platform-tailored Indonesian title, high-engagement caption (with a quick 1-3 word poll/question CTA), "
-            "hashtags, and a non-empty `pinned_comment` for every platform. "
-            "THUMBNAIL COPY RULE: keep `thumbnail_badge` to 1-3 uppercase words (<=18 chars, e.g. 'RISET TERKINI' or 'SAINS MEDISINAL'), "
-            "`thumbnail_headline_top` to 2-3 punchy words (<=18 chars, e.g. 'TEMBAKAU JADI'), and `thumbnail_headline_main` to 2-3 explosive trigger words "
-            "(<=16 chars, e.g. 'OBAT KANKER?!') creating a curiosity gap instead of repeating the full video title. "
-            f"{req_a7_note}"
-        ),
-        user_payload={
-            "brand": brand["brand"],
-            "script": state.agent3.model_dump(),
-            "requested_by": state.requested_by,
-            "request_source_comment": state.request_source_comment,
-            "platforms": brand.get("publishing", {}).get(
-                "platforms", ["youtube_shorts", "tiktok", "instagram_reels"]
-            ),
-        },
-        response_model=Agent7Output,
-        handoff_path=paths["handoffs"] / "agent7_package.json",
     )
 
     # Choose best final video (prefer Duo Mascot v2 if available)
@@ -861,31 +908,6 @@ def run_agent_7_publish(
         if not candidates:
             raise RuntimeError(f"No FINAL_*.mp4 found in {paths['ep_dir']}")
         final_video = candidates[-1]
-
-    # Generate 9:16 Cover Thumbnail over scene_1 real footage + Opsi B Duo Mascots
-    bg_clip = (
-        Path(state.render_plan.segments[0].footage_path)
-        if state.render_plan and state.render_plan.segments
-        else final_video
-    )
-    bg_ts = (
-        state.render_plan.segments[0].footage_start_offset + 1.4
-        if state.render_plan and state.render_plan.segments
-        else 1.5
-    )
-    use_mascot = brand.get("video", {}).get("mascot", {}).get("enabled", True)
-    thumb_path = paths["ep_dir"] / f"THUMBNAIL_{state.agent3.episode_slug}_9x16.jpg"
-    generate_cover_thumbnail(
-        bg_video_path=bg_clip,
-        bg_timestamp_sec=bg_ts,
-        headline_top=pkg.thumbnail_headline_top,
-        headline_main=pkg.thumbnail_headline_main,
-        badge_text=pkg.thumbnail_badge,
-        out_jpg=thumb_path,
-        mascots_dir=BASE_DIR / "assets" / "mascots",
-        use_mascot=use_mascot,
-    )
-    pkg.thumbnail_path = str(thumb_path)
 
     # Publish or package across platforms
     pkg.publish_results = publish_to_all_platforms(
