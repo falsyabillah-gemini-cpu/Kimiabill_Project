@@ -1826,15 +1826,17 @@ def render_hybrid_science_video(
             if is_first:
                 is_karat = getattr(plan, "section_tag", "REGULER") == "KARAT"
                 req_by = getattr(plan, "requested_by", None)
+                # Ensure frame 0 (t=0.0) already displays a full-contrast visual cover hook
+                cover_t = local_t + 0.45
                 draw_header_pill(
                     draw,
                     "KARAT • KABAR RISET TERKINI" if is_karat else ("REQUEST PENONTON!" if req_by else "KOK BISA?!"),
                     ORANGE if is_karat else RED,
                     fonts,
-                    local_t,
+                    cover_t,
                     y_center=225,
                 )
-                if req_by and local_t >= 0.25:
+                if req_by:
                     _draw_label_pill(
                         draw,
                         540,
@@ -1849,26 +1851,37 @@ def render_hybrid_science_video(
                         max_w=860,
                     )
                 if plan.title:
-                    top_lbl = (
-                        "EDISI WEEKEND • RISET TERBARU"
+                    # Show crisp, bold curiosity title prominently right from frame 0
+                    box_y0, box_y1 = 990, 1260
+                    draw_comic_box(draw, (80, box_y0, 1000, box_y1), fill=CARD_BG, outline=INK, radius=28, border_w=6, shadow_offset=10)
+                    eyebrow = (
+                        "EDISI WEEKEND • KARAT"
                         if is_karat
-                        else (f"REQUEST SPESIAL • {req_by[:22]}" if req_by else "FENOMENA SAINS HARI INI")
+                        else (f"REQUEST • {req_by[:20]}" if req_by else f"FAKTA • {plan.discipline.upper()}")
                     )
-                    draw_takeaway_card(
+                    _draw_label_pill(
                         draw,
-                        top_lbl,
-                        "KARAT • SAINS" if is_karat else plan.discipline.upper(),
-                        ORANGE if is_karat else BLUE,
-                        plan.title,
-                        fonts,
-                        local_t,
-                        appear_at=0.25,
-                        y0=990,
-                        card_w=860,
+                        540,
+                        box_y0 + 44,
+                        eyebrow,
+                        fonts["tiny_bold"],
+                        bg=ORANGE if is_karat else BLUE,
+                        fg=WHITE,
+                        outline=INK,
+                        pad_x=24,
+                        pad_y=7,
+                        max_w=780,
                     )
+                    title_font = fonts["header"]
+                    t_lines = _wrap_text(draw, plan.title, title_font, 840, max_lines=3)
+                    line_step = 50
+                    ty = box_y0 + 105 + max(0, (3 - len(t_lines)) * 18)
+                    for ln in t_lines:
+                        draw.text((540, ty), ln, font=title_font, fill=INK, anchor="mm")
+                        ty += line_step
                 if mascots:
-                    mascots.paste(canvas, "male_curious", center_x=135, bottom_y=1530, target_h=220, local_t=local_t, appear_at=0.15)
-                    mascots.paste(canvas, "female_curious", center_x=945, bottom_y=1530, target_h=220, local_t=local_t, appear_at=0.25)
+                    mascots.paste(canvas, "male_curious", center_x=135, bottom_y=1530, target_h=220, local_t=cover_t, appear_at=0.0)
+                    mascots.paste(canvas, "female_curious", center_x=945, bottom_y=1530, target_h=220, local_t=cover_t, appear_at=0.0)
             elif is_last:
                 # Final scene: TERJAWAB! + celebrating duo mascots + Thank You / Follow / Referensi end-card
                 outro_start = max(0.15, seg.duration_sec - 4.5)

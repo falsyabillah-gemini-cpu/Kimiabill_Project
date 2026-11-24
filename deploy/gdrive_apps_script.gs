@@ -111,15 +111,18 @@ function doPost(e) {
       const inserted = YouTube.Videos.insert(resource, "snippet,status", videoBlob);
       const videoId = inserted.id;
 
-      // Upload thumbnail kustom (opsional; dilewati otomatis jika channel belum verifikasi nomor HP)
+      // Upload thumbnail kustom setelah menunggu processing YouTube sejenak + catat error jika gagal
       let thumbnailSet = false;
+      let thumbnailError = "";
       if (payload.thumbnail_file_id) {
         try {
+          Utilities.sleep(3000);
           const thumbBlob = DriveApp.getFileById(payload.thumbnail_file_id).getBlob();
           YouTube.Thumbnails.set(videoId, thumbBlob);
           thumbnailSet = true;
         } catch (thumbErr) {
           thumbnailSet = false;
+          thumbnailError = String(thumbErr);
         }
       }
 
@@ -176,10 +179,40 @@ function doPost(e) {
         youtube_url: youtubeUrl,
         privacy: privacy,
         thumbnail_set: thumbnailSet,
+        thumbnail_error: thumbnailError || null,
         comment_posted: commentPosted,
         comment_error: commentError || null,
         replied_requester: repliedRequester,
       });
+    }
+
+    if (action === "set_thumbnail") {
+      if (typeof YouTube === "undefined") {
+        return _jsonResponse({ ok: false, error: "YouTube Data API v3 belum ditambahkan di Services (+)." });
+      }
+      const vid = String(payload.video_id || "").trim();
+      const thumbFileId = String(payload.thumbnail_file_id || "").trim();
+      if (!vid || !thumbFileId) {
+        return _jsonResponse({ ok: false, error: "video_id dan thumbnail_file_id wajib diisi." });
+      }
+      let procStatus = "unknown";
+      try {
+        const vCheck = YouTube.Videos.list("processingDetails", { id: vid });
+        const item = (vCheck.items && vCheck.items[0]) || null;
+        if (item && item.processingDetails && item.processingDetails.processingStatus) {
+          procStatus = item.processingDetails.processingStatus;
+        }
+      } catch (pcErr) {}
+      if (procStatus === "processing") {
+        return _jsonResponse({ ok: false, processing_status: procStatus, thumbnail_set: false, error: "YouTube still processing video" });
+      }
+      try {
+        const thumbBlob = DriveApp.getFileById(thumbFileId).getBlob();
+        YouTube.Thumbnails.set(vid, thumbBlob);
+        return _jsonResponse({ ok: true, video_id: vid, processing_status: procStatus, thumbnail_set: true });
+      } catch (thErr) {
+        return _jsonResponse({ ok: false, video_id: vid, processing_status: procStatus, thumbnail_set: false, error: String(thErr) });
+      }
     }
 
     if (action === "post_comment") {

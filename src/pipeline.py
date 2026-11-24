@@ -759,9 +759,12 @@ def run_agent_7_publish(
         model=a7_cfg.get("model", a7_cfg["recommended_prod_model"]),
         system_prompt=(
             "You are Agent 7 (Packaging & Social Media Publisher) for @kimiabill. "
-            "Create high-CTR thumbnail copy (top line + main line + short badge) and "
-            "platform-tailored Indonesian title, high-engagement caption (with a quick 1-3 word poll/question CTA), "
-            f"hashtags, and a non-empty `pinned_comment` for every platform. {req_a7_note}"
+            "Create high-CTR thumbnail copy AND platform-tailored Indonesian title, high-engagement caption (with a quick 1-3 word poll/question CTA), "
+            "hashtags, and a non-empty `pinned_comment` for every platform. "
+            "THUMBNAIL COPY RULE: keep `thumbnail_badge` to 1-3 uppercase words (<=18 chars, e.g. 'RISET TERKINI' or 'SAINS MEDISINAL'), "
+            "`thumbnail_headline_top` to 2-3 punchy words (<=18 chars, e.g. 'TEMBAKAU JADI'), and `thumbnail_headline_main` to 2-3 explosive trigger words "
+            "(<=16 chars, e.g. 'OBAT KANKER?!') creating a curiosity gap instead of repeating the full video title. "
+            f"{req_a7_note}"
         ),
         user_payload={
             "brand": brand["brand"],

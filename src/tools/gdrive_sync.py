@@ -287,6 +287,35 @@ def _upload_via_webhook(
             video_id_yt = yt_res.get("video_id")
             if not video_id_yt and youtube_url:
                 video_id_yt = youtube_url.rstrip("/").split("/")[-1]
+
+            thumbnail_set = bool(yt_res.get("thumbnail_set"))
+            thumbnail_error = yt_res.get("thumbnail_error") or ""
+            if thumbnail_file_id and not thumbnail_set and video_id_yt:
+                import time
+
+                for th_try in range(2):
+                    time.sleep(12)
+                    try:
+                        th_res = _post_webhook(
+                            webhook_url,
+                            {
+                                "action": "set_thumbnail",
+                                "video_id": video_id_yt,
+                                "thumbnail_file_id": thumbnail_file_id,
+                            },
+                            timeout=60,
+                        )
+                        if th_res.get("thumbnail_set"):
+                            thumbnail_set = True
+                            thumbnail_error = ""
+                            break
+                        thumbnail_error = th_res.get("error") or thumbnail_error
+                        if th_res.get("processing_status") != "processing" and "processing" not in thumbnail_error.lower():
+                            break
+                    except Exception as th_exc:
+                        thumbnail_error = str(th_exc)
+                        break
+
             comment_posted = bool(yt_res.get("comment_posted"))
             comment_error = yt_res.get("comment_error") or ""
             if privacy == "public" and not comment_posted and yt_payload.get("first_comment") and video_id_yt:
@@ -311,7 +340,8 @@ def _upload_via_webhook(
                     comment_error = str(c_exc)
             print(
                 f"[youtube] Berhasil upload ke YouTube Shorts ({youtube_privacy}): {youtube_url} "
-                f"(comment_posted={comment_posted}, replied_requester={yt_res.get('replied_requester')}"
+                f"(thumbnail_set={thumbnail_set}, comment_posted={comment_posted}, replied_requester={yt_res.get('replied_requester')}"
+                f"{', thumbnail_error=' + thumbnail_error if thumbnail_error else ''}"
                 f"{', comment_error=' + comment_error if comment_error else ''})"
             )
             try:
@@ -322,6 +352,8 @@ def _upload_via_webhook(
                         {
                             "youtube_url": youtube_url,
                             "privacy": youtube_privacy,
+                            "thumbnail_set": thumbnail_set,
+                            "thumbnail_error": thumbnail_error or None,
                             "comment_posted": comment_posted,
                             "comment_error": comment_error or None,
                         },
