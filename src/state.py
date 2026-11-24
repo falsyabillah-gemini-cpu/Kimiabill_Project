@@ -196,7 +196,10 @@ class PlatformCopy(BaseModel):
     title: str = Field(description="Short punchy title (< 70 chars)")
     caption: str = Field(description="Platform-optimized Indonesian caption with CTA")
     hashtags: list[str]
-    pinned_comment: Optional[str] = None
+    pinned_comment: Optional[str] = Field(
+        default=None,
+        description="Lightweight conversational Indonesian comment starting with an easy 1-3 word question tied to the video topic plus a friendly science topic request prompt",
+    )
 
 
 class PlatformPublishResult(BaseModel):

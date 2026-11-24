@@ -346,7 +346,7 @@ def run_agent_1_to_3(
     req_a3_note = (
         f"THIS EPISODE FULFILLS A VIEWER REQUEST FROM '{requested_by}' (comment: '{request_source_comment or topic_hint}'): "
         f"In scene_1's spoken narration, warmly mention the requester (e.g., 'Menjawab request dari {spoken_requester}!' or 'Halo {spoken_requester}, ini jawaban buat request kamu!'), "
-        f"and right before the closing follow CTA mention thanking {spoken_requester} and inviting viewers to drop their own topic requests in the comments! "
+        f"and right before the closing CTA mention thanking {spoken_requester} and inviting viewers to drop their own topic requests in the comments! "
         if requested_by
         else ""
     )
@@ -369,7 +369,9 @@ def run_agent_1_to_3(
             "'molecular_reaction' (bonds breaking/forming with curved arrows), 'receptor_binding' (enzyme/drug lock-and-key docking), "
             "'force_wave' (physics wave/force vectors), or 'math_geometry' (live mathematical curve/growth), and fill concise "
             "`title`, `actor_a`, `actor_b`, `result`, and `caption` matching the scene's exact mechanism. "
-            "The FINAL scene's Indonesian narration MUST end with the exact closing CTA: "
+            "In the FINAL scene's Indonesian narration, right before the closing follow line, include ONE brief, casual comment CTA "
+            "answerable in 1-3 words (e.g. 'Kamu tim baru tahu atau udah pernah dengar? Tulis di komentar atau request topik lain ya!'), "
+            "and then end cleanly with the exact closing CTA: "
             "'Jangan lupa follow Kimiabill untuk info sains berikutnya!' "
             "ALWAYS populate `references` with 1-3 real, accurate scientific references (journal, textbook, university, or source article)."
         ),
@@ -740,10 +742,17 @@ def run_agent_7_publish(
     a7_cfg = agents_cfg["agents"]["agent_7_publisher"]
     req_a7_note = (
         f"IMPORTANT — VIEWER REQUEST SHOUTOUT: This episode fulfills a comment request from '{state.requested_by}' "
-        f"(comment: '{state.request_source_comment or ''}'). Mention '{state.requested_by}' clearly inside the "
-        f"`caption` AND `pinned_comment` thanking them for the request and inviting everyone else to request future science topics in the comments!"
+        f"(comment: '{state.request_source_comment or ''}'). Mention '{state.requested_by}' clearly inside BOTH `caption` AND `pinned_comment` "
+        f"thanking them, then ask a quick 1-3 word engagement question tied to the topic plus invite others to drop future science requests!"
         if state.requested_by
-        else "In `caption` and `pinned_comment`, warmly invite viewers to write science questions or topic requests in the comments to be featured in future episodes!"
+        else (
+            "ENGAGEMENT CTA & PINNED COMMENT RULE: Both `caption` (ending) and especially `pinned_comment` MUST start with a casual, "
+            "low-friction Indonesian question that casual viewers can answer in just 1-3 words (e.g., "
+            "'Kamu tim yang baru tahu fakta ini atau udah pernah dengar? 👇' or 'Pilih A atau B, atau kasih skor 1-10 buat fenomena ini! 🤔'), "
+            "tailored specifically to THIS video's science twist, then immediately add: "
+            "'Atau mau bahas fenomena sains apa lagi minggu depan? Tulis singkat di komentar ya!' "
+            "Keep `pinned_comment` warm, non-intimidating, and under 240 characters so viewers aren't shy to reply."
+        )
     )
     pkg = call_structured_agent(
         provider=a7_cfg["provider"],
@@ -751,8 +760,8 @@ def run_agent_7_publish(
         system_prompt=(
             "You are Agent 7 (Packaging & Social Media Publisher) for @kimiabill. "
             "Create high-CTR thumbnail copy (top line + main line + short badge) and "
-            "platform-tailored Indonesian title, caption, hashtags, and pinned comment "
-            f"for youtube_shorts, tiktok, and instagram_reels. {req_a7_note}"
+            "platform-tailored Indonesian title, high-engagement caption (with a quick 1-3 word poll/question CTA), "
+            f"hashtags, and a non-empty `pinned_comment` for every platform. {req_a7_note}"
         ),
         user_payload={
             "brand": brand["brand"],

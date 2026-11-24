@@ -266,9 +266,9 @@ def _upload_via_webhook(
         }
         if privacy == "public":
             first_cmt = pinned_comment_txt or (
-                f"Terima kasih {req_by} atas request topiknya! 🙌 Punya pertanyaan sains lain? Tulis di komentar biar kita bahas minggu depan!"
+                f"Terima kasih {req_by} atas request topiknya! 🙌 Kamu tim yang baru tahu fakta ini atau udah pernah dengar? Atau mau bahas sains apa lagi minggu depan? Tulis di bawah ya!"
                 if req_by
-                else "Punya pertanyaan atau request topik sains menarik berikutnya? Tulis di kolom komentar ya! 👇"
+                else "Jujur nih, kamu tim yang baru tahu fakta ini atau udah pernah dengar? 👇 Atau mau bahas fenomena sains apa lagi minggu depan? Tulis singkat di komentar ya!"
             )
             yt_payload["first_comment"] = first_cmt
             if req_comment_id and req_by:
