@@ -267,6 +267,15 @@ class AudienceRequestItem(BaseModel):
     fulfilled_youtube_url: Optional[str] = None
 
 
+class NextWeekSlotPlan(BaseModel):
+    day_label: str = Field(description="Nama hari WIB: Senin, Selasa, Rabu, Kamis, Jumat, Sabtu, atau Minggu")
+    slot_time_wib: Literal["12:00", "19:00"]
+    section: Literal["DAPUR", "REGULER", "KARAT"]
+    discipline: str = Field(description="Salah satu: kimia, fisika, biologi, medisinal, matematika")
+    planned_topic: str = Field(description="Judul/konsep topik konkret (< 75 karakter) untuk diproduksi minggu depan")
+    rationale: str = Field(description="Alasan singkat (< 90 karakter): mis. teruskan pola rame / request penonton / isi gap disiplin")
+
+
 class Agent8WeeklyAuditOutput(BaseModel):
     week_ending: str = Field(description="ISO date YYYY-MM-DD (WIB) of the Sunday audit")
     summary: str = Field(description="Executive summary in Indonesian of this week's channel & video performance")
@@ -277,6 +286,14 @@ class Agent8WeeklyAuditOutput(BaseModel):
     bottlenecks_and_weaknesses: list[str] = Field(
         default_factory=list,
         description="3-5 concrete weaknesses holding back views, retention, likes, or comments",
+    )
+    topic_performance_highlights: list[str] = Field(
+        default_factory=list,
+        description="3-5 Indonesian findings comparing which specific produced topics got highest views/engagement (paling rame) vs lowest (paling sepi) and why",
+    )
+    next_week_topic_map: list[NextWeekSlotPlan] = Field(
+        default_factory=list,
+        description="14-slot weekly roadmap (Senin-Minggu × 12:00 & 19:00 WIB): 12:00 always DAPUR, 19:00 Mon-Fri REGULER (with viewer requests), 19:00 Sat-Sun KARAT",
     )
     agent_1_directives: list[str] = Field(
         default_factory=list,

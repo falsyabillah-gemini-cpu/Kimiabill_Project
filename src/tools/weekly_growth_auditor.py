@@ -126,6 +126,7 @@ def record_published_episode(
     episode_id: str,
     title: str,
     discipline: str,
+    section: str = "REGULER",
     youtube_url: Optional[str] = None,
     gdrive_folder_url: Optional[str] = None,
     qa_score: Optional[float] = None,
@@ -156,6 +157,7 @@ def record_published_episode(
         "published_at_wib": datetime.now(WIB).isoformat(timespec="seconds"),
         "title": title,
         "discipline": discipline,
+        "section": section,
         "youtube_url": youtube_url,
         "gdrive_folder_url": gdrive_folder_url,
         "qa_score": qa_score,
@@ -233,7 +235,7 @@ def _fetch_webhook_youtube_stats() -> dict[str, Any]:
     try:
         resp = requests.post(
             webhook_url,
-            json={"action": "get_youtube_stats", "token": token, "max_results": 15},
+            json={"action": "get_youtube_stats", "token": token, "max_results": 25},
             timeout=40,
         )
         if resp.status_code == 200:
@@ -313,12 +315,165 @@ def _build_international_summary(
     }
 
 
+def _is_legacy_non_science(title: str) -> bool:
+    """Detect non-science legacy channel uploads (e.g. old funny/soccer fail clips) so they don't skew science ranking."""
+    low = (title or "").lower()
+    legacy_markers = ("#viralnest", "#funny", "soccer fails", "sports fails", "try not to laugh", "biggest fails", "went wrong")
+    return any(m in low for m in legacy_markers)
+
+
+def _infer_science_discipline(title: str, raw_disc: str = "") -> str:
+    """Return normalized science discipline across the 5 pillars using raw value or keyword hints (0 tokens)."""
+    disc = str(raw_disc or "").strip().lower()
+    valid = {"kimia", "fisika", "biologi", "medisinal", "matematika"}
+    if disc in valid:
+        return disc
+    low = (title or "").lower()
+    if any(k in low for k in ("obat", "usus", "kanker", "farma", "antibiotik", "medis", "vitamin", "dokter", "imun")):
+        return "medisinal"
+    if any(k in low for k in ("dna", "sel ", "bakteri", "virus", "tanaman", "tembakau", "hewan", "otak", "tidur", "purba")):
+        return "biologi"
+    if any(k in low for k in ("kuantum", "gravitasi", "magnet", "listrik", "cahaya", "laser", "tekuk", "suara", "bunyi", "panas", "api ", "es ")):
+        return "fisika"
+    if any(k in low for k in ("matematika", "prima", "angka", "fraktal", "peluang", "geometri", "paradoks", "fibonacci")):
+        return "matematika"
+    if any(k in low for k in ("kimia", "logam", "perak", "besi", "asam", "basa", "garam", "sabun", "nanas", "bawang", "kopi", "teh", "molekul", "reaksi", "radioaktif", "dapur")):
+        return "kimia"
+    return "kimia"
+
+
+def _build_topic_landscape(
+    archived_rows: list[dict[str, Any]],
+    enriched_videos: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build complete 0-token topic inventory, top vs bottom topic rankings, and discipline/section breakdown."""
+    merged: dict[str, dict[str, Any]] = {}
+    for src_row in list(archived_rows) + list(enriched_videos):
+        title = str(src_row.get("title") or "").strip()
+        if not title or _is_legacy_non_science(title):
+            continue
+        vid = _extract_video_id(src_row.get("youtube_url") or "") or src_row.get("video_id")
+        ep_id = str(src_row.get("episode_id") or "").strip()
+        norm_title = re.sub(r"[^a-z0-9]+", "", title.lower())[:48]
+        # Merge by normalized topic title so an unpublished/unlinked local record pairs cleanly with its live YouTube video
+        key = f"title:{norm_title}" if norm_title else (f"vid:{vid}" if vid else f"ep:{ep_id}")
+        cur = merged.get(key, {})
+        views = max(int(cur.get("views") or 0), int(src_row.get("views") or 0))
+        likes = max(int(cur.get("likes") or 0), int(src_row.get("likes") or 0))
+        comments = max(int(cur.get("comments") or 0), int(src_row.get("comments") or 0))
+        raw_sec = str(src_row.get("section") or cur.get("section") or "").upper()
+        if "KARAT" in raw_sec or "karat" in title.lower():
+            sec = "KARAT"
+        elif "DAPUR" in raw_sec or "dapur" in title.lower():
+            sec = "DAPUR"
+        else:
+            sec = "REGULER"
+        raw_disc = str(src_row.get("discipline") or cur.get("discipline") or "").strip().lower()
+        disc = _infer_science_discipline(title, raw_disc if raw_disc not in ("", "-", "none") else "")
+        pub_at = str(src_row.get("published_at_wib") or src_row.get("published_at") or cur.get("published_at") or "")
+        ret = src_row.get("avg_view_percentage") if src_row.get("avg_view_percentage") is not None else cur.get("avg_view_percentage")
+        qa = src_row.get("qa_score") if src_row.get("qa_score") is not None else cur.get("qa_score")
+        merged[key] = {
+            "key": key,
+            "episode_id": ep_id or cur.get("episode_id") or vid or "-",
+            "video_id": vid or cur.get("video_id") or "",
+            "title": title if len(title) >= len(cur.get("title") or "") else cur["title"],
+            "discipline": disc,
+            "section": sec,
+            "published_at": pub_at[:10] if pub_at else "-",
+            "views": views,
+            "likes": likes,
+            "comments": comments,
+            "avg_view_percentage": ret,
+            "qa_score": qa,
+            "youtube_url": src_row.get("youtube_url") or cur.get("youtube_url") or "",
+        }
+
+    all_topics = list(merged.values())
+    all_topics.sort(key=lambda x: (int(x["views"]), int(x["likes"]), int(x["comments"])), reverse=True)
+
+    # Dynamic performance tiering
+    max_views = max((int(t["views"]) for t in all_topics), default=0)
+    non_zero_views = sorted(int(t["views"]) for t in all_topics if int(t["views"]) > 0)
+    median_nz = non_zero_views[len(non_zero_views) // 2] if non_zero_views else 0
+    for idx, t in enumerate(all_topics):
+        v = int(t["views"])
+        if max_views == 0:
+            t["tier"] = "SEPI"
+        elif idx < 2 or v >= max(150, int(max_views * 0.45)):
+            t["tier"] = "RAME"
+        elif v >= max(20, int(median_nz * 0.5)) if median_nz > 0 else v > 10:
+            t["tier"] = "SEDANG"
+        else:
+            t["tier"] = "SEPI"
+
+    top_videos = all_topics[:5]
+    if len(all_topics) >= 10:
+        exclude_keys = {t["key"] for t in top_videos}
+    else:
+        win_count = min(3, sum(1 for t in top_videos if int(t["views"]) > 0))
+        exclude_keys = {t["key"] for t in top_videos[:win_count]}
+    remaining_asc = sorted(
+        [t for t in all_topics if t["key"] not in exclude_keys] if len(all_topics) > 4 else all_topics,
+        key=lambda x: (int(x["views"]), int(x["likes"]), x.get("published_at") or ""),
+    )
+    bottom_videos = remaining_asc[:5]
+
+    pillars = ["kimia", "medisinal", "biologi", "fisika", "matematika"]
+    discipline_breakdown: list[dict[str, Any]] = []
+    for p in pillars:
+        items = [t for t in all_topics if t["discipline"] == p]
+        tot_v = sum(int(i["views"]) for i in items)
+        avg_v = round(tot_v / len(items), 1) if items else 0.0
+        best = max(items, key=lambda x: int(x["views"])) if items else None
+        if not items:
+            status_lbl = "BELUM DIGARAP (GAP)"
+        elif avg_v >= max(100, median_nz):
+            status_lbl = "RAME / UNGGULAN"
+        elif avg_v > 10:
+            status_lbl = "STABIL"
+        else:
+            status_lbl = "PERLU BOOST HOOK"
+        discipline_breakdown.append({
+            "discipline": p,
+            "count": len(items),
+            "total_views": tot_v,
+            "avg_views": avg_v,
+            "max_views": int(best["views"]) if best else 0,
+            "top_topic": best["title"] if best else "-",
+            "status_label": status_lbl,
+            "topics": items,
+        })
+
+    section_breakdown: list[dict[str, Any]] = []
+    for sec_name in ("REGULER", "DAPUR", "KARAT"):
+        items = [t for t in all_topics if t["section"] == sec_name]
+        tot_v = sum(int(i["views"]) for i in items)
+        avg_v = round(tot_v / len(items), 1) if items else 0.0
+        section_breakdown.append({
+            "section": sec_name,
+            "count": len(items),
+            "total_views": tot_v,
+            "avg_views": avg_v,
+        })
+
+    return {
+        "total_science_videos": len(all_topics),
+        "all_topics": all_topics,
+        "top_videos": top_videos,
+        "bottom_videos": bottom_videos,
+        "discipline_breakdown": discipline_breakdown,
+        "section_breakdown": section_breakdown,
+    }
+
+
 def _format_audit_markdown(
     audit: Agent8WeeklyAuditOutput,
     enriched_videos: list[dict[str, Any]],
     channel_stats: Optional[dict[str, Any]] = None,
     countries_summary: Optional[dict[str, Any]] = None,
     milestone_stats: Optional[dict[str, Any]] = None,
+    topic_landscape: Optional[dict[str, Any]] = None,
 ) -> str:
     lines = [
         f"# Laporan Audit Mingguan Sosial Media Kimiabill ({audit.week_ending})",
@@ -358,6 +513,47 @@ def _format_audit_markdown(
 
     _sec("Pola yang Paling Berhasil", audit.top_performing_patterns)
     _sec("Kelemahan & Hambatan Engagement", audit.bottlenecks_and_weaknesses)
+
+    tl = topic_landscape or {}
+    lines.append("")
+    lines.append("## Peta Topik Video & Analisis Rame vs Sepi")
+    lines.append(f"- **Total Video Sains Terpetakan:** {tl.get('total_science_videos', 0)} topik")
+    if tl.get("top_videos"):
+        lines.append("- **Topik Paling Rame (Top Performers):**")
+        for idx, tv in enumerate(tl["top_videos"][:5], 1):
+            lines.append(f"  {idx}. **{tv['title']}** ({tv['discipline'].upper()} • {tv['section']}) — {tv['views']:,} views | {tv['likes']} likes")
+    if tl.get("bottom_videos"):
+        lines.append("- **Topik Paling Sepi (Butuh Evaluasi Hook/Timing):**")
+        for idx, bv in enumerate(tl["bottom_videos"][:5], 1):
+            lines.append(f"  {idx}. **{bv['title']}** ({bv['discipline'].upper()} • {bv['section']}) — {bv['views']:,} views | {bv['likes']} likes")
+    if tl.get("discipline_breakdown"):
+        dist_txt = " | ".join(
+            f"{d['discipline'].capitalize()}: {d['count']} vid (avg {d['avg_views']} views)"
+            for d in tl["discipline_breakdown"]
+        )
+        lines.append(f"- **Sebaran 5 Disiplin Sains:** {dist_txt}")
+    if getattr(audit, "topic_performance_highlights", None):
+        for hl in audit.topic_performance_highlights:
+            lines.append(f"- **Analisis Agent 8:** {hl}")
+
+    if getattr(audit, "next_week_topic_map", None):
+        lines.append("")
+        lines.append("## Peta Rencana Topik Seminggu Ke Depan (14 Slot • 7 Hari)")
+        lines.append("| Hari | 12:00 WIB (KIMIA DAPUR) | 19:00 WIB (REGULER / KARAT) |")
+        lines.append("|---|---|---|")
+        days_order = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
+        by_day: dict[str, dict[str, Any]] = {}
+        for slot in audit.next_week_topic_map:
+            d_low = slot.day_label.strip().lower()
+            matched_day = next((d for d in days_order if d.lower().startswith(d_low[:4])), slot.day_label)
+            by_day.setdefault(matched_day, {})[slot.slot_time_wib] = slot
+        for d in days_order:
+            s12 = by_day.get(d, {}).get("12:00")
+            s19 = by_day.get(d, {}).get("19:00")
+            txt12 = f"**{s12.planned_topic}** ({s12.discipline}) — _{s12.rationale}_" if s12 else "-"
+            txt19 = f"**{s19.planned_topic}** [{s19.section} • {s19.discipline}] — _{s19.rationale}_" if s19 else "-"
+            lines.append(f"| {d} | {txt12} | {txt19} |")
+
     lines.append("")
     lines.append("## Audit Efisiensi Workflow & Penggunaan Token")
     lines.append(audit.workflow_efficiency_summary or "-")
@@ -562,7 +758,7 @@ def _deliver_audit_to_drive_and_email(
 
     header_links = []
     if pdf_url:
-        header_links.append(f"📄 BUKA LAPORAN PDF VISUAL (3 HALAMAN • GRAFIK, INTERNASIONAL & MILESTONE): {pdf_url}")
+        header_links.append(f"📄 BUKA LAPORAN PDF VISUAL (5 HALAMAN • GRAFIK, PETA TOPIK & ROADMAP MINGGU DEPAN): {pdf_url}")
     if csv_url:
         header_links.append(f"📊 BUKA / DOWNLOAD MASTER DATABASE CSV (1 File Update Mingguan): {csv_url}")
     if sheet_url:
@@ -696,10 +892,30 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
     all_seed_rows = list(history) + list(enriched)
     memory.upsert_episode_analytics(all_seed_rows, week_ending=today_wib)
     milestone_stats = memory.get_milestone_summary()
+    archived_rows = memory.get_all_episode_analytics()
+    topic_landscape = _build_topic_landscape(archived_rows, enriched)
     countries_summary = _build_international_summary(
         webhook_stats.get("countries") or [],
         viewer_comments,
     )
+
+    topic_landscape_brief = {
+        "total_science_videos": topic_landscape["total_science_videos"],
+        "top_videos": [
+            {"title": t["title"], "discipline": t["discipline"], "section": t["section"], "views": t["views"], "likes": t["likes"]}
+            for t in topic_landscape["top_videos"]
+        ],
+        "bottom_videos": [
+            {"title": t["title"], "discipline": t["discipline"], "section": t["section"], "views": t["views"], "likes": t["likes"]}
+            for t in topic_landscape["bottom_videos"]
+        ],
+        "discipline_breakdown": [
+            {k: d[k] for k in ("discipline", "count", "total_views", "avg_views", "max_views", "status_label")}
+            for d in topic_landscape["discipline_breakdown"]
+        ],
+        "section_breakdown": topic_landscape["section_breakdown"],
+        "all_produced_titles": [t["title"] for t in topic_landscape["all_topics"][:40]],
+    }
 
     audit = call_structured_agent(
         provider=a8_cfg.get("provider", "auto"),
@@ -707,7 +923,7 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
         system_prompt=(
             "You are Agent 8 (Chief Weekly System, Engagement & Workflow Efficiency Auditor) for Kimiabill, an Indonesian "
             "pure-science YouTube Shorts studio (Kimia, Fisika, Matematika, Medisinal, Biologi). "
-            "Perform FOUR deep audits in clear Indonesian from this week's data:\n"
+            "Perform FIVE deep audits in clear Indonesian from this week's data:\n"
             "1. SOCIAL MEDIA ENGAGEMENT & MONETIZATION AUDIT: Analyze views, likes, comments, retention %, avg view duration, "
             "QA scores, hooks, topics, and durations. Also state clearly in `summary` how far the channel is from YouTube "
             "Partner Program Shorts monetization (500 subs / 3M views and 1,000 subs / 10M views) and what will accelerate it.\n"
@@ -722,6 +938,15 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             "4. INTERNATIONAL VIEWER POTENTIAL & MILESTONE READINESS: Evaluate `countries_summary` (non-ID view share & top countries), "
             "foreign-language comments, and `cumulative_milestone_stats` (Reguler vs KARAT & total database) in `international_potential`, "
             "noting which science topics/visuals show global appeal for a future English channel.\n"
+            "5. TOPIC LANDSCAPE & NEXT-WEEK 14-SLOT TOPIC MAPPING: Inspect `topic_landscape` (all produced science topics, `top_videos`, "
+            "`bottom_videos`, and `discipline_breakdown` gaps across 5 pillars). Populate `topic_performance_highlights` (3-5 crisp "
+            "Indonesian findings naming exact highest-views vs lowest-views topics and WHY they succeeded/stalled). "
+            "Then populate `next_week_topic_map` with EXACTLY 14 slots covering Senin through Minggu:\n"
+            "   - Every day `12:00` WIB MUST be section='DAPUR' (Kimia Dapur / Sains Sehari-hari di rumah/makanan, relatable & filmable).\n"
+            "   - Senin-Jumat `19:00` WIB MUST be section='REGULER' (prioritizing pending/new `audience_requests`, filling 0-count discipline "
+            "gaps like Fisika/Matematika, and doubling down on winning themes).\n"
+            "   - Sabtu & Minggu `19:00` WIB MUST be section='KARAT' (breaking research-paper angles matching top themes).\n"
+            "   NEVER repeat any topic in `topic_landscape.all_produced_titles`.\n"
             "Produce sharp, concrete next-week upgrade directives for Agents 1, 2, 3, 5, and 6 so the entire studio "
             "becomes higher quality, faster, and more token-efficient every single week. "
             "Also populate `recommended_weekend_hours_wib` with 2 optimal HH:MM WIB upload times (1 midday slot around 11:30-13:30 "
@@ -734,6 +959,7 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             "channel_stats": webhook_stats.get("channel", {}),
             "ypp_targets": {"tier1_subs": 500, "tier1_shorts_views_90d": 3000000, "full_subs": 1000, "full_shorts_views_90d": 10000000},
             "recent_videos": enriched,
+            "topic_landscape": topic_landscape_brief,
             "countries_summary": countries_summary,
             "cumulative_milestone_stats": milestone_stats,
             "viewer_comments": viewer_comments[:60],
@@ -780,6 +1006,7 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
         channel_stats=ch_stats,
         countries_summary=countries_summary,
         milestone_stats=milestone_stats,
+        topic_landscape=topic_landscape,
     )
     report_path = AUDITS_DIR / f"weekly_audit_{today_wib}.md"
     report_path.write_text(report_md, encoding="utf-8")
@@ -795,6 +1022,7 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             pdf_path,
             countries_summary=countries_summary,
             milestone_stats=milestone_stats,
+            topic_landscape=topic_landscape,
         )
         print(f"[agent8] PDF visual berhasil dibuat: {pdf_path}")
     except Exception as exc:

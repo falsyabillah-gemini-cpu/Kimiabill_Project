@@ -319,11 +319,20 @@ class StudioMemory:
 
                 title = str(r.get("title") or ep_id).strip()
                 published_at = r.get("published_at_wib") or r.get("published_at") or ""
-                section = str(r.get("section") or "").upper()
-                if not section:
-                    section = "KARAT" if "karat" in title.lower() or "karat" in ep_id.lower() else "REGULER"
+                section_raw = str(r.get("section") or "").upper()
+                if not section_raw:
+                    if "karat" in title.lower() or "karat" in ep_id.lower():
+                        section = "KARAT"
+                    elif "dapur" in title.lower() or "dapur" in ep_id.lower():
+                        section = "DAPUR"
+                    else:
+                        section = "REGULER"
+                elif "KARAT" in section_raw:
+                    section = "KARAT"
+                elif "DAPUR" in section_raw or "KITCHEN" in section_raw:
+                    section = "DAPUR"
                 else:
-                    section = "KARAT" if "KARAT" in section else "REGULER"
+                    section = "REGULER"
 
                 prev = conn.execute(
                     "SELECT published_at_wib, section, discipline, youtube_url, gdrive_folder_url, qa_score, duration_sec, production_seconds, revisions_used, topic_attempts_used, agent_models FROM episode_analytics WHERE episode_id = ?",
@@ -492,6 +501,22 @@ class StudioMemory:
             "latest_week": latest_week[0] if latest_week else "-",
             "latest_non_id_pct": round(float(latest_week[3]), 2) if latest_week and latest_week[3] is not None else 0.0,
         }
+
+    def get_all_episode_analytics(self) -> list[dict]:
+        """Return all archived produced episodes sorted newest first for cumulative topic mapping."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT episode_id, published_at_wib, section, title, discipline,
+                       youtube_url, gdrive_folder_url, qa_score, duration_sec,
+                       views, likes, comments, shares, avg_view_percentage,
+                       avg_view_duration_sec, subscribers_gained, last_audited_week
+                FROM episode_analytics
+                ORDER BY COALESCE(published_at_wib, updated_at) DESC, episode_id DESC
+                """
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def export_master_csv(self, csv_path: Path) -> int:
         """Write ONE cumulative master CSV (UTF-8 BOM for Excel & Google Sheets) updated every week."""

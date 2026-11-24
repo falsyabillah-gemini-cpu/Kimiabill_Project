@@ -272,8 +272,23 @@ def run_agent_1_to_3(
     # Agent 1: Batch Ideation
     from src.tools.weekly_growth_auditor import load_latest_agent_directives
 
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
     weekly_dir = load_latest_agent_directives()
     karat_dir = weekly_dir.get("karat_weekend_directives", []) if is_karat else []
+    slot_map_hint: list[str] = []
+    if weekly_dir.get("next_week_topic_map"):
+        day_names = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
+        today_name = day_names[datetime.now(ZoneInfo("Asia/Jakarta")).weekday()].lower()
+        target_sec = "KARAT" if is_karat else ("DAPUR" if is_kitchen else "REGULER")
+        for slot in weekly_dir["next_week_topic_map"]:
+            if str(slot.get("day_label", "")).lower().startswith(today_name[:4]) and str(slot.get("section", "")).upper() == target_sec:
+                slot_map_hint.append(
+                    f"PETA TOPIK AGENT 8 ({slot.get('day_label')} {slot.get('slot_time_wib')} {target_sec}): "
+                    f"Prioritaskan ide '{slot.get('planned_topic')}' ({slot.get('discipline')}) — alasan: {slot.get('rationale')}"
+                )
+                break
     a1_cfg = agents_cfg["agents"]["agent_1_ideation"]
     karat_a1_note = (
         "WEEKEND SPECIAL SECTION ACTIVE — 'KARAT (Kabar Riset Terkini)': Select and pitch 5 ideas centered on "
@@ -324,7 +339,7 @@ def run_agent_1_to_3(
             "requested_by": requested_by,
             "request_comment": request_source_comment,
             "avoid_titles": avoid_titles or [],
-            "weekly_growth_directives": weekly_dir.get("agent_1_directives", []) + karat_dir,
+            "weekly_growth_directives": weekly_dir.get("agent_1_directives", []) + karat_dir + slot_map_hint,
         },
         response_model=Agent1Output,
         handoff_path=paths["handoffs"] / "agent1_ideas.json",
@@ -750,6 +765,7 @@ def run_upload(
             episode_id=episode_id,
             title=state.agent3.title,
             discipline=state.render_plan.discipline if state.render_plan else "kimia",
+            section=state.render_plan.section_tag if state.render_plan else "REGULER",
             youtube_url=state.youtube_url,
             gdrive_folder_url=state.gdrive_folder_url,
             qa_score=state.agent5_history[-1].overall_score if state.agent5_history else None,

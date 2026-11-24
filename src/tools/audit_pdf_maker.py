@@ -1,11 +1,16 @@
 """Executive Visual PDF Report Generator for Agent 8 Weekly Audit (Pillow-only, 0 tokens).
 
-Generates a crisp 2-page A4 visual PDF (`WEEKLY_AUDIT_YYYY-MM-DD.pdf`) with:
+Generates a crisp 5-page A4 visual PDF (`WEEKLY_AUDIT_YYYY-MM-DD.pdf`) with:
 - Page 1: Branded header, 4 KPI cards, YouTube Partner Program (YPP) monetization
           progress bars, horizontal bar chart of recent video views, executive summary
           & workflow/token efficiency summary.
 - Page 2: Top patterns vs weaknesses, token/cost optimizations, color-coded upgrade
-          directives for Agents 1, 2, 3, 5, 6, and next-week experiments.
+          directives for Agents 1, 2, 3, 5, 6, viewer requests, KARAT directives & experiments.
+- Page 3: International viewer potential & cumulative SQLite milestone database.
+- Page 4: Topic Landscape — Ranked Top vs Bottom topics ("Paling Rame vs Paling Sepi"),
+          5-Discipline Topic Cluster Map, 2D Quadrant Performance Plot, and key findings.
+- Page 5: Next-Week 7-Day × 2-Slot Visual Topic Roadmap (12:00 DAPUR / 19:00 REGULER & KARAT),
+          discipline balance bar, and full produced topic catalog index.
 """
 from __future__ import annotations
 
@@ -58,6 +63,8 @@ def _load_fonts() -> dict[str, ImageFont.FreeTypeFont]:
         "body_b": _pick_font(FONT_BOLD_CANDIDATES, 18),
         "small": _pick_font(FONT_REG_CANDIDATES, 16),
         "small_b": _pick_font(FONT_BOLD_CANDIDATES, 16),
+        "micro": _pick_font(FONT_REG_CANDIDATES, 13),
+        "micro_b": _pick_font(FONT_BOLD_CANDIDATES, 13),
     }
 
 
@@ -82,6 +89,27 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, ma
 
 def _card(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], fill=WHITE, outline=BORDER, radius: int = 18) -> None:
     draw.rounded_rectangle(list(box), radius=radius, fill=fill, outline=outline, width=2)
+
+
+def _pill(
+    draw: ImageDraw.ImageDraw,
+    x: int,
+    y: int,
+    text: str,
+    fill: tuple[int, int, int],
+    text_fill: tuple[int, int, int],
+    font: ImageFont.FreeTypeFont,
+    pad_x: int = 10,
+    pad_y: int = 4,
+) -> int:
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+    pw = tw + pad_x * 2
+    ph = th + pad_y * 2 + 2
+    draw.rounded_rectangle([x, y, x + pw, y + ph], radius=ph // 2, fill=fill)
+    draw.text((x + pad_x, y + pad_y - 1), text, font=font, fill=text_fill)
+    return x + pw
 
 
 def _draw_progress_bar(
@@ -116,8 +144,9 @@ def generate_weekly_audit_pdf(
     out_pdf: Path,
     countries_summary: dict[str, Any] | None = None,
     milestone_stats: dict[str, Any] | None = None,
+    topic_landscape: dict[str, Any] | None = None,
 ) -> Path:
-    """Render a 3-page executive visual PDF report (including Page 3 International & Milestone DB) and return its Path."""
+    """Render a 5-page executive visual PDF report (KPI, upgrades, global DB, Topic Map & Next-Week Roadmap)."""
     fonts = _load_fonts()
     out_pdf.parent.mkdir(parents=True, exist_ok=True)
 
@@ -401,5 +430,382 @@ def generate_weekly_audit_pdf(
             ty += 26
         ty += 12
 
-    p1.save(out_pdf, "PDF", resolution=150.0, save_all=True, append_images=[p2, p3])
+    # Helper dicts for discipline colors
+    disc_colors: dict[str, tuple[int, int, int]] = {
+        "kimia": BLUE,
+        "medisinal": CYAN,
+        "biologi": GREEN,
+        "fisika": PURPLE,
+        "matematika": AMBER,
+    }
+    sec_colors: dict[str, tuple[int, int, int]] = {
+        "DAPUR": GREEN,
+        "REGULER": BLUE,
+        "KARAT": (234, 88, 12),
+    }
+
+    tl = dict(topic_landscape or {})
+    if not tl.get("all_topics"):
+        fallback_items = [
+            {
+                "title": str(v.get("title") or v.get("episode_id") or "Video"),
+                "discipline": str(v.get("discipline") or "kimia").lower() if str(v.get("discipline") or "-") not in ("-", "") else "kimia",
+                "section": str(v.get("section") or "REGULER").upper(),
+                "views": int(v.get("views") or 0),
+                "likes": int(v.get("likes") or 0),
+                "tier": "RAME" if int(v.get("views") or 0) >= 150 else ("SEDANG" if int(v.get("views") or 0) > 10 else "SEPI"),
+            }
+            for v in enriched_videos
+            if "#viralnest" not in str(v.get("title") or "").lower()
+        ]
+        fallback_items.sort(key=lambda x: x["views"], reverse=True)
+        tl["all_topics"] = fallback_items
+        tl["total_science_videos"] = len(fallback_items)
+        tl["top_videos"] = fallback_items[:5]
+        tl["bottom_videos"] = sorted(fallback_items, key=lambda x: (x["views"], x["likes"]))[:5]
+        pillars = ["kimia", "medisinal", "biologi", "fisika", "matematika"]
+        tl["discipline_breakdown"] = []
+        for p in pillars:
+            its = [t for t in fallback_items if t["discipline"] == p]
+            tot_v = sum(i["views"] for i in its)
+            tl["discipline_breakdown"].append({
+                "discipline": p,
+                "count": len(its),
+                "total_views": tot_v,
+                "avg_views": round(tot_v / len(its), 1) if its else 0.0,
+                "topics": its,
+            })
+        tl["section_breakdown"] = [
+            {"section": s, "count": sum(1 for t in fallback_items if t["section"] == s), "avg_views": 0.0}
+            for s in ("REGULER", "DAPUR", "KARAT")
+        ]
+
+    # ======================== PAGE 4: TOPIC LANDSCAPE, RAME VS SEPI & QUADRANT MAP ========================
+    p4 = Image.new("RGB", (A4_W, A4_H), BG)
+    d4 = ImageDraw.Draw(p4)
+    d4.rectangle([0, 0, A4_W, 110], fill=NAVY)
+    d4.text((56, 30), "PETA TOPIK VIDEO & ANALISIS RAME VS SEPI", font=fonts["h2"], fill=YELLOW)
+    d4.text(
+        (56, 68),
+        f"Total {tl.get('total_science_videos', 0)} Topik Sains Terpetakan  •  Pemenang vs Evaluasi, Klaster 5 Disiplin & Peta Kuadran ({audit.week_ending})",
+        font=fonts["small"],
+        fill=(203, 213, 225),
+    )
+
+    # Top Row Charts: TOP 5 RAME (left) vs TOP 5 SEPI (right)
+    _card(d4, (56, 134, 56 + col_w, 476))
+    d4.rounded_rectangle([56, 134, 64, 476], radius=4, fill=GREEN)
+    d4.text((82, 152), "TOP 5 TOPIK PALING RAME", font=fonts["h3"], fill=GREEN)
+    _pill(d4, 456, 150, "PEMENANG", (220, 252, 231), GREEN, fonts["micro_b"])
+    top_list = tl.get("top_videos") or []
+    if top_list:
+        max_tv = max(1, max(int(t.get("views") or 0) for t in top_list))
+        ty = 196
+        for idx, t in enumerate(top_list[:5], 1):
+            tv = int(t.get("views") or 0)
+            tlk = int(t.get("likes") or 0)
+            disc = str(t.get("discipline") or "kimia").upper()[:5]
+            d4.text((82, ty), f"#{idx} {str(t.get('title') or '-')[:34]}", font=fonts["small_b"], fill=NAVY)
+            d4.text((82, ty + 22), f"{disc} • {t.get('section', 'REGULER')}", font=fonts["micro"], fill=SLATE)
+            bx0, bmax = 260, 200
+            bw = max(14 if tv > 0 else 6, int(bmax * (tv / max_tv)))
+            d4.rounded_rectangle([bx0, ty + 21, bx0 + bmax, ty + 37], radius=7, fill=(238, 242, 247))
+            d4.rounded_rectangle([bx0, ty + 21, bx0 + bw, ty + 37], radius=7, fill=GREEN if idx == 1 else CYAN)
+            d4.text((bx0 + bmax + 10, ty + 19), f"{tv:,}v • {tlk}L", font=fonts["micro_b"], fill=NAVY)
+            ty += 54
+    else:
+        d4.text((82, 220), "Belum ada data topik video.", font=fonts["body"], fill=SLATE)
+
+    _card(d4, (rx0, 134, A4_W - 56, 476))
+    d4.rounded_rectangle([rx0, 134, rx0 + 8, 476], radius=4, fill=RED)
+    d4.text((rx0 + 26, 152), "TOPIK PALING SEPI", font=fonts["h3"], fill=RED)
+    _pill(d4, A4_W - 196, 150, "PERLU EVALUASI", (254, 226, 226), RED, fonts["micro_b"])
+    bot_list = tl.get("bottom_videos") or []
+    if bot_list:
+        ref_max = max(1, max([int(t.get("views") or 0) for t in top_list] + [100]))
+        ty = 196
+        for idx, b in enumerate(bot_list[:5], 1):
+            bv = int(b.get("views") or 0)
+            blk = int(b.get("likes") or 0)
+            disc = str(b.get("discipline") or "kimia").upper()[:5]
+            d4.text((rx0 + 26, ty), f"▼ {str(b.get('title') or '-')[:34]}", font=fonts["small_b"], fill=NAVY)
+            d4.text((rx0 + 26, ty + 22), f"{disc} • {b.get('section', 'REGULER')}", font=fonts["micro"], fill=SLATE)
+            bx0, bmax = rx0 + 204, 195
+            bw = max(8, int(bmax * (bv / ref_max)))
+            d4.rounded_rectangle([bx0, ty + 21, bx0 + bmax, ty + 37], radius=7, fill=(254, 242, 242))
+            d4.rounded_rectangle([bx0, ty + 21, bx0 + bw, ty + 37], radius=7, fill=RED if bv <= 5 else AMBER)
+            d4.text((bx0 + bmax + 10, ty + 19), f"{bv:,}v • {blk}L", font=fonts["micro_b"], fill=RED if bv <= 5 else AMBER)
+            ty += 54
+    else:
+        d4.text((rx0 + 26, 220), "Belum ada data topik video.", font=fonts["body"], fill=SLATE)
+
+    # Middle Left: 5-Discipline Cluster Topic Map
+    map_x1 = 716
+    _card(d4, (56, 498, map_x1, 1142))
+    d4.text((80, 516), "PETA KLASTER TOPIK PER DISIPLIN (5 PILAR)", font=fonts["h3"], fill=NAVY)
+    lx = 80
+    lx = _pill(d4, lx, 548, "● RAME", (220, 252, 231), GREEN, fonts["micro_b"]) + 10
+    lx = _pill(d4, lx, 548, "● SEDANG", (254, 243, 199), AMBER, fonts["micro_b"]) + 10
+    _pill(d4, lx, 548, "● SEPI", (254, 226, 226), RED, fonts["micro_b"])
+
+    disc_rows = tl.get("discipline_breakdown") or []
+    cy_map = 584
+    band_h = 100
+    for drow in disc_rows[:5]:
+        d_name = str(drow.get("discipline") or "kimia").lower()
+        d_col = disc_colors.get(d_name, BLUE)
+        cnt = int(drow.get("count") or 0)
+        avg_v = float(drow.get("avg_views") or 0.0)
+        bg_tint = (255, 251, 235) if cnt == 0 else (248, 250, 252)
+        out_col = AMBER if cnt == 0 else BORDER
+        d4.rounded_rectangle([76, cy_map, map_x1 - 20, cy_map + band_h], radius=12, fill=bg_tint, outline=out_col, width=2)
+        d4.rounded_rectangle([76, cy_map, 84, cy_map + band_h], radius=4, fill=d_col)
+        d4.text((96, cy_map + 10), d_name.upper(), font=fonts["small_b"], fill=d_col)
+        d4.text((96, cy_map + 34), f"{cnt} video", font=fonts["micro_b"], fill=NAVY)
+        d4.text((96, cy_map + 54), f"avg {avg_v:.0f}v", font=fonts["micro"], fill=SLATE)
+        topics_in_d = drow.get("topics") or []
+        if not topics_in_d:
+            _pill(d4, 235, cy_map + 30, "BELUM ADA VIDEO • PELUANG BESAR MINGGU DEPAN!", (254, 243, 199), AMBER, fonts["micro_b"], pad_x=14, pad_y=7)
+        else:
+            col_chips = [226, 460]
+            for c_i, t_item in enumerate(topics_in_d[:4]):
+                tier = t_item.get("tier", "SEDANG")
+                t_bg = (220, 252, 231) if tier == "RAME" else ((254, 226, 226) if tier == "SEPI" else (254, 243, 199))
+                t_fg = GREEN if tier == "RAME" else (RED if tier == "SEPI" else AMBER)
+                chip_txt = f"● {str(t_item.get('title') or '-')[:18]} ({int(t_item.get('views') or 0)})"
+                px = col_chips[c_i % 2]
+                py = cy_map + (14 if c_i < 2 else 54)
+                _pill(d4, px, py, chip_txt, t_bg, t_fg, fonts["micro_b"], pad_x=8, pad_y=4)
+        cy_map += band_h + 10
+
+    # Middle Right: 2D Quadrant Bubble Plot + Section Proportion Bar
+    qx0 = map_x1 + 20
+    _card(d4, (qx0, 498, A4_W - 56, 1142))
+    d4.text((qx0 + 22, 516), "PETA KUADRAN & SEGMEN", font=fonts["h3"], fill=PURPLE)
+    gx0, gy0, gx1, gy1 = qx0 + 54, 566, A4_W - 82, 868
+    mid_x = (gx0 + gx1) // 2
+    mid_y = (gy0 + gy1) // 2
+    # Quadrant background tints
+    d4.rectangle([gx0, gy0, mid_x, mid_y], fill=(239, 246, 255))       # Top-left: POTENSI
+    d4.rectangle([mid_x, gy0, gx1, mid_y], fill=(236, 253, 245))       # Top-right: UTAMA
+    d4.rectangle([gx0, mid_y, mid_x, gy1], fill=(248, 250, 252))       # Bottom-left: GAP
+    d4.rectangle([mid_x, mid_y, gx1, gy1], fill=(255, 247, 237))       # Bottom-right: EVALUASI
+    d4.rectangle([gx0, gy0, gx1, gy1], outline=MUTED, width=2)
+    d4.line([(mid_x, gy0), (mid_x, gy1)], fill=MUTED, width=2)
+    d4.line([(gx0, mid_y), (gx1, mid_y)], fill=MUTED, width=2)
+    d4.text((gx0 + 8, gy0 + 6), "POTENSI", font=fonts["micro_b"], fill=BLUE)
+    d4.text((mid_x + 8, gy0 + 6), "UTAMA", font=fonts["micro_b"], fill=GREEN)
+    d4.text((gx0 + 8, gy1 - 22), "GAP / SEDIKIT", font=fonts["micro_b"], fill=SLATE)
+    d4.text((mid_x + 8, gy1 - 22), "EVALUASI HOOK", font=fonts["micro_b"], fill=AMBER)
+    d4.text((qx0 + 16, gy0), "Views", font=fonts["micro"], fill=SLATE)
+    d4.text((mid_x - 40, gy1 + 8), "Jml Video →", font=fonts["micro"], fill=SLATE)
+
+    max_cnt_q = max(2, max((int(d.get("count") or 0) for d in disc_rows), default=2))
+    max_avg_q = max(50.0, max((float(d.get("avg_views") or 0.0) for d in disc_rows), default=50.0))
+    zero_slot = 0
+    for idx_q, drow in enumerate(disc_rows[:5]):
+        d_name = str(drow.get("discipline") or "kimia").lower()
+        d_col = disc_colors.get(d_name, BLUE)
+        cnt = int(drow.get("count") or 0)
+        avg_v = float(drow.get("avg_views") or 0.0)
+        px_q = gx0 + 34 + int((gx1 - gx0 - 68) * (cnt / max_cnt_q))
+        py_q = gy1 - 36 - int((gy1 - gy0 - 76) * min(1.0, avg_v / max_avg_q))
+        if cnt == 0:
+            px_q = gx0 + 38 + zero_slot * 78
+            py_q = gy1 - 46 - (zero_slot % 2) * 34
+            zero_slot += 1
+        rad = 11 + min(13, cnt * 3)
+        d4.ellipse([px_q - rad, py_q - rad, px_q + rad, py_q + rad], fill=d_col, outline=WHITE, width=2)
+        lbl_x = min(gx1 - 80, max(gx0 + 6, px_q - 26))
+        lbl_y = (py_q + rad + 4) if py_q - rad - 18 < gy0 + 24 else (py_q - rad - 16)
+        d4.text((lbl_x, lbl_y), f"{d_name[:4].upper()} ({cnt})", font=fonts["micro_b"], fill=NAVY)
+
+    # Stacked Section Breakdown inside Right Card
+    d4.text((qx0 + 22, 906), "DISTRIBUSI SEGMEN CHANNEL", font=fonts["small_b"], fill=NAVY)
+    sec_rows = tl.get("section_breakdown") or []
+    tot_sec = max(1, sum(int(s.get("count") or 0) for s in sec_rows))
+    bar_x0, bar_w_s = qx0 + 22, (A4_W - 56) - (qx0 + 44)
+    cur_bx = bar_x0
+    for srow in sec_rows:
+        s_cnt = int(srow.get("count") or 0)
+        if s_cnt > 0:
+            sw = max(24, int(bar_w_s * (s_cnt / tot_sec)))
+            d4.rectangle([cur_bx, 938, min(bar_x0 + bar_w_s, cur_bx + sw), 966], fill=sec_colors.get(srow["section"], BLUE))
+            cur_bx += sw
+    sy_leg = 982
+    for srow in sec_rows:
+        sname = srow["section"]
+        scol = sec_colors.get(sname, BLUE)
+        d4.rounded_rectangle([qx0 + 22, sy_leg + 4, qx0 + 36, sy_leg + 18], radius=3, fill=scol)
+        d4.text(
+            (qx0 + 44, sy_leg),
+            f"{sname}: {srow['count']} video (avg {float(srow.get('avg_views') or 0.0):.0f} views)",
+            font=fonts["micro_b"],
+            fill=NAVY,
+        )
+        sy_leg += 28
+
+    # Bottom Card: Key Insights Why Top vs Flop
+    _card(d4, (56, 1164, A4_W - 56, A4_H - 56))
+    d4.text((82, 1184), "ANALISIS AGENT 8: KENAPA TOPIK RAME VS KENAPA SEPI", font=fonts["h2"], fill=NAVY)
+    hl_items = list(getattr(audit, "topic_performance_highlights", None) or [])
+    if not hl_items:
+        best_title = top_list[0]["title"] if top_list else "-"
+        best_v = int(top_list[0].get("views") or 0) if top_list else 0
+        worst_title = bot_list[0]["title"] if bot_list else "-"
+        worst_v = int(bot_list[0].get("views") or 0) if bot_list else 0
+        hl_items = [
+            f"Topik Paling Rame: '{best_title}' ({best_v:,} views) — didorong konsep mengejutkan & visual mekanistik langsung di detik awal.",
+            f"Topik Paling Sepi: '{worst_title}' ({worst_v:,} views) — butuh hook miskonsepsi lebih tajam di 2 detik pertama & jam tayang optimal.",
+            "Peluang Gap Disiplin: Disiplin Fisika, Matematika, dan slot Kimia Dapur 12:00 WIB berpotensi besar memperluas audiens baru minggu depan.",
+        ]
+    ty = 1234
+    for idx_h, item in enumerate(hl_items[:5]):
+        accent = GREEN if idx_h == 0 else (RED if idx_h == 1 else BLUE)
+        wrapped_hl = _wrap(d4, item, fonts["body"], A4_W - 190, max_lines=3)
+        bar_h_hl = max(32, len(wrapped_hl) * 25)
+        d4.rounded_rectangle([82, ty + 2, 90, ty + bar_h_hl], radius=4, fill=accent)
+        for ln in wrapped_hl:
+            if ty > A4_H - 80:
+                break
+            d4.text((104, ty), ln, font=fonts["body"], fill=NAVY)
+            ty += 25
+        ty += 16
+
+    # ======================== PAGE 5: NEXT-WEEK 7-DAY × 2-SLOT TOPIC ROADMAP & CATALOG ========================
+    p5 = Image.new("RGB", (A4_W, A4_H), BG)
+    d5 = ImageDraw.Draw(p5)
+    d5.rectangle([0, 0, A4_W, 110], fill=NAVY)
+    d5.text((56, 30), "PETA TOPIK SEMINGGU KEDEPAN (7 HARI × 2 SLOT)", font=fonts["h2"], fill=YELLOW)
+    d5.text(
+        (56, 68),
+        f"Jadwal Otomatis: 12:00 WIB Kimia Dapur  •  19:00 WIB Reguler/Request (Sen-Jum) & KARAT Riset (Sab-Min) ({audit.week_ending})",
+        font=fonts["small"],
+        fill=(203, 213, 225),
+    )
+
+    # Normalize 14-slot roadmap
+    days_order = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
+    day_abbr = {"Senin": "SEN", "Selasa": "SEL", "Rabu": "RAB", "Kamis": "KAM", "Jumat": "JUM", "Sabtu": "SAB", "Minggu": "MIN"}
+    by_day: dict[str, dict[str, dict[str, str]]] = {}
+    for slot in getattr(audit, "next_week_topic_map", None) or []:
+        d_low = str(getattr(slot, "day_label", "")).strip().lower()
+        d_match = next((d for d in days_order if d.lower().startswith(d_low[:4])), None)
+        if not d_match:
+            continue
+        t_slot = str(getattr(slot, "slot_time_wib", "19:00"))
+        by_day.setdefault(d_match, {})[t_slot] = {
+            "section": str(getattr(slot, "section", "DAPUR" if t_slot == "12:00" else "REGULER")),
+            "discipline": str(getattr(slot, "discipline", "kimia")).lower(),
+            "planned_topic": str(getattr(slot, "planned_topic", "-")),
+            "rationale": str(getattr(slot, "rationale", "-")),
+        }
+
+    default_12 = [
+        ("kimia", "Kenapa Lidah Perih Saat Makan Nanas?", "Topik dapur super relate + visual enzim"),
+        ("kimia", "Kenapa Bawang Bikin Mata Menangis?", "Mekanisme gas syn-propanethial + tips"),
+        ("fisika", "Kenapa Minyak Meletup Saat Kena Air?", "Kontras didih cepat + visual slow-mo"),
+        ("kimia", "Kenapa Susu Redakan Pedas Lebih Cepat dari Air?", "Sains kapsaikin larut lemak di susu"),
+        ("kimia", "Rahasia Reaksi Maillard di Balik Gorengan Gurih", "Sains rasa & warna cokelat keemasan"),
+        ("biologi", "Kenapa Nasi Dingin Lebih Ramah Gula Darah?", "Pati resisten menarik bagi audiens"),
+        ("kimia", "Trik Es Batu Bening vs Keruh di Rumah", "Kristalisasi udara & pembekuan"),
+    ]
+    default_19 = [
+        ("fisika", "Paradoks Mpemba: Air Panas Membeku Lebih Cepat?", "Isi gap pilar Fisika + hook debat"),
+        ("medisinal", "Cara Obat Tahu Bagian Tubuh Mana yang Sakit", "Teruskan pola rame Medisinal minggu ini"),
+        ("matematika", "Ilusi Ulang Tahun: Kenapa 23 Orang Cukup 50% Sama?", "Isi gap Matematika yang paling jarang"),
+        ("biologi", "Kenapa Nyamuk Pilih-Pilih Korban Gigitan?", "Pertanyaan harian + kimia aroma tubuh"),
+        ("kimia", "Logam Galium yang Meleleh di Telapak Tangan", "Visual logam cair viral & kontras tinggi"),
+        ("medisinal", "KARAT: Riset Terbaru Biopolimer Pelindung Sel", "Edisi riset weekend dari topik terlaris"),
+        ("fisika", "KARAT: Terobosan Material Self-Healing Terbaru", "Edisi riset weekend + potensi global"),
+    ]
+    all_slots_flat: list[dict[str, str]] = []
+    for i_d, dname in enumerate(days_order):
+        if "12:00" not in by_day.get(dname, {}):
+            dd, dt, dr = default_12[i_d]
+            by_day.setdefault(dname, {})["12:00"] = {"section": "DAPUR", "discipline": dd, "planned_topic": dt, "rationale": dr}
+        if "19:00" not in by_day.get(dname, {}):
+            ed, et, er = default_19[i_d]
+            sec_e = "KARAT" if dname in ("Sabtu", "Minggu") else "REGULER"
+            by_day.setdefault(dname, {})["19:00"] = {"section": sec_e, "discipline": ed, "planned_topic": et, "rationale": er}
+        all_slots_flat.append(by_day[dname]["12:00"])
+        all_slots_flat.append(by_day[dname]["19:00"])
+
+    # Top Balance Strip
+    _card(d5, (56, 130, A4_W - 56, 232))
+    d5.text((82, 144), "KESEIMBANGAN 14 SLOT MINGGU DEPAN", font=fonts["h3"], fill=NAVY)
+    _pill(d5, A4_W - 418, 140, "7× DAPUR  |  5× REGULER  |  2× KARAT", (241, 245, 249), NAVY, fonts["micro_b"], pad_x=12, pad_y=5)
+    px = 82
+    for p_name in ("kimia", "medisinal", "biologi", "fisika", "matematika"):
+        p_cnt = sum(1 for sl in all_slots_flat if sl["discipline"] == p_name)
+        p_col = disc_colors.get(p_name, BLUE)
+        px = _pill(d5, px, 184, f"{p_name.upper()}: {p_cnt} slot", p_col, WHITE, fonts["micro_b"], pad_x=12, pad_y=6) + 12
+
+    # 7-Day Visual Matrix
+    _card(d5, (56, 250, A4_W - 56, 1280))
+    d5.text((178, 266), "12:00 WIB — KIMIA DAPUR (SAINS SEHARI-HARI)", font=fonts["small_b"], fill=GREEN)
+    d5.text((688, 266), "19:00 WIB — REGULER/REQUEST (SEN-JUM) & KARAT", font=fonts["small_b"], fill=BLUE)
+
+    # Vertical timeline spine
+    d5.line([(114, 326), (114, 1220)], fill=(203, 213, 225), width=4)
+    ry = 298
+    row_h = 128
+    for dname in days_order:
+        is_wknd = dname in ("Sabtu", "Minggu")
+        node_col = (234, 88, 12) if is_wknd else NAVY
+        d5.rounded_rectangle([76, ry + 32, 152, ry + 92], radius=14, fill=node_col)
+        d5.text((92, ry + 48), day_abbr[dname], font=fonts["body_b"], fill=YELLOW if is_wknd else WHITE)
+
+        # 12:00 Slot Card
+        s12 = by_day[dname]["12:00"]
+        d5.rounded_rectangle([176, ry, 670, ry + row_h], radius=14, fill=(240, 253, 244), outline=GREEN, width=2)
+        px12 = _pill(d5, 190, ry + 10, "12:00 DAPUR", GREEN, WHITE, fonts["micro_b"], pad_x=8, pad_y=3) + 8
+        _pill(d5, px12, ry + 10, s12["discipline"].upper(), disc_colors.get(s12["discipline"], BLUE), WHITE, fonts["micro_b"], pad_x=8, pad_y=3)
+        t12_lines = _wrap(d5, s12["planned_topic"], fonts["small_b"], 462, max_lines=2)
+        ty12 = ry + 40
+        for ln in t12_lines:
+            d5.text((190, ty12), ln, font=fonts["small_b"], fill=NAVY)
+            ty12 += 20
+        r12_lines = _wrap(d5, f"→ {s12['rationale']}", fonts["micro"], 462, max_lines=2)
+        d5.text((190, ry + 86), r12_lines[0], font=fonts["micro"], fill=SLATE)
+
+        # 19:00 Slot Card
+        s19 = by_day[dname]["19:00"]
+        is_k19 = s19["section"] == "KARAT"
+        s19_col = (234, 88, 12) if is_k19 else BLUE
+        s19_bg = (255, 247, 237) if is_k19 else (239, 246, 255)
+        d5.rounded_rectangle([688, ry, A4_W - 76, ry + row_h], radius=14, fill=s19_bg, outline=s19_col, width=2)
+        px19 = _pill(d5, 702, ry + 10, f"19:00 {s19['section']}", s19_col, WHITE, fonts["micro_b"], pad_x=8, pad_y=3) + 8
+        _pill(d5, px19, ry + 10, s19["discipline"].upper(), disc_colors.get(s19["discipline"], BLUE), WHITE, fonts["micro_b"], pad_x=8, pad_y=3)
+        t19_lines = _wrap(d5, s19["planned_topic"], fonts["small_b"], 450, max_lines=2)
+        ty19 = ry + 40
+        for ln in t19_lines:
+            d5.text((702, ty19), ln, font=fonts["small_b"], fill=NAVY)
+            ty19 += 20
+        r19_lines = _wrap(d5, f"→ {s19['rationale']}", fonts["micro"], 450, max_lines=2)
+        d5.text((702, ry + 86), r19_lines[0], font=fonts["micro"], fill=SLATE)
+
+        ry += row_h + 10
+
+    # Bottom Catalog Card: Produced Science Topics Inventory
+    _card(d5, (56, 1300, A4_W - 56, A4_H - 56))
+    d5.text((82, 1318), f"ARSIP KATALOG TOPIK VIDEO YANG SUDAH DIBUAT ({tl.get('total_science_videos', 0)} VIDEO SAINS)", font=fonts["h3"], fill=NAVY)
+    cat_topics = tl.get("all_topics") or []
+    if cat_topics:
+        cx_left, cx_right = 82, 636
+        cy_cat = 1358
+        for idx_c, ct in enumerate(cat_topics[:16]):
+            cx = cx_left if idx_c < 8 else cx_right
+            row_idx = idx_c % 8
+            row_y = cy_cat + row_idx * 40
+            tier = ct.get("tier", "SEPI")
+            t_col = GREEN if tier == "RAME" else (AMBER if tier == "SEDANG" else RED)
+            t_bg = (220, 252, 231) if tier == "RAME" else ((254, 243, 199) if tier == "SEDANG" else (254, 226, 226))
+            _pill(d5, cx, row_y, tier[:4], t_bg, t_col, fonts["micro_b"], pad_x=8, pad_y=3)
+            d5.text((cx + 66, row_y + 2), f"{str(ct.get('title') or '-')[:33]}", font=fonts["micro_b"], fill=NAVY)
+            d5.text((cx + 370, row_y + 2), f"{str(ct.get('discipline') or 'kim')[:3].upper()} • {int(ct.get('views') or 0):,}v", font=fonts["micro"], fill=SLATE)
+    else:
+        d5.text((82, 1370), "Belum ada topik video sains tercatat.", font=fonts["body"], fill=SLATE)
+
+    p1.save(out_pdf, "PDF", resolution=150.0, save_all=True, append_images=[p2, p3, p4, p5])
     return out_pdf
