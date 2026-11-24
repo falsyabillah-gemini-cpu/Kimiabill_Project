@@ -279,6 +279,8 @@ def run_agent_1_to_3(
             "engaging Indonesian short-video ideas (`source_mode: 'viral_trend'`). "
             "PRIORITY 2 (Fallback): If no strong viral topic is available, select and enrich unused ideas "
             "from `idea_bank_fallback_candidates` (`source_mode: 'idea_bank'`), keeping all 5 disciplines balanced. "
+            "STORYTELLING RULE (Veritasium Principle): Angle every idea around a sharp COMMON MISCONCEPTION vs SURPRISING REALITY "
+            "or a counterintuitive curiosity question so viewers immediately feel a knowledge gap worth closing. "
             "Every idea must be visualizable with REAL, concrete, filmable science/nature footage (never full animation), "
             "MUST NOT repeat any topic in `avoid_titles`, and MUST apply any `weekly_growth_directives` from Agent 8."
         ),
@@ -309,9 +311,13 @@ def run_agent_1_to_3(
         provider=a2_cfg["provider"],
         model=a2_cfg.get("model", a2_cfg["recommended_prod_model"]),
         system_prompt=(
-            "You are Agent 2 (Editorial Auditor) for Kimiabill. Score all candidates on hook, "
-            "plain-language clarity, and real-footage visual strength. Pick the #1 winner and "
-            f"give max 4 concrete improvement notes, applying any `weekly_growth_directives` from Agent 8. {req_a2_note}"
+            "You are Agent 2 (Editorial & 70%+ Retention Hook Auditor) for Kimiabill. Score all candidates on: "
+            "(1) first-3-second hook strength — must open an instant curiosity loop or challenge a misconception (NO dictionary definitions, "
+            "NO slow greetings, NO 'pernahkah kamu berpikir' filler), "
+            "(2) anti-over-explaining pacing — after the hook, move the explanation forward immediately without rambling, and "
+            "(3) plain-language clarity + real-footage visual strength. "
+            "Pick the #1 winner and give max 4 concrete improvement notes (including exact rewrite advice for scene_1 hook & open-loop pacing), "
+            f"applying any `weekly_growth_directives` from Agent 8. {req_a2_note}"
         ),
         user_payload={
             "candidates": [c.model_dump() for c in state.agent1.candidates],
@@ -359,7 +365,17 @@ def run_agent_1_to_3(
             "~18-24 words narration per scene so the viewer gets rich, deep scientific insight) applying Agent 2's notes "
             "and Agent 8's `weekly_growth_directives`. "
             f"{req_a3_note}{karat_a3_note}"
-            "Each scene MUST specify an English real-footage visual_query (no cartoons/animations) that names a "
+            "PROVEN RETENTION & STORYTELLING STRUCTURE (Veritasium + Creator Insider 70%+ Retention):\n"
+            "- Scene 1 (0-3s Hook): NO generic greeting or slow textbook definition! Start immediately with a punchy misconception-breaker "
+            "or counterintuitive question that opens an irresistible curiosity loop.\n"
+            "- Middle scenes (A-Plot ↔ B-Plot alternation & Zero Over-Explaining): Do NOT dump dry background jargon after the hook! "
+            "Immediately advance the story by alternating between tangible real-world stakes/phenomena (A-plot) and how the hidden "
+            "molecular/physical mechanism actually works (B-plot). End scene 2 or 3 with a crisp micro re-hook/open loop "
+            "(e.g., 'Tapi bagian paling mengejutkannya justru terjadi saat...', 'Nah, di sinilah logika biasa mulai salah...') so viewers stay past detik ke-20.\n"
+            "- Final scene: Close the main open loop with a satisfying 'Aha!' payoff, then include ONE brief casual comment CTA "
+            "answerable in 1-3 words (e.g. 'Kamu tim baru tahu atau udah pernah dengar? Tulis di komentar atau request topik lain ya!'), "
+            "and end cleanly with the exact closing CTA: 'Jangan lupa follow Kimiabill untuk info sains berikutnya!' \n"
+            "VISUAL QUERY RULES: Each scene MUST specify an English real-footage visual_query (no cartoons/animations) that names a "
             "CONCRETE, FAMILY-SAFE, filmable object or lab process (e.g. 'gel cube compressed by hand in laboratory', "
             "'rust on iron chain close up'). NEVER use words about human bodies, skin, stretching people, clothing, "
             "dance, music, or vague single words; provide 2-3 equally concrete fallback_queries. "
@@ -369,10 +385,6 @@ def run_agent_1_to_3(
             "'molecular_reaction' (bonds breaking/forming with curved arrows), 'receptor_binding' (enzyme/drug lock-and-key docking), "
             "'force_wave' (physics wave/force vectors), or 'math_geometry' (live mathematical curve/growth), and fill concise "
             "`title`, `actor_a`, `actor_b`, `result`, and `caption` matching the scene's exact mechanism. "
-            "In the FINAL scene's Indonesian narration, right before the closing follow line, include ONE brief, casual comment CTA "
-            "answerable in 1-3 words (e.g. 'Kamu tim baru tahu atau udah pernah dengar? Tulis di komentar atau request topik lain ya!'), "
-            "and then end cleanly with the exact closing CTA: "
-            "'Jangan lupa follow Kimiabill untuk info sains berikutnya!' "
             "ALWAYS populate `references` with 1-3 real, accurate scientific references (journal, textbook, university, or source article)."
         ),
         user_payload={
@@ -572,6 +584,8 @@ def run_agent_5_video_qa(
             "5. End-card references: The LAST tile of the contact sheet labelled 'END-CARD' is the closing frame; "
             "check that it shows the 'REFERENSI & SUMBER' bibliography card.\n"
             "6. Gate 0 audio/video health: Must pass technical checks.\n"
+            "7. Hook & Retention Pacing: Confirm scene_1 visual frame + narration deliver an immediate, scroll-stopping "
+            "curiosity hook (zero generic filler) and middle scenes advance briskly without over-explaining.\n"
             f"Set `passed: true` ONLY if Gate 0 passed AND overall_score >= {min_qa} AND no major visual defects exist. "
             "If failing, specify exact `revision_target` ('asset_scout', 'editor', or 'both'), list the exact "
             "`affected_scenes` (e.g. ['scene_2']), and give up to 4 sharp `patch_instructions`."
