@@ -358,7 +358,7 @@ def _get_tracking_sheet_id() -> str:
                 return sid
         except Exception:
             pass
-    return "1HltIwSA5VK5ehVg_WLhNf_oFCah2A2aJed6VahKYlHc"
+    return ""
 
 
 def _deliver_audit_to_drive_and_email(

@@ -321,8 +321,6 @@ def _upload_via_webhook(
             sheet_id = str(brand_cfg.get("publishing", {}).get("tracking_sheet_id") or "").strip()
         except Exception:
             sheet_id = ""
-    if not sheet_id:
-        sheet_id = "1HltIwSA5VK5ehVg_WLhNf_oFCah2A2aJed6VahKYlHc"
     sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit" if sheet_id else ""
 
     from datetime import datetime
@@ -371,7 +369,7 @@ def _upload_via_webhook(
         req_by or "-",
         f"Email ke {notify_to}",
         "-",
-    ]
+    ] if sheet_id else []
 
     sections = []
     if sheet_url:
@@ -385,27 +383,29 @@ def _upload_via_webhook(
     if captions_text:
         sections.append(captions_text[:3000])
     email_preview = "\n\n".join(sections).strip()
+    notify_payload: dict[str, Any] = {
+        "action": "notify_email",
+        "to": notify_to,
+        "episode_name": episode_name,
+        "title": title,
+        "folder_url": folder_url,
+        "video_url": video_url,
+        "thumbnail_url": thumbnail_url,
+        "youtube_url": youtube_url,
+        "youtube_privacy": youtube_privacy,
+        "youtube_note": youtube_note,
+        "captions_preview": email_preview,
+    }
+    if sheet_id:
+        notify_payload["sheet_id"] = sheet_id
+        notify_payload["sheet_row"] = sheet_row
     try:
         _post_webhook(
             webhook_url,
-            {
-                "action": "notify_email",
-                "to": notify_to,
-                "episode_name": episode_name,
-                "title": title,
-                "folder_url": folder_url,
-                "video_url": video_url,
-                "thumbnail_url": thumbnail_url,
-                "youtube_url": youtube_url,
-                "youtube_privacy": youtube_privacy,
-                "youtube_note": youtube_note,
-                "captions_preview": email_preview,
-                "sheet_id": sheet_id,
-                "sheet_row": sheet_row,
-            },
+            notify_payload,
             timeout=60,
         )
-        print(f"[gdrive] Notifikasi email & update Tracker Sheet terkirim ke {notify_to}")
+        print(f"[gdrive] Notifikasi email{' & update Tracker Sheet' if sheet_id else ''} terkirim ke {notify_to}")
     except Exception as exc:
         print(f"[gdrive] Peringatan: upload Drive sukses, namun gagal kirim email ({exc})")
 

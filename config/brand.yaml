@@ -65,7 +65,7 @@ publishing:
     # - "tiktok"
     # - "instagram_reels"
   generate_thumbnail: true
-  tracking_sheet_id: "1HltIwSA5VK5ehVg_WLhNf_oFCah2A2aJed6VahKYlHc"
+  tracking_sheet_id: ""  # Dinonaktifkan sementara (ID tersimpan: 1HltIwSA5VK5ehVg_WLhNf_oFCah2A2aJed6VahKYlHc)
 
 guardrails:
   max_revisions: 4
