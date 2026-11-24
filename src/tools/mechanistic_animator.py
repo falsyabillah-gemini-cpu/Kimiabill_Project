@@ -1199,17 +1199,27 @@ def _draw_curved_arrow(
     return pts
 
 
+def _smart_trim(txt: str, max_chars: int) -> str:
+    s = (txt or "").strip()
+    if len(s) <= max_chars:
+        return s
+    cut = s[:max_chars].rstrip()
+    if " " in cut and len(cut.rsplit(" ", 1)[0]) >= 4:
+        return cut.rsplit(" ", 1)[0]
+    return cut
+
+
 def _infer_mechanism_params(seg: TimelineSegment, discipline: str = "kimia") -> dict[str, str]:
     """Return structured mechanism parameters from seg.mechanism or smartly infer from narration/badge."""
     if seg.mechanism is not None:
         m = seg.mechanism
         return {
             "kind": m.kind,
-            "title": (m.title or "MEKANISME SAINS")[:34],
-            "actor_a": (m.actor_a or "A")[:16],
-            "actor_b": (m.actor_b or "B")[:16],
-            "result": (m.result or "Hasil")[:22],
-            "caption": (m.caption or "")[:54],
+            "title": _smart_trim(m.title or "MEKANISME SAINS", 34),
+            "actor_a": _smart_trim(m.actor_a or "A", 16),
+            "actor_b": _smart_trim(m.actor_b or "B", 16),
+            "result": _smart_trim(m.result or "Hasil", 22),
+            "caption": _smart_trim(m.caption or "", 54),
         }
 
     import re
@@ -1235,16 +1245,16 @@ def _infer_mechanism_params(seg: TimelineSegment, discipline: str = "kimia") -> 
 
     badge = (seg.overlay_badge or "").strip()
     parts = [p.strip() for p in re.split(r"\s*(?:→|->|=>|=|\+)\s*", badge) if p.strip()]
-    actor_a = parts[0][:16] if len(parts) >= 1 else "Molekul A"
-    actor_b = parts[1][:16] if len(parts) >= 2 else "Molekul B"
-    result = parts[-1][:22] if len(parts) >= 3 else (parts[1][:22] if len(parts) == 2 else "Struktur Baru")
+    actor_a = _smart_trim(parts[0], 16) if len(parts) >= 1 else "Molekul A"
+    actor_b = _smart_trim(parts[1], 16) if len(parts) >= 2 else "Molekul B"
+    result = _smart_trim(parts[-1], 22) if len(parts) >= 3 else (_smart_trim(parts[1], 22) if len(parts) == 2 else "Struktur Baru")
     return {
         "kind": kind,
         "title": default_title,
         "actor_a": actor_a,
         "actor_b": actor_b,
         "result": result,
-        "caption": badge[:54] if badge else seg.narration[:50],
+        "caption": _smart_trim(badge, 54) if badge else _smart_trim(seg.narration, 50),
     }
 
 
@@ -1261,16 +1271,30 @@ def _draw_label_pill(
     pad_y: int = 8,
     max_w: int = 860,
 ) -> None:
-    """Draw a high-contrast auto-sized rounded pill behind text so labels NEVER spill onto white background."""
+    """Draw a high-contrast auto-sized rounded pill behind text so labels NEVER spill or truncate needlessly."""
     txt = text.strip()
     if not txt:
         return
-    bbox = draw.textbbox((0, 0), txt, font=font)
+    use_font = font
+    bbox = draw.textbbox((0, 0), txt, font=use_font)
     tw = bbox[2] - bbox[0]
     th = bbox[3] - bbox[1]
+    # Shrink font down gently before falling back to ellipsis truncation
+    if tw + pad_x * 2 > max_w and getattr(font, "path", None) and getattr(font, "size", 0) > 17:
+        for sz in (int(font.size) - 3, int(font.size) - 6):
+            if sz >= 16:
+                try:
+                    cand_f = ImageFont.truetype(font.path, sz)
+                    bb2 = draw.textbbox((0, 0), txt, font=cand_f)
+                    use_font = cand_f
+                    tw, th = bb2[2] - bb2[0], bb2[3] - bb2[1]
+                    if tw + pad_x * 2 <= max_w:
+                        break
+                except Exception:
+                    pass
     while tw + pad_x * 2 > max_w and len(txt) > 6:
         txt = txt[:-2].rstrip() + "…"
-        bbox = draw.textbbox((0, 0), txt, font=font)
+        bbox = draw.textbbox((0, 0), txt, font=use_font)
         tw = bbox[2] - bbox[0]
     pw = min(max_w, tw + pad_x * 2)
     ph = max(34, th + pad_y * 2)
@@ -1279,7 +1303,7 @@ def _draw_label_pill(
     x1 = cx + pw // 2
     y1 = cy + ph // 2
     draw.rounded_rectangle([x0, y0, x1, y1], radius=ph // 2, fill=bg, outline=outline, width=3)
-    draw.text((cx, cy), txt, font=font, fill=fg, anchor="mm")
+    draw.text((cx, cy), txt, font=use_font, fill=fg, anchor="mm")
 
 
 def _anim_polymer_crosslink(

@@ -1053,6 +1053,19 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
         milestone_stats=milestone_stats,
         topic_landscape=topic_landscape,
     )
+    try:
+        from src.tools.foundation_auditor import run_weekly_foundation_audit
+
+        foundation_res = run_weekly_foundation_audit(BASE_DIR, today_wib)
+        (AUDITS_DIR / f"foundation_audit_{today_wib}.json").write_text(
+            json.dumps(foundation_res, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        if foundation_res.get("markdown_block"):
+            report_md = report_md.rstrip() + "\n\n" + foundation_res["markdown_block"].strip() + "\n"
+        print(f"[agent8->foundation] Audit pondasi mingguan selesai: status={foundation_res.get('overall_status')} ({len(foundation_res.get('findings') or [])} temuan)")
+    except Exception as exc:
+        print(f"[agent8->foundation] Peringatan gagal audit pondasi mingguan: {exc}")
+
     report_path = AUDITS_DIR / f"weekly_audit_{today_wib}.md"
     report_path.write_text(report_md, encoding="utf-8")
 

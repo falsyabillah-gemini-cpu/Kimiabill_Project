@@ -69,6 +69,7 @@ GEMINI_FALLBACK_MODELS: tuple[str, ...] = (
     "gemini-3.8-flash",
     "gemini-3.6-flash",
     "gemini-3.5-flash",
+    "gemini-2.5-flash",
     "gemini-3.5-flash-lite",
     "gemini-2.5-pro",
     "gemini-2.5-flash-lite",
@@ -391,17 +392,20 @@ def call_structured_agent(
                     resp = _post_with_retry(
                         url,
                         json_body=body,
-                        max_attempts=2 if has_more else 3,
+                        max_attempts=1 if (has_more and cand_model in ("gemini-4-hydrogen", "gemini-3.8-flash", "gemini-3.6-flash")) else (2 if has_more else 3),
+                        timeout=22 if has_more else 32,
                         fail_fast_429=has_more,
                     )
                 except requests.RequestException as exc:
                     print(f"[providers] Gemini model '{cand_model}' timeout/network error ({exc}), trying next fallback...")
+                    if has_more:
+                        _EXHAUSTED_MODELS_THIS_RUN.add(cand_model)
                     resp = None
                     continue
                 if resp.status_code == 200:
                     active_model = cand_model
                     break
-                if resp.status_code in (402, 403, 404, 429) and has_more:
+                if resp.status_code in (402, 403, 404, 429, 503) and has_more:
                     _EXHAUSTED_MODELS_THIS_RUN.add(cand_model)
                 if cand_model == "gemini-4-hydrogen" and resp.status_code in (402, 403):
                     _notify_hydrogen_alert(resp.status_code, resp.text[:400])

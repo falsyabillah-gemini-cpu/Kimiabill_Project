@@ -1,4 +1,4 @@
-# Konfigurasi routing model untuk 7 Agent Kimiabill_videos.
+# Konfigurasi routing model untuk 8 Agent Kimiabill_videos.
 # Mode default: "production" dengan provider "auto" — otomatis memakai API key yang tersedia di .env / Secrets:
 #   1. GEMINI_API_KEY     -> gemini_api (gemini-4-hydrogen / tertinggi gratis -> gemini-3.8-flash)
 #   2. ANTHROPIC_API_KEY  -> anthropic_api (claude-sonnet-4-5)

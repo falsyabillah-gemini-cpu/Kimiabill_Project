@@ -154,14 +154,17 @@ def _is_real_video_title(title: str) -> bool:
     return not any(tok in low for tok in DISALLOWED_TITLE_TOKENS)
 
 
-def search_pexels(query: str, per_page: int = 8) -> list[VideoCandidate]:
+def search_pexels(query: str, per_page: int = 8, orientation: Optional[str] = "portrait") -> list[VideoCandidate]:
     api_key = os.environ.get("PEXELS_API_KEY")
     if not api_key:
         return []
+    params: dict[str, Any] = {"query": query, "per_page": per_page}
+    if orientation:
+        params["orientation"] = orientation
     resp = requests.get(
         "https://api.pexels.com/videos/search",
         headers={"Authorization": api_key, "User-Agent": USER_AGENT},
-        params={"query": query, "per_page": per_page, "orientation": "portrait"},
+        params=params,
         timeout=20,
     )
     if resp.status_code != 200:
@@ -173,7 +176,7 @@ def search_pexels(query: str, per_page: int = 8) -> list[VideoCandidate]:
             continue
         files = sorted(
             [f for f in v.get("video_files", []) if f.get("file_type") == "video/mp4"],
-            key=lambda f: abs((f.get("height") or 0) - 1280),
+            key=lambda f: abs((f.get("height") or 0) - 1080),
         )
         if not files:
             continue
@@ -520,9 +523,21 @@ def scout_assets_for_scenes(
                     queries.append(q_norm)
 
             for q in queries:
-                cands = search_pexels(q) + search_wikimedia_videos(q)
-                # Prefer crisp >=720p clips first
-                cands.sort(key=lambda c: (0 if c.width >= 720 else 1, -min(c.width, 1920)))
+                pexels_cands = search_pexels(q, orientation="portrait")
+                if len(pexels_cands) < 3:
+                    pexels_cands += search_pexels(q, orientation="landscape")
+                is_generic_q = q in generic_science_fallbacks
+                wiki_cands = search_wikimedia_videos(q) if (len(pexels_cands) < 2 or is_generic_q) else []
+                if wiki_cands and not is_generic_q:
+                    q_terms = [w for w in re.findall(r"[a-z]+", q.lower()) if len(w) > 3 and w not in stop_words]
+                    if q_terms:
+                        wiki_cands = [
+                            wc for wc in wiki_cands
+                            if any(t in wc.title.lower() for t in q_terms)
+                        ]
+                cands = pexels_cands + wiki_cands
+                # Prefer Pexels & >=720p clips first
+                cands.sort(key=lambda c: (0 if c.source == "pexels" else 1, 0 if c.width >= 720 else 1, -min(c.width, 1920)))
                 per_query_screens = 0
                 for cand in cands:
                     stem = cand.title.lower()[:32]

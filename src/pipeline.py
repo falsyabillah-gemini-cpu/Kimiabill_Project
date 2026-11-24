@@ -439,7 +439,7 @@ def run_agent_1_to_3(
             "'electron_transfer' (redox/electron flow arrows), 'polymer_crosslink' (chains bending & crosslinking into rigid lattice), "
             "'molecular_reaction' (bonds breaking/forming with curved arrows), 'receptor_binding' (enzyme/drug lock-and-key docking), "
             "'force_wave' (physics wave/force vectors), or 'math_geometry' (live mathematical curve/growth), and fill concise "
-            "`title`, `actor_a`, `actor_b`, `result`, and `caption` matching the scene's exact mechanism. "
+            "`title` (<=30 chars), `actor_a` & `actor_b` (<=14 chars, 1-2 crisp Indonesian words so cards NEVER truncate with '...'), `result` (<=20 chars), and `caption` matching the scene's exact mechanism. "
             "ALWAYS populate `references` with 1-3 real, accurate scientific references (journal, textbook, university, or source article)."
         ),
         user_payload={
