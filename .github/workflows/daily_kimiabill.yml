@@ -2,10 +2,10 @@ name: Kimiabill Daily Auto-Video
 
 on:
   schedule:
-    # Slot 1 (Super Peak Siang): mulai 11:25 WIB (04:25 UTC) -> otomatis posting tepat 12:00 WIB
-    - cron: "25 4 * * *"
-    # Slot 2 (Super Peak Malam): mulai 18:25 WIB (11:25 UTC) -> otomatis posting tepat 19:00 WIB
-    - cron: "25 11 * * *"
+    # Slot 1 (Super Peak Siang): mulai 10:45 WIB (03:45 UTC) -> menyerap antrean cron GitHub, tetap tayang 12:00 WIB (maks telat <1 jam)
+    - cron: "45 3 * * *"
+    # Slot 2 (Super Peak Malam): mulai 17:45 WIB (10:45 UTC) -> menyerap antrean cron GitHub, tetap tayang 19:00 WIB (maks telat <1 jam)
+    - cron: "45 10 * * *"
   workflow_dispatch:
     inputs:
       publish_mode:
@@ -22,9 +22,15 @@ on:
         required: false
         default: ""
         type: string
+      resume_artifact_run_id:
+        description: "Opsional: isi GitHub Run ID sebelumnya untuk langsung upload ulang artifact video yang gagal ke YouTube (<1 menit)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   produce-video:
@@ -43,7 +49,67 @@ jobs:
           sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-liberation
           pip install -r requirements.txt
 
+      - name: Rescue Upload from Existing Artifact (Optional)
+        if: ${{ inputs.resume_artifact_run_id != '' }}
+        env:
+          PYTHONUNBUFFERED: "1"
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'public' }}
+          GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
+          GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
+          NOTIFY_EMAIL_TO: ${{ vars.NOTIFY_EMAIL_TO || 'researchfalsyabillah@gmail.com' }}
+          AUTO_UPLOAD_GDRIVE: "true"
+        run: |
+          mkdir -p _rescue_art episodes
+          gh run download "${{ inputs.resume_artifact_run_id }}" -D _rescue_art
+          python - <<'PY'
+          import json, os, shutil
+          from pathlib import Path
+          from src.pipeline import run_upload
+          from src.state import EpisodeState
+
+          art_root = Path("_rescue_art")
+          mp4 = next(art_root.rglob("FINAL_*.mp4"))
+          src_dir = mp4.parent
+          # Detect episode_id from folder name or latest un-uploaded published_history entry
+          ep_id = src_dir.name if src_dir.name.startswith("ep_") else ""
+          if not ep_id:
+              hist_p = Path("data/published_history.json")
+              if hist_p.exists():
+                  hist = json.loads(hist_p.read_text(encoding="utf-8"))
+                  for row in reversed(hist):
+                      if not row.get("youtube_url") and row.get("episode_id"):
+                          ep_id = row["episode_id"]
+                          break
+          if not ep_id:
+              ep_id = f"ep_rescue_{os.environ.get('GITHUB_RUN_ID', 'manual')}"
+
+          ep_dir = Path("episodes") / ep_id
+          ep_dir.mkdir(parents=True, exist_ok=True)
+          shutil.copytree(src_dir, ep_dir, dirs_exist_ok=True)
+          print(f"[rescue] Memproses episode {ep_id} ({mp4.name}, {mp4.stat().st_size / (1024*1024):.1f} MB)...")
+
+          st_path = ep_dir / "episode_state.json"
+          if not st_path.exists():
+              hf_dir = ep_dir / "handoffs"
+              a3_p = hf_dir / "agent3_script.json"
+              a5_files = sorted(hf_dir.glob("agent5_audit_v*.json")) if hf_dir.exists() else []
+              a7_p = hf_dir / "agent7_package.json"
+              a3 = json.loads(a3_p.read_text(encoding="utf-8")) if a3_p.exists() else None
+              a5_list = [json.loads(a5_files[-1].read_text(encoding="utf-8"))] if a5_files else []
+              a7 = json.loads(a7_p.read_text(encoding="utf-8")) if a7_p.exists() else None
+              st = EpisodeState(episode_id=ep_id, status="rendered_final", agent3=a3, agent5_history=a5_list, agent7=a7)
+              st_path.write_text(st.model_dump_json(indent=2), encoding="utf-8")
+
+          state = run_upload(ep_id, allow_youtube=True, qa_summary="Rescue Upload Video Lolos QA (Auto-Compress <34MB)")
+          shutil.rmtree(art_root, ignore_errors=True)
+          if not state.youtube_url:
+              raise SystemExit(f"Rescue upload gagal: youtube_url kosong (Drive: {state.gdrive_folder_url})")
+          print(f"[rescue] Berhasil upload YouTube Shorts: {state.youtube_url}")
+          PY
+
       - name: Run Automated Episode Pipeline
+        if: ${{ inputs.resume_artifact_run_id == '' }}
         env:
           PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -54,7 +120,7 @@ jobs:
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID || vars.ELEVENLABS_VOICE_ID }}
           ELEVENLABS_MODEL_ID: ${{ vars.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2' }}
           PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'public' }}
-          TARGET_PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || (github.event.schedule == '25 4 * * *' && '12:00' || (github.event.schedule == '25 11 * * *' && '19:00' || '')) }}
+          TARGET_PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || (github.event.schedule == '45 3 * * *' && '12:00' || (github.event.schedule == '45 10 * * *' && '19:00' || '')) }}
           SKIP_IF_SLOT_PUBLISHED: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}

@@ -88,10 +88,11 @@ def run_one_automated_episode() -> None:
                 )
                 for row in reversed(hist_items):
                     pub_at = row.get("published_at_wib") or ""
+                    has_slot_proof = bool(row.get("youtube_url")) if row.get("publish_mode", "public") != "dry_run" else bool(row.get("gdrive_folder_url"))
                     if (
                         pub_at.startswith(now_wib.strftime("%Y-%m-%d"))
                         and row.get("publish_mode", "public") == "public"
-                        and (row.get("youtube_url") or row.get("gdrive_folder_url"))
+                        and has_slot_proof
                     ):
                         try:
                             pub_hour = datetime.fromisoformat(pub_at).hour
@@ -263,7 +264,7 @@ def run_one_automated_episode() -> None:
                 now_wib = datetime.now(WIB)
                 target_dt = now_wib.replace(hour=th, minute=tm, second=0, microsecond=0)
                 wait_sec = (target_dt - now_wib).total_seconds()
-                if 0 < wait_sec <= 5400:
+                if 0 < wait_sec <= 7200:
                     print(
                         f"[scheduler] Video sudah siap & lolos QA! Menunggu jam prime time {target_pub} WIB "
                         f"({int(wait_sec // 60)}m {int(wait_sec % 60)}s lagi) sebelum upload..."
@@ -281,11 +282,18 @@ def run_one_automated_episode() -> None:
                     topic_attempts_used=topic_attempt,
                     production_seconds=prod_elapsed,
                 )
-                print(f"[scheduler] Uploaded ke Google Drive & YouTube Shorts: {state.gdrive_folder_url}")
+                print(f"[scheduler] Uploaded ke Google Drive & YouTube Shorts: {state.gdrive_folder_url} | YouTube: {state.youtube_url}")
+                pub_mode_now = os.environ.get("PUBLISH_MODE", "public").strip().lower()
+                if pub_mode_now in ("public", "draft") and not state.youtube_url:
+                    raise RuntimeError(
+                        f"Video '{episode_id}' berhasil masuk Google Drive ({state.gdrive_folder_url}), "
+                        f"tetapi auto-upload YouTube GAGAL (youtube_url kosong). Cek log [gdrive]/[youtube] di atas."
+                    )
                 if (
                     state.request_id
-                    and os.environ.get("PUBLISH_MODE", "public").strip().lower() == "public"
+                    and pub_mode_now == "public"
                     and state.status == "uploaded"
+                    and state.youtube_url
                 ):
                     try:
                         from src.tools.weekly_growth_auditor import mark_audience_request_fulfilled

@@ -350,11 +350,26 @@ def _upload_via_webhook(
                     f"Halo {req_by}! Request kamu baru aja tayang di Kimiabill 🎉 Cek pembahasannya di sini 👉 {{YOUTUBE_URL}}"
                 )
         try:
-            yt_res = _post_webhook(
-                webhook_url,
-                yt_payload,
-                timeout=240,
-            )
+            import time as _time
+
+            yt_res: dict[str, Any] = {}
+            yt_last_exc: Optional[Exception] = None
+            for yt_try in range(1, 3):
+                try:
+                    yt_res = _post_webhook(
+                        webhook_url,
+                        yt_payload,
+                        timeout=240,
+                    )
+                    yt_last_exc = None
+                    break
+                except Exception as _exc:
+                    yt_last_exc = _exc
+                    print(f"[youtube] Percobaan upload #{yt_try}/2 gagal ({_exc}); mencoba ulang dalam 15 detik...")
+                    if yt_try < 2:
+                        _time.sleep(15)
+            if yt_last_exc is not None:
+                raise yt_last_exc
             youtube_url = yt_res.get("youtube_url")
             youtube_privacy = yt_res.get("privacy", privacy)
             video_id_yt = yt_res.get("video_id")
