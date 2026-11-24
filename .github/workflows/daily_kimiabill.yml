@@ -2,10 +2,13 @@ name: Kimiabill Daily Auto-Video
 
 on:
   schedule:
-    # Slot 1 (Super Peak Siang): mulai 10:45 WIB (03:45 UTC) -> menyerap antrean cron GitHub, tetap tayang 12:00 WIB (maks telat <1 jam)
-    - cron: "45 3 * * *"
-    # Slot 2 (Super Peak Malam): mulai 17:45 WIB (10:45 UTC) -> menyerap antrean cron GitHub, tetap tayang 19:00 WIB (maks telat <1 jam)
-    - cron: "45 10 * * *"
+    # Primary cron di menit off-peak (:11) 109 menit sebelum tayang agar antrean GitHub tidak pernah bikin telat >15 menit:
+    # Slot 1 (12:00 WIB): primary 10:11 WIB (03:11 UTC) + watchdog cadangan 11:37 WIB (04:37 UTC)
+    - cron: "11 3 * * *"
+    - cron: "37 4 * * *"
+    # Slot 2 (19:00 WIB): primary 17:11 WIB (10:11 UTC) + watchdog cadangan 18:37 WIB (11:37 UTC)
+    - cron: "11 10 * * *"
+    - cron: "37 11 * * *"
   workflow_dispatch:
     inputs:
       publish_mode:
@@ -35,22 +38,42 @@ permissions:
 jobs:
   produce-video:
     runs-on: ubuntu-latest
+    outputs:
+      skip_duplicate: ${{ steps.guard.outputs.skip }}
     steps:
+      - name: Guard Against Concurrent or Duplicate Run
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SKIP="false"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            ACTIVE=$(gh run list -R "${{ github.repository }}" --workflow daily_kimiabill.yml --limit 10 --json databaseId,status --jq "[.[] | select((.status == \"in_progress\" or .status == \"queued\") and (.databaseId != ${{ github.run_id }}))] | length")
+            if [ "${ACTIVE:-0}" -gt 0 ]; then
+              echo "Sudah ada run produksi yang sedang berjalan — watchdog keluar dengan aman tanpa duplikasi."
+              SKIP="true"
+            fi
+          fi
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
+        if: ${{ steps.guard.outputs.skip != 'true' }}
 
       - name: Setup Python 3.12
+        if: ${{ steps.guard.outputs.skip != 'true' }}
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install FFmpeg & Dependencies
+        if: ${{ steps.guard.outputs.skip != 'true' }}
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-liberation
           pip install -r requirements.txt
 
       - name: Rescue Upload from Existing Artifact (Optional)
-        if: ${{ inputs.resume_artifact_run_id != '' }}
+        if: ${{ steps.guard.outputs.skip != 'true' && inputs.resume_artifact_run_id != '' }}
         env:
           PYTHONUNBUFFERED: "1"
           GH_TOKEN: ${{ github.token }}
@@ -109,7 +132,7 @@ jobs:
           PY
 
       - name: Run Automated Episode Pipeline
-        if: ${{ inputs.resume_artifact_run_id == '' }}
+        if: ${{ steps.guard.outputs.skip != 'true' && inputs.resume_artifact_run_id == '' }}
         env:
           PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -120,7 +143,7 @@ jobs:
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID || vars.ELEVENLABS_VOICE_ID }}
           ELEVENLABS_MODEL_ID: ${{ vars.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2' }}
           PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'public' }}
-          TARGET_PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || (github.event.schedule == '45 3 * * *' && '12:00' || (github.event.schedule == '45 10 * * *' && '19:00' || '')) }}
+          TARGET_PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || ((github.event.schedule == '11 3 * * *' || github.event.schedule == '37 4 * * *') && '12:00' || ((github.event.schedule == '11 10 * * *' || github.event.schedule == '37 11 * * *') && '19:00' || '')) }}
           SKIP_IF_SLOT_PUBLISHED: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
@@ -139,6 +162,7 @@ jobs:
           python -c "from src.scheduler import run_one_automated_episode; run_one_automated_episode()"
 
       - name: Save Published Episode History for Weekly Audit
+        if: ${{ steps.guard.outputs.skip != 'true' }}
         run: |
           git config user.name "Kimiabill Studio Bot"
           git config user.email "bot@kimiabill.local"
@@ -150,6 +174,7 @@ jobs:
           fi
 
       - name: Upload Rendered Video Artifact
+        if: ${{ steps.guard.outputs.skip != 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: kimiabill-episode-${{ github.run_number }}

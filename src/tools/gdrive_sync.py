@@ -107,16 +107,32 @@ def _normalize_webhook_url(raw: str) -> str:
 
 
 def _post_webhook(webhook_url: str, payload: dict[str, Any], timeout: int = 180) -> dict[str, Any]:
+    import time
+
     webhook_url = _normalize_webhook_url(webhook_url)
     token = os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
     if token:
         payload = {**payload, "token": token}
-    resp = requests.post(webhook_url, json=payload, timeout=timeout, allow_redirects=True)
-    resp.raise_for_status()
-    data = resp.json()
-    if not data.get("ok"):
-        raise RuntimeError(f"Google Drive webhook error: {data}")
-    return data
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, 4):
+        try:
+            resp = requests.post(webhook_url, json=payload, timeout=timeout, allow_redirects=True)
+            if resp.status_code in (429, 500, 502, 503, 504):
+                raise requests.HTTPError(f"HTTP {resp.status_code}", response=resp)
+            resp.raise_for_status()
+            data = resp.json()
+            if not data.get("ok"):
+                raise RuntimeError(f"Google Drive webhook error: {data}")
+            return data
+        except (requests.RequestException, ValueError) as exc:
+            last_exc = exc
+            if attempt < 3:
+                wait_s = attempt * 8
+                print(f"[gdrive] Webhook transient error ({exc}); retry {attempt}/2 dalam {wait_s}s...")
+                time.sleep(wait_s)
+            else:
+                raise
+    raise last_exc  # pragma: no cover
 
 
 def _extract_youtube_copy(episode_dir: Path, fallback_title: str) -> dict[str, Any]:

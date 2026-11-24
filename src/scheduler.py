@@ -263,11 +263,12 @@ def run_one_automated_episode() -> None:
                 th, tm = (int(x) for x in target_pub.split(":", 1))
                 now_wib = datetime.now(WIB)
                 target_dt = now_wib.replace(hour=th, minute=tm, second=0, microsecond=0)
-                wait_sec = (target_dt - now_wib).total_seconds()
-                if 0 < wait_sec <= 7200:
+                # Start upload ~90s early so Drive+YouTube completes right on target HH:MM WIB
+                wait_sec = (target_dt - now_wib).total_seconds() - 90.0
+                if 0 < wait_sec <= 9000:
                     print(
-                        f"[scheduler] Video sudah siap & lolos QA! Menunggu jam prime time {target_pub} WIB "
-                        f"({int(wait_sec // 60)}m {int(wait_sec % 60)}s lagi) sebelum upload..."
+                        f"[scheduler] Video sudah siap & lolos QA! Menunggu jendela upload {target_pub} WIB "
+                        f"({int(wait_sec // 60)}m {int(wait_sec % 60)}s lagi)..."
                     )
                     time.sleep(wait_sec)
             except Exception as exc:
