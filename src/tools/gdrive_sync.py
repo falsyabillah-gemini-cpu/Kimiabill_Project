@@ -284,15 +284,49 @@ def _upload_via_webhook(
             )
             youtube_url = yt_res.get("youtube_url")
             youtube_privacy = yt_res.get("privacy", privacy)
+            video_id_yt = yt_res.get("video_id")
+            if not video_id_yt and youtube_url:
+                video_id_yt = youtube_url.rstrip("/").split("/")[-1]
+            comment_posted = bool(yt_res.get("comment_posted"))
+            comment_error = yt_res.get("comment_error") or ""
+            if privacy == "public" and not comment_posted and yt_payload.get("first_comment") and video_id_yt:
+                import time
+
+                print(f"[youtube] Komentar pertama belum masuk saat upload ({comment_error or 'processing'}); mencoba ulang 10 detik lagi...")
+                time.sleep(10)
+                try:
+                    c_res = _post_webhook(
+                        webhook_url,
+                        {
+                            "action": "post_comment",
+                            "video_id": video_id_yt,
+                            "comment_text": yt_payload["first_comment"],
+                        },
+                        timeout=60,
+                    )
+                    if c_res.get("ok"):
+                        comment_posted = True
+                        comment_error = ""
+                except Exception as c_exc:
+                    comment_error = str(c_exc)
             print(
                 f"[youtube] Berhasil upload ke YouTube Shorts ({youtube_privacy}): {youtube_url} "
-                f"(comment_posted={yt_res.get('comment_posted')}, replied_requester={yt_res.get('replied_requester')})"
+                f"(comment_posted={comment_posted}, replied_requester={yt_res.get('replied_requester')}"
+                f"{', comment_error=' + comment_error if comment_error else ''})"
             )
             try:
                 hf_dir = episode_dir / "handoffs"
                 hf_dir.mkdir(parents=True, exist_ok=True)
                 (hf_dir / "youtube_upload.json").write_text(
-                    json.dumps({"youtube_url": youtube_url, "privacy": youtube_privacy}, indent=2),
+                    json.dumps(
+                        {
+                            "youtube_url": youtube_url,
+                            "privacy": youtube_privacy,
+                            "comment_posted": comment_posted,
+                            "comment_error": comment_error or None,
+                        },
+                        indent=2,
+                    ),
                     encoding="utf-8",
                 )
             except Exception:

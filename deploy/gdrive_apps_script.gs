@@ -124,23 +124,30 @@ function doPost(e) {
       }
 
       const youtubeUrl = "https://youtube.com/shorts/" + videoId;
+      const channelId = (inserted.snippet && inserted.snippet.channelId) || "";
       let commentPosted = false;
+      let commentError = "";
       if (privacy === "public" && payload.first_comment) {
-        try {
-          YouTube.CommentThreads.insert(
-            {
-              snippet: {
-                videoId: videoId,
-                topLevelComment: {
-                  snippet: { textOriginal: String(payload.first_comment).slice(0, 800) },
-                },
-              },
+        const cBody = {
+          snippet: {
+            videoId: videoId,
+            topLevelComment: {
+              snippet: { textOriginal: String(payload.first_comment).slice(0, 800) },
             },
-            "snippet"
-          );
-          commentPosted = true;
-        } catch (fcErr) {
-          commentPosted = false;
+          },
+        };
+        if (channelId) cBody.snippet.channelId = channelId;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            Utilities.sleep(attempt === 0 ? 5000 : 6000);
+            YouTube.CommentThreads.insert(cBody, "snippet");
+            commentPosted = true;
+            commentError = "";
+            break;
+          } catch (fcErr) {
+            commentPosted = false;
+            commentError = String(fcErr);
+          }
         }
       }
 
@@ -170,8 +177,29 @@ function doPost(e) {
         privacy: privacy,
         thumbnail_set: thumbnailSet,
         comment_posted: commentPosted,
+        comment_error: commentError || null,
         replied_requester: repliedRequester,
       });
+    }
+
+    if (action === "post_comment") {
+      if (typeof YouTube === "undefined") {
+        return _jsonResponse({ ok: false, error: "YouTube Data API v3 belum ditambahkan di Services (+)." });
+      }
+      const vid = String(payload.video_id || "").trim();
+      const txt = String(payload.comment_text || "").trim().slice(0, 800);
+      if (!vid || !txt) {
+        return _jsonResponse({ ok: false, error: "video_id dan comment_text wajib diisi." });
+      }
+      const cBody = {
+        snippet: {
+          videoId: vid,
+          topLevelComment: { snippet: { textOriginal: txt } },
+        },
+      };
+      if (payload.channel_id) cBody.snippet.channelId = String(payload.channel_id);
+      const inserted = YouTube.CommentThreads.insert(cBody, "snippet");
+      return _jsonResponse({ ok: true, video_id: vid, comment_id: inserted.id || null });
     }
 
     if (action === "notify_email") {
