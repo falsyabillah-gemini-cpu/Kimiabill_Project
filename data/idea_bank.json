@@ -241,6 +241,103 @@
       "phenomenon": "Contagious yawning terkait sistem neuron cermin, empati sosial, dan pendinginan otak",
       "hook_3s": "Hayo, baca kata 'menguap' saja kadang bikin kamu pengen ikutan menguap kan? Ini alasan biologisnya!",
       "real_footage_keywords": ["animal yawning lion", "person yawning tired", "brain scan"]
+    },
+    {
+      "id": "kit_01",
+      "discipline": "kimia",
+      "title": "Kenapa Daging Keras Bisa Langsung Empuk Direndam Parutan Nanas?!",
+      "phenomenon": "Enzim proteolitik bromelain pada nanas memotong rantai serat protein kolagen daging",
+      "hook_3s": "Orang kira daging empuk karena asamnya nanas — padahal nanas itu sebenernya 'memakan balik' daging pakai gunting enzim!",
+      "real_footage_keywords": ["pineapple slices closeup", "raw beef marinating", "cooking steak pan"]
+    },
+    {
+      "id": "kit_02",
+      "discipline": "kimia",
+      "title": "Kenapa Iris Bawang Selalu Bikin Mata Perih Menangis? Ini Kimiawinya!",
+      "phenomenon": "Enzim allinase mengubah asam amino menjadi gas syn-propanethial-S-oxide yang bereaksi dengan air mata membentuk asam sulfat sangat encer",
+      "hook_3s": "Setiap kamu mengiris bawang di dapur, sebenarnya kamu sedang melepaskan senjata gas kimia ke matamu sendiri!",
+      "real_footage_keywords": ["chopping onion kitchen knife", "onion slices macro", "water drops closeup"]
+    },
+    {
+      "id": "kit_03",
+      "discipline": "fisika",
+      "title": "Kenapa Minyak Goreng Panas Meledak Dahsyat Kena Setetes Air?!",
+      "phenomenon": "Air mendidih jauh di bawah suhu minyak panas (100°C vs 180°C), tenggelam lalu menguap mendadak memuai 1.600 kali lipat",
+      "hook_3s": "Cuma setetes air jatuh ke wajan minyak panas, ledakannya langsung nyiprat ke mana-mana! Ini fisika gilanya!",
+      "real_footage_keywords": ["hot oil frying pan", "water droplets splashing", "boiling bubbles macro"]
+    },
+    {
+      "id": "kit_04",
+      "discipline": "medisinal",
+      "title": "Kenapa Pedas Cabai Nggak Mempan Air Es, Tapi Hilang Minum Susu?!",
+      "phenomenon": "Molekul kapsaikin bersifat nonpolar (hidrofobik) sehingga hanya larut oleh lemak dan protein kasein susu, bukan air",
+      "hook_3s": "Lagi kepedasan parah terus langsung minum air es? Itu kesalahan kimia paling sering dilakukan di meja makan!",
+      "real_footage_keywords": ["red chili pepper slicing", "pouring fresh milk glass", "glass of ice water"]
+    },
+    {
+      "id": "kit_05",
+      "discipline": "kimia",
+      "title": "Kenapa Sejumput Garam Bikin Kopi Pahit Berubah Jadi Lebih Lembut?!",
+      "phenomenon": "Ion natrium (Na+) memblokir sementara reseptor rasa pahit di lidah sehingga aroma manis dan gurih kopi lebih menonjol",
+      "hook_3s": "Kedengarannya aneh, tapi menaruh sedikit garam di kopi pahit ternyata lebih ampuh menghilangkan pahit dibanding gula!",
+      "real_footage_keywords": ["pouring black coffee cup", "pinch of salt", "coffee beans macro"]
+    },
+    {
+      "id": "kit_06",
+      "discipline": "kimia",
+      "title": "Reaksi Maillard: Rahasia Kimia Kenapa Gorengan & Steak Wangi Banget!",
+      "phenomenon": "Reaksi non-enzimatik antara asam amino dan gula pereduksi di atas suhu 140°C membentuk ratusan senyawa aroma gurih cokelat keemasan",
+      "hook_3s": "Kenapa daging rebus baunya biasa saja, tapi begitu dipanggang di wajan aromanya bikin satu rumah lapar?!",
+      "real_footage_keywords": ["searing food hot pan", "golden fried crust macro", "cooking kitchen steam"]
+    },
+    {
+      "id": "kit_07",
+      "discipline": "medisinal",
+      "title": "Kenapa Nasi Kemarin (Dingin) Kalori Terserapnya Lebih Rendah?!",
+      "phenomenon": "Pendinginan nasi memicu retrogradasi pati amilosa menjadi pati resisten yang tidak mudah dicerna menjadi lonjakan gula darah",
+      "hook_3s": "Masih hangat vs sudah didinginkan di kulkas — nasinya sama persis, tapi efeknya ke gula darah ternyata beda jauh!",
+      "real_footage_keywords": ["steaming white rice bowl", "cooked rice grains macro", "kitchen refrigerator"]
+    },
+    {
+      "id": "kit_08",
+      "discipline": "kimia",
+      "title": "Kenapa Putih Telur Bening Berubah Jadi Putih Padat Saat Digoreng?!",
+      "phenomenon": "Denaturasi protein albumin oleh panas memutus lipatan bola protein lalu saling mengikat membentuk jaring padat yang memantulkan cahaya",
+      "hook_3s": "Semua benda padat biasanya mencair kalau dipanaskan, terus kenapa telur justru mengeras saat digoreng?!",
+      "real_footage_keywords": ["cracking raw egg pan", "frying egg closeup", "boiling water pot"]
+    },
+    {
+      "id": "kit_09",
+      "discipline": "biologi",
+      "title": "Kenapa Ragi Bikin Adonan Roti & Donat Mengembang Empuk Berongga?",
+      "phenomenon": "Jamur mikroskopis Saccharomyces cerevisiae memakan gula dan melepaskan gelembung gas CO2 yang terperangkap oleh jaring elastis gluten",
+      "hook_3s": "Di dalam adonan roti yang diam di dapurmu, sebenarnya ada miliaran makhluk hidup yang lagi bernapas mengembangkannya!",
+      "real_footage_keywords": ["bread dough rising timelapse", "kneading flour dough", "baking bread oven"]
+    },
+    {
+      "id": "kit_10",
+      "discipline": "kimia",
+      "title": "Kenapa Teh Langsung Berubah Jadi Terang Saat Ditetesi Jeruk Nipis?",
+      "phenomenon": "Senyawa polifenol theaflavin & thearubigin pada teh bekerja sebagai indikator pH alami yang berubah struktur warna saat terkena asam sitrat",
+      "hook_3s": "Cuma tetesin sedikit jeruk nipis ke teh cokelat gelap, warnanya langsung berubah terang dalam hitungan detik!",
+      "real_footage_keywords": ["squeezing lime into tea", "pouring hot tea glass", "lemon juice drops"]
+    },
+    {
+      "id": "kit_11",
+      "discipline": "biologi",
+      "title": "Kenapa Pisang & Alpukat Cepat Matang Kalau Disimpan Dekat Apel?!",
+      "phenomenon": "Apel & pisang melepaskan gas hormon tumbuhan etilen yang memicu enzim pemecah pati jadi gula pada buah lain di sekitarnya",
+      "hook_3s": "Buah ternyata bisa saling 'ngobrol' lewat gas tak terlihat di dapurmu untuk kompak matang bersamaan!",
+      "real_footage_keywords": ["ripe bananas apples kitchen", "avocado cutting kitchen", "fruit basket closeup"]
+    },
+    {
+      "id": "kit_12",
+      "discipline": "fisika",
+      "title": "Kenapa Es Batu Buatan Rumah Keruh Putih, Sedangkan di Kafe Bening Kaca?",
+      "phenomenon": "Pembekuan segala arah di freezer rumah menjebak gelembung udara terlarut & mineral di tengah es, beda dengan pembekuan terarah (directional freezing)",
+      "hook_3s": "Sama-sama dari air bening, tapi kenapa es batu di freezer rumah selalu putih keruh sedangkan es kafe bening seperti kristal?",
+      "real_footage_keywords": ["crystal clear ice cube glass", "ice cubes tray freezer", "pouring cold water ice"]
     }
   ]
 }
+

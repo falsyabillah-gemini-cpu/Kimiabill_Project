@@ -1148,8 +1148,16 @@ def _draw_discipline_pill(
         "medisinal": RED,
         "biologi": GREEN,
     }
-    col = ORANGE if section_tag == "KARAT" else colors.get(discipline.lower(), BLUE)
-    label = f"KARAT • {discipline.upper()}" if section_tag == "KARAT" else f"SAINS • {discipline.upper()}"
+    col = (
+        ORANGE
+        if section_tag == "KARAT"
+        else (GREEN if section_tag == "DAPUR" else colors.get(discipline.lower(), BLUE))
+    )
+    label = (
+        f"KARAT • {discipline.upper()}"
+        if section_tag == "KARAT"
+        else (f"KIMIA DAPUR • {discipline.upper()}" if section_tag == "DAPUR" else f"SAINS • {discipline.upper()}")
+    )
     bbox = draw.textbbox((0, 0), label, font=fonts["tiny_bold"])
     pw = (bbox[2] - bbox[0]) + 46
     x1 = 1032
@@ -1824,14 +1832,16 @@ def render_hybrid_science_video(
             is_last = seg_idx == num_segs - 1
 
             if is_first:
-                is_karat = getattr(plan, "section_tag", "REGULER") == "KARAT"
+                sec_tag = getattr(plan, "section_tag", "REGULER")
+                is_karat = sec_tag == "KARAT"
+                is_kitchen = sec_tag == "DAPUR"
                 req_by = getattr(plan, "requested_by", None)
                 # Ensure frame 0 (t=0.0) already displays a full-contrast visual cover hook
                 cover_t = local_t + 0.45
                 draw_header_pill(
                     draw,
-                    "KARAT • KABAR RISET TERKINI" if is_karat else ("REQUEST PENONTON!" if req_by else "KOK BISA?!"),
-                    ORANGE if is_karat else RED,
+                    "KARAT • KABAR RISET TERKINI" if is_karat else ("KIMIA DAPUR • SAINS RUMAH!" if is_kitchen else ("REQUEST PENONTON!" if req_by else "KOK BISA?!")),
+                    ORANGE if is_karat else (GREEN if is_kitchen else RED),
                     fonts,
                     cover_t,
                     y_center=225,
@@ -1857,7 +1867,7 @@ def render_hybrid_science_video(
                     eyebrow = (
                         "EDISI WEEKEND • KARAT"
                         if is_karat
-                        else (f"REQUEST • {req_by[:20]}" if req_by else f"FAKTA • {plan.discipline.upper()}")
+                        else ("EDISI SIANG • KIMIA DAPUR" if is_kitchen else (f"REQUEST • {req_by[:20]}" if req_by else f"FAKTA • {plan.discipline.upper()}"))
                     )
                     _draw_label_pill(
                         draw,
@@ -1865,7 +1875,7 @@ def render_hybrid_science_video(
                         box_y0 + 44,
                         eyebrow,
                         fonts["tiny_bold"],
-                        bg=ORANGE if is_karat else BLUE,
+                        bg=ORANGE if is_karat else (GREEN if is_kitchen else BLUE),
                         fg=WHITE,
                         outline=INK,
                         pad_x=24,

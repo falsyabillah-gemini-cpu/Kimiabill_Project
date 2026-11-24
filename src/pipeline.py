@@ -175,13 +175,14 @@ def build_render_plan(
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
-    wib_now = datetime.now(ZoneInfo("Asia/Jakarta"))
-    is_karat = (
-        os.environ.get("FORCE_KARAT_WEEKEND", "").lower() == "true"
-        or wib_now.weekday() in (5, 6)
+    is_kitchen = _is_kitchen_chemistry_slot()
+    is_karat = _is_weekend_karat_mode()
+    section_tag = "KARAT" if is_karat else ("DAPUR" if is_kitchen else "REGULER")
+    section_tagline = (
+        "KARAT — Kabar Riset Terkini"
+        if is_karat
+        else ("KIMIA DAPUR • Sains Sehari-hari" if is_kitchen else "")
     )
-    section_tag = "KARAT" if is_karat else "REGULER"
-    section_tagline = "KARAT — Kabar Riset Terkini" if is_karat else ""
 
     total_dur = segments[-1].end_sec if segments else 0.0
     use_mascot = bool(brand.get("video", {}).get("mascot", {}).get("enabled", True))
@@ -205,12 +206,32 @@ def build_render_plan(
     )
 
 
+def _is_kitchen_chemistry_slot() -> bool:
+    """Return True on the daily 12:00 WIB lunch-break slot for relatable Kitchen Chemistry / everyday science."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    if os.environ.get("FORCE_KARAT_WEEKEND", "").lower() == "true":
+        return False
+    if os.environ.get("FORCE_KITCHEN_CHEMISTRY", "").lower() == "true":
+        return True
+    target_pub = os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
+    if ":" in target_pub:
+        try:
+            return int(target_pub.split(":", 1)[0]) < 16
+        except ValueError:
+            pass
+    return datetime.now(ZoneInfo("Asia/Jakarta")).hour < 16
+
+
 def _is_weekend_karat_mode() -> bool:
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
     if os.environ.get("FORCE_KARAT_WEEKEND", "").lower() == "true":
         return True
+    if _is_kitchen_chemistry_slot():
+        return False
     return datetime.now(ZoneInfo("Asia/Jakarta")).weekday() in (5, 6)
 
 
@@ -232,15 +253,17 @@ def run_agent_1_to_3(
         state.request_id = request_id
         state.request_source_comment = request_source_comment
         state.request_comment_id = request_comment_id
+    is_kitchen = _is_kitchen_chemistry_slot() and not (requested_by and topic_hint)
     is_karat = _is_weekend_karat_mode()
 
-    # Pre-Agent 1 (0-Token): Scan viral pure-science trends & recent papers (KARAT mode on weekends)
+    # Pre-Agent 1 (0-Token): Scan viral pure-science trends, Kitchen Chemistry bank, or Weekend KARAT papers
     ideation_cfg = brand["brand"].get("ideation_policy", {})
     trend_brief = build_agent1_brief(
         BASE_DIR,
         lookback_hours=ideation_cfg.get("viral_lookback_hours", 96),
         min_viral_matches=ideation_cfg.get("min_viral_matches", 2),
         weekend_paper_mode=is_karat,
+        kitchen_chemistry_mode=is_kitchen,
     )
     (paths["handoffs"] / "agent0_trend_brief.json").write_text(
         json.dumps(trend_brief, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -261,6 +284,15 @@ def run_agent_1_to_3(
         if is_karat
         else ""
     )
+    kitchen_a1_note = (
+        "DAILY SPECIAL SECTION ACTIVE — 'KIMIA DAPUR (Kitchen Chemistry & Sains Sehari-hari)': "
+        "Select and pitch 5 hyper-relatable science ideas about COOKING, FOOD, DRINKS, or EVERYDAY KITCHEN/HOME HABITS "
+        "(e.g., bawang, gorengan, kopi, es batu, daging empuk nanas, pedas cabai vs susu, telur, nasi dingin, teh jeruk nipis, sabun & minyak) "
+        "backed by real chemistry/physics/food-science mechanisms! Pick unused topics from `idea_bank_fallback_candidates` "
+        "or create equally relatable fresh Indonesian kitchen-science phenomena with concrete filmable kitchen footage. "
+        if is_kitchen
+        else ""
+    )
     req_a1_note = (
         f"AUDIENCE COMMENT REQUEST PRIORITY: Viewer '{requested_by}' specifically requested: '{topic_hint}' "
         f"(comment: '{request_source_comment or topic_hint}'). You MUST put a fulfilling, accurate pure-science "
@@ -274,19 +306,19 @@ def run_agent_1_to_3(
         system_prompt=(
             "You are Agent 1 (Viral Pure-Science Trend Scout) for Kimiabill. "
             "Cover strictly pure science phenomena across: kimia, fisika, matematika, medisinal, biologi. "
-            f"{req_a1_note}{karat_a1_note}"
-            "PRIORITY 1: If `viral_candidates` has fresh viral science topics/papers, prioritize turning them into "
+            f"{req_a1_note}{karat_a1_note}{kitchen_a1_note}"
+            "PRIORITY 1: When in KARAT or REGULER mode and `viral_candidates` has fresh viral science topics/papers, turn them into "
             "engaging Indonesian short-video ideas (`source_mode: 'viral_trend'`). "
-            "PRIORITY 2 (Fallback): If no strong viral topic is available, select and enrich unused ideas "
-            "from `idea_bank_fallback_candidates` (`source_mode: 'idea_bank'`), keeping all 5 disciplines balanced. "
+            "PRIORITY 2 (Daily Kitchen Chemistry / Fallback): When in KIMIA DAPUR mode or when no strong viral topic fits, select and enrich "
+            "ideas from `idea_bank_fallback_candidates` (`source_mode: 'idea_bank'`), avoiding repeats. "
             "STORYTELLING RULE (Veritasium Principle): Angle every idea around a sharp COMMON MISCONCEPTION vs SURPRISING REALITY "
             "or a counterintuitive curiosity question so viewers immediately feel a knowledge gap worth closing. "
-            "Every idea must be visualizable with REAL, concrete, filmable science/nature footage (never full animation), "
+            "Every idea must be visualizable with REAL, concrete, filmable science/nature/kitchen footage (never full animation), "
             "MUST NOT repeat any topic in `avoid_titles`, and MUST apply any `weekly_growth_directives` from Agent 8."
         ),
         user_payload={
             "brand": brand["brand"],
-            "section": "KARAT — Kabar Riset Terkini" if is_karat else "REGULER",
+            "section": "KARAT — Kabar Riset Terkini" if is_karat else ("KIMIA DAPUR — Sains Sehari-hari" if is_kitchen else "REGULER"),
             "trend_brief": trend_brief,
             "topic_hint": topic_hint,
             "requested_by": requested_by,
@@ -348,6 +380,14 @@ def run_agent_1_to_3(
         if is_karat
         else ""
     )
+    kitchen_a3_note = (
+        "THIS IS A DAILY 'KIMIA DAPUR (Kitchen Chemistry)' EPISODE: "
+        "Keep the explanation super relatable to Indonesian kitchens, cooking, food, or drinks at home, "
+        "pair every step with appetizing/concrete real kitchen footage queries (e.g. 'chopping onion kitchen knife', "
+        "'hot frying oil pan', 'pouring black coffee cup'), and end the science payoff with a crisp practical kitchen tip! "
+        if is_kitchen
+        else ""
+    )
     spoken_requester = requested_by.lstrip("@") if requested_by else ""
     req_a3_note = (
         f"THIS EPISODE FULFILLS A VIEWER REQUEST FROM '{requested_by}' (comment: '{request_source_comment or topic_hint}'): "
@@ -364,7 +404,7 @@ def run_agent_1_to_3(
             "Write a cheerful, clear, moderate-pace Indonesian short script (~55-65s total spoken, 6-7 scenes, "
             "~18-24 words narration per scene so the viewer gets rich, deep scientific insight) applying Agent 2's notes "
             "and Agent 8's `weekly_growth_directives`. "
-            f"{req_a3_note}{karat_a3_note}"
+            f"{req_a3_note}{karat_a3_note}{kitchen_a3_note}"
             "PROVEN RETENTION & STORYTELLING STRUCTURE (Veritasium + Creator Insider 70%+ Retention):\n"
             "- Scene 1 (0-3s Hook): NO generic greeting or slow textbook definition! Start immediately with a punchy misconception-breaker "
             "or counterintuitive question that opens an irresistible curiosity loop.\n"

@@ -106,13 +106,13 @@ def run_one_automated_episode() -> None:
     except Exception:
         pass
 
-    # Check if Agent 8 queued a viewer comment request to fulfill on weekday (REGULER) slots
+    # Check if Agent 8 queued a viewer comment request to fulfill on weekday evening (REGULER) slots
     pending_req: dict | None = None
     try:
-        from src.pipeline import _is_weekend_karat_mode
+        from src.pipeline import _is_kitchen_chemistry_slot, _is_weekend_karat_mode
         from src.tools.weekly_growth_auditor import get_next_pending_audience_request
 
-        if not _is_weekend_karat_mode():
+        if not _is_weekend_karat_mode() and not _is_kitchen_chemistry_slot():
             pending_req = get_next_pending_audience_request()
             if pending_req:
                 print(

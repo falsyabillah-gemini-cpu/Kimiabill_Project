@@ -176,8 +176,9 @@ def build_agent1_brief(
     lookback_hours: int = 96,
     min_viral_matches: int = 2,
     weekend_paper_mode: bool = False,
+    kitchen_chemistry_mode: bool = False,
 ) -> dict[str, Any]:
-    """Build the viral-first brief for Agent 1, including Weekend KARAT research paper focus."""
+    """Build the viral-first brief for Agent 1, including daily Kitchen Chemistry & Weekend KARAT."""
     memory = StudioMemory(base_dir)
     past = memory.list_past_topics(limit=50)
     past_titles = {p["title"].lower() for p in past}
@@ -190,10 +191,16 @@ def build_agent1_brief(
     )
     viral_fresh = [v for v in viral_raw if v["title"].lower() not in past_titles]
 
-    fallback_ideas = memory.get_balanced_unused_ideas(count=5)
+    fallback_ideas = (
+        memory.get_kitchen_chemistry_ideas(count=5)
+        if kitchen_chemistry_mode
+        else memory.get_balanced_unused_ideas(count=5)
+    )
 
     if weekend_paper_mode:
         mode = "karat_weekend_research_paper"
+    elif kitchen_chemistry_mode:
+        mode = "kitchen_chemistry_daily"
     elif len(viral_fresh) >= min_viral_matches:
         mode = "viral_trend"
     elif len(viral_fresh) > 0:
@@ -201,10 +208,16 @@ def build_agent1_brief(
     else:
         mode = "idea_bank_fallback"
 
+    section = "KARAT" if weekend_paper_mode else ("DAPUR" if kitchen_chemistry_mode else "REGULER")
+    tagline = (
+        "KARAT — Kabar Riset Terkini • Dari Saintis untuk Masyarakat"
+        if weekend_paper_mode
+        else ("KIMIA DAPUR • Sains Sehari-hari di Rumah" if kitchen_chemistry_mode else "")
+    )
     return {
         "mode_recommended": mode,
-        "section": "KARAT" if weekend_paper_mode else "REGULER",
-        "section_tagline": "KARAT — Kabar Riset Terkini • Dari Saintis untuk Masyarakat" if weekend_paper_mode else "",
+        "section": section,
+        "section_tagline": tagline,
         "viral_count": len(viral_fresh),
         "viral_candidates": viral_fresh[:8],
         "idea_bank_fallback_candidates": fallback_ideas,
