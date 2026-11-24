@@ -47,5 +47,29 @@
       "Agent 5 (QA Video v1)": "gemini-3.5-flash-lite (fallback dari gemini-4-hydrogen)",
       "Agent 7 (Packaging & SEO)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)"
     }
+  },
+  {
+    "episode_id": "ep_20261124_1228",
+    "published_at_wib": "2026-11-24T12:40:55+07:00",
+    "title": "Tanaman Tembakau Jadi Pabrik Obat Kanker Langka",
+    "discipline": "medisinal",
+    "youtube_url": "https://youtube.com/shorts/uwgjiMnCqnM",
+    "gdrive_folder_url": "https://drive.google.com/drive/folders/1_tIbprUqTHfuve5qKHzTxGURbUnevW1r",
+    "qa_score": 9.2,
+    "duration_sec": 53.816,
+    "hook_line": "Bagaimana mungkin tanaman yang paling dimusuhi di dunia justru menyimpan kunci obat kanker paling langka?",
+    "revisions_used": 1,
+    "topic_attempts_used": 1,
+    "production_seconds": 661.3,
+    "publish_mode": "public",
+    "agent_models": {
+      "Agent 1 (Ideasi Topik)": "gemini-3.6-flash (fallback dari gemini-3.8-flash)",
+      "Agent 2 (Auditor Hook)": "gemini-3.6-flash (fallback dari gemini-4-hydrogen)",
+      "Agent 3 (Skrip & Storyboard)": "gemini-3.5-flash-lite (fallback dari gemini-4-hydrogen)",
+      "Agent 6 (Screening Klip)": "gemini-3.5-flash-lite (24x)",
+      "Agent 5 (QA Video v1)": "gemini-3.5-flash-lite (fallback dari gemini-4-hydrogen)",
+      "Agent 5 (QA Video v2)": "gemini-3.5-flash-lite (fallback dari gemini-4-hydrogen)",
+      "Agent 7 (Packaging & SEO)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)"
+    }
   }
 ]
