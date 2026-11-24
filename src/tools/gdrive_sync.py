@@ -157,6 +157,74 @@ def _extract_youtube_copy(episode_dir: Path, fallback_title: str) -> dict[str, A
     }
 
 
+def _ensure_apps_script_mp4_size(mp4_path: Path, max_bytes: int = 34 * 1024 * 1024) -> Path:
+    """If MP4 exceeds Apps Script payload limit, transcode a target-bitrate 1080p copy (<32 MB) so Drive & YouTube upload never skip."""
+    if mp4_path.stat().st_size <= max_bytes:
+        return mp4_path
+    orig_mb = mp4_path.stat().st_size / (1024 * 1024)
+    dur_sec = 65.0
+    try:
+        probe = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(mp4_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if probe.returncode == 0 and probe.stdout.strip():
+            dur_sec = max(10.0, float(probe.stdout.strip()))
+    except Exception:
+        pass
+    target_mb = min(30.0, (max_bytes / (1024 * 1024)) * 0.85)
+    total_kbps = int((target_mb * 1024 * 8) / dur_sec)
+    video_kbps = min(6000, max(350, total_kbps - 128))
+    compressed = mp4_path.with_name(f"{mp4_path.stem}_web{mp4_path.suffix}")
+    print(
+        f"[gdrive] {mp4_path.name} ({orig_mb:.1f} MB > {max_bytes / (1024 * 1024):.0f} MB limit); "
+        f"auto-compressing 1080p -> ~{target_mb:.0f} MB ({video_kbps}k) agar tetap ter-upload ke Drive & YouTube..."
+    )
+    proc = subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(mp4_path),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-b:v",
+            f"{video_kbps}k",
+            "-maxrate",
+            f"{int(video_kbps * 1.15)}k",
+            "-bufsize",
+            f"{video_kbps * 2}k",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
+            str(compressed),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode == 0 and compressed.exists() and compressed.stat().st_size <= 35_500_000:
+        print(f"[gdrive] Auto-compress berhasil: {compressed.stat().st_size / (1024 * 1024):.1f} MB")
+        return compressed
+    return mp4_path
+
+
 def _upload_via_webhook(
     episode_dir: Path,
     episode_name: str,
@@ -196,12 +264,17 @@ def _upload_via_webhook(
     )
     for pattern in upload_patterns:
         for f in sorted(episode_dir.glob(pattern)):
-            # Skip files > 36 MB for base64 Apps Script 50 MB payload cap
-            if f.stat().st_size > 36 * 1024 * 1024:
-                print(f"[gdrive] Skipping {f.name} (>36 MB Apps Script limit)")
+            upload_file = f
+            if f.suffix.lower() == ".mp4" and not f.stem.endswith("_web") and f.stat().st_size > 34 * 1024 * 1024:
+                upload_file = _ensure_apps_script_mp4_size(f, max_bytes=34 * 1024 * 1024)
+            elif f.stem.endswith("_web"):
+                continue
+            # Safety cap in case non-MP4 or fallback still exceeds 36 MB Apps Script limit
+            if upload_file.stat().st_size > 36 * 1024 * 1024:
+                print(f"[gdrive] Skipping {upload_file.name} (>36 MB Apps Script limit)")
                 continue
             mime = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
-            b64 = base64.b64encode(f.read_bytes()).decode("ascii")
+            b64 = base64.b64encode(upload_file.read_bytes()).decode("ascii")
             res = _post_webhook(
                 webhook_url,
                 {
