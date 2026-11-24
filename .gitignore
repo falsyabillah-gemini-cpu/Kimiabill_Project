@@ -1,7 +1,6 @@
 __pycache__/
 *.py[cod]
 .env
-data/memory.db
 data/sfx_cache/
 episodes/*/renders/
 episodes/*/assets/*.raw_dl

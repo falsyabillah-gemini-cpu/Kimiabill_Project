@@ -67,7 +67,14 @@ function doPost(e) {
       );
       const existing = folder.getFilesByName(blob.getName());
       while (existing.hasNext()) {
-        existing.next().setTrashed(true);
+        const oldFile = existing.next();
+        try {
+          oldFile.setTrashed(true);
+        } catch (trErr) {
+          try {
+            folder.removeFile(oldFile);
+          } catch (rmErr) {}
+        }
       }
       const file = folder.createFile(blob);
       return _jsonResponse({
@@ -284,6 +291,7 @@ function doPost(e) {
       // Fetch private YouTube Studio Analytics (retention %, avg view duration, shares, subs gained)
       const analyticsById = {};
       let analyticsEnabled = false;
+      let countriesBreakdown = [];
       if (typeof YouTubeAnalytics !== "undefined" && videoIds.length > 0) {
         try {
           const endDt = new Date();
@@ -311,6 +319,24 @@ function doPost(e) {
               subscribers_gained: Number(row[8] || 0),
             };
           });
+          try {
+            const ctryRep = YouTubeAnalytics.Reports.query({
+              ids: "channel==MINE",
+              startDate: fmt(startDt),
+              endDate: fmt(endDt),
+              metrics: "views,estimatedMinutesWatched",
+              dimensions: "country",
+              sort: "-views",
+              maxResults: 15,
+            });
+            (ctryRep.rows || []).forEach(function (row) {
+              countriesBreakdown.push({
+                country: String(row[0] || "-"),
+                views: Number(row[1] || 0),
+                watch_minutes: Number(row[2] || 0),
+              });
+            });
+          } catch (ctryErr) {}
         } catch (anaErr) {
           analyticsEnabled = false;
         }
@@ -394,6 +420,7 @@ function doPost(e) {
         channel: channelStats,
         videos: videos,
         recent_comments: recentComments,
+        countries: countriesBreakdown,
       });
     }
 

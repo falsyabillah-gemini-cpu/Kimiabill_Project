@@ -34,6 +34,7 @@ HISTORY_PATH = BASE_DIR / "data" / "published_history.json"
 DIRECTIVES_PATH = BASE_DIR / "data" / "weekly_agent_directives.json"
 AUDITS_DIR = BASE_DIR / "data" / "weekly_audits"
 REQUESTS_PATH = BASE_DIR / "data" / "audience_requests.json"
+MASTER_CSV_PATH = BASE_DIR / "data" / "KIMIABILL_MASTER_DATABASE.csv"
 
 
 def load_audience_requests() -> list[dict[str, Any]]:
@@ -168,7 +169,13 @@ def record_published_episode(
     }
     items = [x for x in items if x.get("episode_id") != episode_id]
     items.append(record)
-    HISTORY_PATH.write_text(json.dumps(items[-90:], ensure_ascii=False, indent=2), encoding="utf-8")
+    HISTORY_PATH.write_text(json.dumps(items[-365:], ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        from src.memory import StudioMemory
+
+        StudioMemory(BASE_DIR).upsert_episode_analytics([record])
+    except Exception:
+        pass
 
 
 def load_latest_agent_directives() -> dict[str, Any]:
@@ -274,10 +281,44 @@ def _format_monetization_section(channel: dict[str, Any]) -> list[str]:
     ]
 
 
+def _build_international_summary(
+    countries: list[dict[str, Any]],
+    viewer_comments: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Summarize non-Indonesian YouTube Analytics views & foreign-language comments (0 AI tokens)."""
+    total_c_views = sum(int(c.get("views") or 0) for c in countries)
+    id_views = sum(int(c.get("views") or 0) for c in countries if str(c.get("country") or "").upper() == "ID")
+    non_id_views = max(0, total_c_views - id_views)
+    non_id_pct = round((non_id_views / total_c_views) * 100.0, 2) if total_c_views > 0 else 0.0
+
+    intl_comments: list[dict[str, Any]] = []
+    id_stop = ("yang", "dan", "ini", "itu", "apa", "kok", "kenapa", "bagaimana", "tolong", "bahas", "dong", "kak", "bang", "min", "keren", "mantap", "sains")
+    en_hints = ("why", "how", "what", "when", "explain", "science", "chemistry", "physics", "video", "please", "cool", "amazing", "english", "subtitles", "can you", "thank", "wow")
+    for c in viewer_comments:
+        txt = str(c.get("text") or "").strip()
+        low = f" {txt.lower()} "
+        has_id = any(f" {w} " in low for w in id_stop)
+        has_en = any(f" {w} " in low for w in en_hints)
+        has_non_ascii_intl = bool(re.search(r"[\u3040-\u30ff\u4e00-\u9fff\u0600-\u06ff\u0400-\u04ff]", txt))
+        if (has_en and not has_id) or has_non_ascii_intl:
+            intl_comments.append(c)
+
+    return {
+        "top_countries": countries[:10],
+        "analytics_total_views": total_c_views,
+        "id_views": id_views,
+        "non_id_views": non_id_views,
+        "non_id_views_pct": non_id_pct,
+        "intl_comments": intl_comments[:10],
+    }
+
+
 def _format_audit_markdown(
     audit: Agent8WeeklyAuditOutput,
     enriched_videos: list[dict[str, Any]],
     channel_stats: Optional[dict[str, Any]] = None,
+    countries_summary: Optional[dict[str, Any]] = None,
+    milestone_stats: Optional[dict[str, Any]] = None,
 ) -> str:
     lines = [
         f"# Laporan Audit Mingguan Sosial Media Kimiabill ({audit.week_ending})",
@@ -321,6 +362,26 @@ def _format_audit_markdown(
     lines.append("## Audit Efisiensi Workflow & Penggunaan Token")
     lines.append(audit.workflow_efficiency_summary or "-")
     _sec("Optimasi Token, Kuota & Kecepatan Produksi", audit.token_and_cost_optimizations)
+
+    cs = countries_summary or {}
+    ms = milestone_stats or {}
+    lines.append("")
+    lines.append("## Potensi Penonton Internasional & Database Milestone")
+    if cs.get("top_countries"):
+        c_txt = ", ".join(f"{c.get('country')}: {c.get('views'):,} views" for c in cs["top_countries"][:6])
+        lines.append(f"- **Sebaran Negara Penonton (28 hari):** {c_txt} (**Luar Indonesia: {cs.get('non_id_views_pct', 0.0):.2f}%**)")
+    else:
+        lines.append("- **Sebaran Negara Penonton:** Menunggu data negara aktif dari Apps Script / volume views cukup.")
+    if audit.international_potential:
+        lines.append(f"- **Analisis Potensi Global Agent 8:** {audit.international_potential}")
+    if ms:
+        lines.append(
+            f"- **Arsip Database Kumulatif:** {ms.get('total_videos_archived', 0)} video ({ms.get('total_weeks_audited', 0)} minggu audit) | "
+            f"Reguler avg: {ms.get('regular_avg_views') if ms.get('regular_avg_views') is not None else '-'} views vs "
+            f"KARAT avg: {ms.get('karat_avg_views') if ms.get('karat_avg_views') is not None else '-'} views | "
+            f"Disiplin terkuat: {ms.get('top_discipline', '-')}"
+        )
+
     _sec("Instruksi Upgrade ke Agent 1 (Trend & Ideasi)", audit.agent_1_directives)
     _sec("Instruksi Upgrade ke Agent 2 (Editor & Hook)", audit.agent_2_directives)
     _sec("Instruksi Upgrade ke Agent 3 (Skrip & Animasi Mekanistik)", audit.agent_3_directives)
@@ -368,8 +429,9 @@ def _deliver_audit_to_drive_and_email(
     pdf_path: Optional[Path] = None,
     channel_stats: Optional[dict[str, Any]] = None,
     recent_videos: Optional[list[dict[str, Any]]] = None,
+    csv_path: Optional[Path] = None,
 ) -> None:
-    """Upload weekly audit PDF + Markdown to Google Drive, sync Google Sheets tracker, & email research inbox."""
+    """Upload weekly audit PDF, Markdown, & single cumulative Master CSV to Google Drive, & email research inbox."""
     raw_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
     if not raw_url:
         print("[agent8] GDRIVE_WEBHOOK_URL tidak diset; melewati upload Drive & email.")
@@ -381,6 +443,7 @@ def _deliver_audit_to_drive_and_email(
     folder_url = ""
     pdf_url = ""
     file_url = ""
+    csv_url = ""
     try:
         init_resp = requests.post(
             webhook_url,
@@ -410,6 +473,21 @@ def _deliver_audit_to_drive_and_email(
                 ).json()
                 if up_pdf.get("ok"):
                     pdf_url = up_pdf.get("file_url", "")
+            if csv_path and csv_path.exists():
+                up_csv = requests.post(
+                    webhook_url,
+                    json={
+                        "action": "upload_file",
+                        "token": token,
+                        "folder_id": folder_id,
+                        "filename": csv_path.name,
+                        "mime_type": "text/csv",
+                        "content_base64": base64.b64encode(csv_path.read_bytes()).decode("ascii"),
+                    },
+                    timeout=60,
+                ).json()
+                if up_csv.get("ok"):
+                    csv_url = up_csv.get("file_url", "")
             up_resp = requests.post(
                 webhook_url,
                 json={
@@ -484,7 +562,9 @@ def _deliver_audit_to_drive_and_email(
 
     header_links = []
     if pdf_url:
-        header_links.append(f"📄 BUKA LAPORAN PDF VISUAL (GRAFIK & MONETISASI): {pdf_url}")
+        header_links.append(f"📄 BUKA LAPORAN PDF VISUAL (3 HALAMAN • GRAFIK, INTERNASIONAL & MILESTONE): {pdf_url}")
+    if csv_url:
+        header_links.append(f"📊 BUKA / DOWNLOAD MASTER DATABASE CSV (1 File Update Mingguan): {csv_url}")
     if sheet_url:
         header_links.append(f"📊 BUKA GOOGLE SHEET TRACKER LIVE (Upload & Audit YPP): {sheet_url}")
     if folder_url:
@@ -609,13 +689,25 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
                         {"video_id": v.get("video_id"), "author": "Penonton", "text": tc.strip()}
                     )
 
+    from src.memory import StudioMemory
+
+    memory = StudioMemory(BASE_DIR)
+    # Archive full history + newly enriched YouTube API videos permanently into SQLite
+    all_seed_rows = list(history) + list(enriched)
+    memory.upsert_episode_analytics(all_seed_rows, week_ending=today_wib)
+    milestone_stats = memory.get_milestone_summary()
+    countries_summary = _build_international_summary(
+        webhook_stats.get("countries") or [],
+        viewer_comments,
+    )
+
     audit = call_structured_agent(
         provider=a8_cfg.get("provider", "auto"),
         model=a8_cfg.get("model", a8_cfg.get("recommended_prod_model", "gemini-3.8-flash")),
         system_prompt=(
             "You are Agent 8 (Chief Weekly System, Engagement & Workflow Efficiency Auditor) for Kimiabill, an Indonesian "
             "pure-science YouTube Shorts studio (Kimia, Fisika, Matematika, Medisinal, Biologi). "
-            "Perform THREE deep audits in clear Indonesian from this week's data:\n"
+            "Perform FOUR deep audits in clear Indonesian from this week's data:\n"
             "1. SOCIAL MEDIA ENGAGEMENT & MONETIZATION AUDIT: Analyze views, likes, comments, retention %, avg view duration, "
             "QA scores, hooks, topics, and durations. Also state clearly in `summary` how far the channel is from YouTube "
             "Partner Program Shorts monetization (500 subs / 3M views and 1,000 subs / 10M views) and what will accelerate it.\n"
@@ -627,6 +719,9 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             "into `audience_requests` (preserving `requester_name` e.g. @handle, `source_comment`, `source_video_id`, "
             "`source_comment_id`, a crisp Indonesian `topic_title`, and `discipline`). Ignore spam, greetings, or non-science asks, "
             "and never duplicate anything already in `existing_requests_queue`.\n"
+            "4. INTERNATIONAL VIEWER POTENTIAL & MILESTONE READINESS: Evaluate `countries_summary` (non-ID view share & top countries), "
+            "foreign-language comments, and `cumulative_milestone_stats` (Reguler vs KARAT & total database) in `international_potential`, "
+            "noting which science topics/visuals show global appeal for a future English channel.\n"
             "Produce sharp, concrete next-week upgrade directives for Agents 1, 2, 3, 5, and 6 so the entire studio "
             "becomes higher quality, faster, and more token-efficient every single week. "
             "Also populate `recommended_weekend_hours_wib` with 2 optimal HH:MM WIB upload times (1 midday slot around 11:30-13:30 "
@@ -639,6 +734,8 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             "channel_stats": webhook_stats.get("channel", {}),
             "ypp_targets": {"tier1_subs": 500, "tier1_shorts_views_90d": 3000000, "full_subs": 1000, "full_shorts_views_90d": 10000000},
             "recent_videos": enriched,
+            "countries_summary": countries_summary,
+            "cumulative_milestone_stats": milestone_stats,
             "viewer_comments": viewer_comments[:60],
             "existing_requests_queue": existing_requests[-25:],
             "previous_week_directives": prev_directives,
@@ -654,9 +751,36 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
     DIRECTIVES_PATH.parent.mkdir(parents=True, exist_ok=True)
     DIRECTIVES_PATH.write_text(audit.model_dump_json(indent=2), encoding="utf-8")
 
-    AUDITS_DIR.mkdir(parents=True, exist_ok=True)
     ch_stats = webhook_stats.get("channel", {})
-    report_md = _format_audit_markdown(audit, enriched, channel_stats=ch_stats)
+    qa_scores = [float(v["qa_score"]) for v in enriched if v.get("qa_score") is not None]
+    ret_scores = [float(v["avg_view_percentage"]) for v in enriched if v.get("avg_view_percentage") is not None]
+    memory.upsert_weekly_snapshot({
+        "week_ending": today_wib,
+        "subscribers": int(ch_stats.get("subscribers") or 0),
+        "total_views": int(ch_stats.get("total_views") or 0),
+        "video_count_audited": len(enriched),
+        "avg_qa": round(sum(qa_scores) / len(qa_scores), 2) if qa_scores else None,
+        "avg_retention_pct": round(sum(ret_scores) / len(ret_scores), 2) if ret_scores else None,
+        "karat_avg_views": milestone_stats.get("karat_avg_views"),
+        "regular_avg_views": milestone_stats.get("regular_avg_views"),
+        "non_id_views_pct": countries_summary.get("non_id_views_pct", 0.0),
+        "top_countries": countries_summary.get("top_countries", []),
+        "international_potential": audit.international_potential,
+        "karat_directives": audit.karat_weekend_directives,
+        "summary": audit.summary,
+    })
+    milestone_stats = memory.get_milestone_summary()
+    csv_rows = memory.export_master_csv(MASTER_CSV_PATH)
+    print(f"[agent8] Master Database CSV tunggal diperbarui ({csv_rows} baris): {MASTER_CSV_PATH}")
+
+    AUDITS_DIR.mkdir(parents=True, exist_ok=True)
+    report_md = _format_audit_markdown(
+        audit,
+        enriched,
+        channel_stats=ch_stats,
+        countries_summary=countries_summary,
+        milestone_stats=milestone_stats,
+    )
     report_path = AUDITS_DIR / f"weekly_audit_{today_wib}.md"
     report_path.write_text(report_md, encoding="utf-8")
 
@@ -664,7 +788,14 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
     try:
         from src.tools.audit_pdf_maker import generate_weekly_audit_pdf
 
-        generate_weekly_audit_pdf(audit, enriched, ch_stats, pdf_path)
+        generate_weekly_audit_pdf(
+            audit,
+            enriched,
+            ch_stats,
+            pdf_path,
+            countries_summary=countries_summary,
+            milestone_stats=milestone_stats,
+        )
         print(f"[agent8] PDF visual berhasil dibuat: {pdf_path}")
     except Exception as exc:
         print(f"[agent8] Peringatan gagal membuat PDF visual: {exc}")
@@ -677,6 +808,7 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
         pdf_path=pdf_path,
         channel_stats=ch_stats,
         recent_videos=enriched,
+        csv_path=MASTER_CSV_PATH,
     )
     print(f"[agent8] Audit mingguan selesai ({today_wib}). Instruksi terbaru disimpan di {DIRECTIVES_PATH}")
     return audit

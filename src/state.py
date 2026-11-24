@@ -319,3 +319,7 @@ class Agent8WeeklyAuditOutput(BaseModel):
         default_factory=list,
         description="Up to 5 valid pure-science content/topic requests extracted from viewer comments (ignoring spam/greetings), ready to produce & mention next week",
     )
+    international_potential: str = Field(
+        default="",
+        description="Indonesian assessment of non-Indonesian viewer share, foreign-language comments, and which science topics/KARAT themes show global appeal for a future English channel",
+    )

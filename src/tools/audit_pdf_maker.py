@@ -114,8 +114,10 @@ def generate_weekly_audit_pdf(
     enriched_videos: list[dict[str, Any]],
     channel_stats: dict[str, Any],
     out_pdf: Path,
+    countries_summary: dict[str, Any] | None = None,
+    milestone_stats: dict[str, Any] | None = None,
 ) -> Path:
-    """Render a 2-page executive visual PDF report and return its Path."""
+    """Render a 3-page executive visual PDF report (including Page 3 International & Milestone DB) and return its Path."""
     fonts = _load_fonts()
     out_pdf.parent.mkdir(parents=True, exist_ok=True)
 
@@ -308,5 +310,96 @@ def generate_weekly_audit_pdf(
             ty += 21
         ty += 5
 
-    p1.save(out_pdf, "PDF", resolution=150.0, save_all=True, append_images=[p2])
+    # ======================== PAGE 3: INTERNATIONAL POTENTIAL & MILESTONE DATABASE ========================
+    cs = countries_summary or {}
+    ms = milestone_stats or {}
+    p3 = Image.new("RGB", (A4_W, A4_H), BG)
+    d3 = ImageDraw.Draw(p3)
+    d3.rectangle([0, 0, A4_W, 110], fill=NAVY)
+    d3.text((56, 34), "POTENSI INTERNASIONAL & DATABASE MILESTONE STUDIO", font=fonts["h2"], fill=YELLOW)
+    d3.text(
+        (56, 72),
+        f"Data Kumulatif Jangka Panjang (SQLite + 1 Master CSV Mingguan)  •  Periode {audit.week_ending}",
+        font=fonts["small"],
+        fill=(203, 213, 225),
+    )
+
+    k_avg_str = f"{ms['karat_avg_views']:.0f}" if ms.get("karat_avg_views") is not None else "-"
+    non_id_str = f"{float(cs.get('non_id_views_pct') or ms.get('latest_non_id_pct') or 0.0):.1f}%"
+    db_kpis = [
+        ("TOTAL EPISODE ARSIP", f"{int(ms.get('total_videos_archived') or len(enriched_videos)):,}", BLUE),
+        ("MINGGU DIAUDIT", f"{int(ms.get('total_weeks_audited') or 1):,}", PURPLE),
+        ("AVG VIEWS KARAT", k_avg_str, (234, 88, 12)),
+        ("VIEWER LUAR RI", non_id_str, CYAN),
+    ]
+    for i, (k_lbl, k_val, k_col) in enumerate(db_kpis):
+        kx0 = 56 + i * (cw + gap)
+        _card(d3, (kx0, 140, kx0 + cw, 250))
+        d3.rounded_rectangle([kx0, 140, kx0 + 8, 250], radius=4, fill=k_col)
+        d3.text((kx0 + 24, 158), k_lbl, font=fonts["small_b"], fill=SLATE)
+        d3.text((kx0 + 24, 191), k_val, font=fonts["kpi"], fill=NAVY)
+
+    # Top Countries Card
+    cy0 = 278
+    _card(d3, (56, cy0, A4_W - 56, cy0 + 440))
+    d3.text((84, cy0 + 22), "SEBARAN NEGARA PENONTON (28 HARI TERAKHIR)", font=fonts["h2"], fill=NAVY)
+    top_countries = cs.get("top_countries") or []
+    if top_countries:
+        max_cv = max(1, max(int(c.get("views") or 0) for c in top_countries[:8]))
+        tot_cv = max(1, int(cs.get("analytics_total_views") or sum(int(c.get("views") or 0) for c in top_countries)))
+        vy = cy0 + 74
+        c_colors = [BLUE, CYAN, GREEN, PURPLE, AMBER, RED, (14, 116, 144), SLATE]
+        for idx, c in enumerate(top_countries[:8]):
+            code = str(c.get("country") or "-")
+            c_views = int(c.get("views") or 0)
+            pct_c = (c_views / tot_cv) * 100.0
+            d3.text((84, vy + 4), f"Negara {code}", font=fonts["small_b"], fill=NAVY)
+            bx0, bmax = 310, 580
+            bw = max(14 if c_views > 0 else 0, int(bmax * (c_views / max_cv)))
+            d3.rounded_rectangle([bx0, vy + 2, bx0 + bmax, vy + 28], radius=8, fill=(238, 242, 247))
+            if bw > 0:
+                d3.rounded_rectangle([bx0, vy + 2, bx0 + bw, vy + 28], radius=8, fill=c_colors[idx % len(c_colors)])
+            d3.text((bx0 + bmax + 18, vy + 4), f"{c_views:,} views ({pct_c:.1f}%)", font=fonts["small_b"], fill=SLATE)
+            vy += 44
+    else:
+        d3.text((84, cy0 + 84), "Data negara belum tersedia pada siklus ini (akan aktif otomatis setelah Apps Script diperbarui).", font=fonts["body"], fill=SLATE)
+
+    # International Viewer Potential Assessment Card
+    iy0 = 746
+    _card(d3, (56, iy0, A4_W - 56, iy0 + 380))
+    d3.text((84, iy0 + 22), "ANALISIS POTENSI VIEWER INTERNASIONAL & EKSPANSI CHANNEL INGGRIS", font=fonts["h2"], fill=CYAN)
+    intl_txt = (getattr(audit, "international_potential", "") or "").strip() or (
+        "Pantau persentase penonton non-Indonesia, komentar berbahasa Inggris, serta performa visual topik universal "
+        "selama 2-4 minggu sebagai acuan pembukaan channel internasional."
+    )
+    ty = iy0 + 66
+    for ln in _wrap(d3, intl_txt, fonts["body"], A4_W - 168, max_lines=10):
+        d3.text((84, ty), ln, font=fonts["body"], fill=NAVY)
+        ty += 26
+
+    # Cumulative Milestone Database Card
+    dy0 = 1154
+    _card(d3, (56, dy0, A4_W - 56, A4_H - 56))
+    d3.text((84, dy0 + 22), "REKAP DATABASE KUMULATIF & KESIAPAN MILESTONE (KARAT PRO / MULTI-CHANNEL)", font=fonts["h2"], fill=PURPLE)
+    r_avg_v = f"{ms['regular_avg_views']:.1f} views" if ms.get("regular_avg_views") is not None else "belum cukup data"
+    k_avg_v = f"{ms['karat_avg_views']:.1f} views" if ms.get("karat_avg_views") is not None else "belum cukup data"
+    r_avg_ret = f"{ms['regular_avg_retention_pct']:.1f}%" if ms.get("regular_avg_retention_pct") is not None else "-"
+    k_avg_ret = f"{ms['karat_avg_retention_pct']:.1f}%" if ms.get("karat_avg_retention_pct") is not None else "-"
+    milestone_lines = [
+        f"• Total Video Terarsip Permanen: {int(ms.get('total_videos_archived') or len(enriched_videos))} episode (Reguler: {ms.get('regular_videos', 0)} | KARAT: {ms.get('karat_videos', 0)})",
+        f"• Perbandingan Performa Segmen: REGULER rata-rata {r_avg_v} (retensi {r_avg_ret})  vs  KARAT rata-rata {k_avg_v} (retensi {k_avg_ret})",
+        f"• Disiplin Sains Terkuat (Kumulatif): {ms.get('top_discipline', '-')} (rata-rata {ms.get('top_discipline_avg_views', 0.0):.1f} views/video)",
+        f"• Sinyal Komentar Asing Minggu Ini: {len(cs.get('intl_comments') or [])} komentar non-Indonesia terdeteksi",
+        "• Master Database CSV: File tunggal KIMIABILL_MASTER_DATABASE.csv otomatis diperbarui setiap Minggu di GitHub & Google Drive (Weekly_Audits) untuk analisis Excel/Google Sheets.",
+    ]
+    ty = dy0 + 72
+    for item in milestone_lines:
+        for ln in _wrap(d3, item, fonts["body"], A4_W - 168, max_lines=3):
+            if ty > A4_H - 80:
+                break
+            d3.text((84, ty), ln, font=fonts["body"], fill=NAVY)
+            ty += 26
+        ty += 12
+
+    p1.save(out_pdf, "PDF", resolution=150.0, save_all=True, append_images=[p2, p3])
     return out_pdf

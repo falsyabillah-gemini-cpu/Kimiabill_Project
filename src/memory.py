@@ -1,8 +1,10 @@
 """Memory DB (topic deduplication) and local reusable SFX + BGM cache."""
 from __future__ import annotations
 
+import csv
 import json
 import math
+import re
 import sqlite3
 import wave
 from datetime import datetime, timezone
@@ -55,6 +57,54 @@ class StudioMemory:
                     hook_3s TEXT NOT NULL,
                     real_footage_keywords TEXT NOT NULL,
                     used_by_episode TEXT DEFAULT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS episode_analytics (
+                    episode_id TEXT PRIMARY KEY,
+                    published_at_wib TEXT,
+                    section TEXT DEFAULT 'REGULER',
+                    title TEXT NOT NULL,
+                    discipline TEXT DEFAULT '-',
+                    youtube_url TEXT,
+                    gdrive_folder_url TEXT,
+                    qa_score REAL,
+                    duration_sec REAL,
+                    production_seconds REAL,
+                    revisions_used INTEGER,
+                    topic_attempts_used INTEGER,
+                    views INTEGER DEFAULT 0,
+                    likes INTEGER DEFAULT 0,
+                    comments INTEGER DEFAULT 0,
+                    shares INTEGER,
+                    avg_view_percentage REAL,
+                    avg_view_duration_sec REAL,
+                    subscribers_gained INTEGER,
+                    agent_models TEXT,
+                    last_audited_week TEXT,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS weekly_snapshots (
+                    week_ending TEXT PRIMARY KEY,
+                    subscribers INTEGER DEFAULT 0,
+                    total_views INTEGER DEFAULT 0,
+                    video_count_audited INTEGER DEFAULT 0,
+                    avg_qa REAL,
+                    avg_retention_pct REAL,
+                    karat_avg_views REAL,
+                    regular_avg_views REAL,
+                    non_id_views_pct REAL DEFAULT 0.0,
+                    top_countries_json TEXT,
+                    international_potential TEXT,
+                    karat_directives_json TEXT,
+                    summary TEXT,
+                    updated_at TEXT NOT NULL
                 )
                 """
             )
@@ -198,6 +248,350 @@ class StudioMemory:
                 (episode_id, slug, title, phenomenon, discipline, status, final_score, gdrive_url, now),
             )
             conn.commit()
+
+    def upsert_episode_analytics(
+        self,
+        rows: list[dict],
+        week_ending: Optional[str] = None,
+    ) -> int:
+        """Archive or update published episode metrics permanently in SQLite without row limits."""
+        if not rows:
+            return 0
+        now = datetime.now(timezone.utc).isoformat()
+        count = 0
+        with sqlite3.connect(self.db_path) as conn:
+            existing_by_yt: dict[str, str] = {}
+            for eid, yurl in conn.execute("SELECT episode_id, youtube_url FROM episode_analytics").fetchall():
+                m = re.search(r"(?:/shorts/|v=|youtu\.be/)([A-Za-z0-9_-]{11})", yurl or "")
+                if m:
+                    existing_by_yt[m.group(1)] = eid
+
+            for r in rows:
+                yurl = r.get("youtube_url") or ""
+                vid = r.get("video_id")
+                if not vid and yurl:
+                    m = re.search(r"(?:/shorts/|v=|youtu\.be/)([A-Za-z0-9_-]{11})", yurl)
+                    vid = m.group(1) if m else None
+                ep_id = (r.get("episode_id") or "").strip()
+                if not ep_id and vid:
+                    ep_id = existing_by_yt.get(vid, f"yt_{vid}")
+                if not ep_id:
+                    continue
+                if vid:
+                    existing_by_yt[vid] = ep_id
+
+                title = str(r.get("title") or ep_id).strip()
+                published_at = r.get("published_at_wib") or r.get("published_at") or ""
+                section = str(r.get("section") or "").upper()
+                if not section:
+                    section = "KARAT" if "karat" in title.lower() or "karat" in ep_id.lower() else "REGULER"
+                else:
+                    section = "KARAT" if "KARAT" in section else "REGULER"
+
+                prev = conn.execute(
+                    "SELECT published_at_wib, section, discipline, youtube_url, gdrive_folder_url, qa_score, duration_sec, production_seconds, revisions_used, topic_attempts_used, agent_models FROM episode_analytics WHERE episode_id = ?",
+                    (ep_id,),
+                ).fetchone()
+
+                disc = r.get("discipline") or (prev[2] if prev else "-") or "-"
+                yurl_final = yurl or (prev[3] if prev else None)
+                gurl_final = r.get("gdrive_folder_url") or (prev[4] if prev else None)
+                qa_final = r.get("qa_score") if r.get("qa_score") is not None else (prev[5] if prev else None)
+                dur_final = r.get("duration_sec") if r.get("duration_sec") is not None else (prev[6] if prev else None)
+                prod_final = r.get("production_seconds") if r.get("production_seconds") is not None else (prev[7] if prev else None)
+                rev_final = r.get("revisions_used") if r.get("revisions_used") is not None else (prev[8] if prev else None)
+                att_final = r.get("topic_attempts_used") if r.get("topic_attempts_used") is not None else (prev[9] if prev else None)
+                models_raw = r.get("agent_models")
+                if isinstance(models_raw, dict) and models_raw:
+                    models_str = " | ".join(f"{k}: {v}" for k, v in models_raw.items())
+                elif isinstance(models_raw, str) and models_raw:
+                    models_str = models_raw
+                else:
+                    models_str = prev[10] if prev else None
+
+                conn.execute(
+                    """
+                    INSERT INTO episode_analytics (
+                        episode_id, published_at_wib, section, title, discipline,
+                        youtube_url, gdrive_folder_url, qa_score, duration_sec,
+                        production_seconds, revisions_used, topic_attempts_used,
+                        views, likes, comments, shares, avg_view_percentage,
+                        avg_view_duration_sec, subscribers_gained, agent_models,
+                        last_audited_week, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(episode_id) DO UPDATE SET
+                        published_at_wib = COALESCE(NULLIF(excluded.published_at_wib, ''), episode_analytics.published_at_wib),
+                        section = excluded.section,
+                        title = excluded.title,
+                        discipline = COALESCE(NULLIF(excluded.discipline, '-'), episode_analytics.discipline),
+                        youtube_url = COALESCE(excluded.youtube_url, episode_analytics.youtube_url),
+                        gdrive_folder_url = COALESCE(excluded.gdrive_folder_url, episode_analytics.gdrive_folder_url),
+                        qa_score = COALESCE(excluded.qa_score, episode_analytics.qa_score),
+                        duration_sec = COALESCE(excluded.duration_sec, episode_analytics.duration_sec),
+                        production_seconds = COALESCE(excluded.production_seconds, episode_analytics.production_seconds),
+                        revisions_used = COALESCE(excluded.revisions_used, episode_analytics.revisions_used),
+                        topic_attempts_used = COALESCE(excluded.topic_attempts_used, episode_analytics.topic_attempts_used),
+                        views = MAX(COALESCE(episode_analytics.views, 0), COALESCE(excluded.views, 0)),
+                        likes = MAX(COALESCE(episode_analytics.likes, 0), COALESCE(excluded.likes, 0)),
+                        comments = MAX(COALESCE(episode_analytics.comments, 0), COALESCE(excluded.comments, 0)),
+                        shares = COALESCE(excluded.shares, episode_analytics.shares),
+                        avg_view_percentage = COALESCE(excluded.avg_view_percentage, episode_analytics.avg_view_percentage),
+                        avg_view_duration_sec = COALESCE(excluded.avg_view_duration_sec, episode_analytics.avg_view_duration_sec),
+                        subscribers_gained = COALESCE(excluded.subscribers_gained, episode_analytics.subscribers_gained),
+                        agent_models = COALESCE(excluded.agent_models, episode_analytics.agent_models),
+                        last_audited_week = COALESCE(excluded.last_audited_week, episode_analytics.last_audited_week),
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        ep_id,
+                        published_at or (prev[0] if prev else ""),
+                        section,
+                        title,
+                        disc,
+                        yurl_final,
+                        gurl_final,
+                        qa_final,
+                        dur_final,
+                        prod_final,
+                        rev_final,
+                        att_final,
+                        int(r.get("views") or 0),
+                        int(r.get("likes") or 0),
+                        int(r.get("comments") or 0),
+                        r.get("shares"),
+                        r.get("avg_view_percentage"),
+                        r.get("avg_view_duration_sec"),
+                        r.get("subscribers_gained"),
+                        models_str,
+                        week_ending,
+                        now,
+                    ),
+                )
+                count += 1
+            conn.commit()
+        return count
+
+    def upsert_weekly_snapshot(self, snapshot: dict) -> None:
+        """Record or update one weekly audit snapshot in SQLite for multi-month milestone tracking."""
+        now = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO weekly_snapshots (
+                    week_ending, subscribers, total_views, video_count_audited,
+                    avg_qa, avg_retention_pct, karat_avg_views, regular_avg_views,
+                    non_id_views_pct, top_countries_json, international_potential,
+                    karat_directives_json, summary, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(week_ending) DO UPDATE SET
+                    subscribers = excluded.subscribers,
+                    total_views = excluded.total_views,
+                    video_count_audited = excluded.video_count_audited,
+                    avg_qa = excluded.avg_qa,
+                    avg_retention_pct = excluded.avg_retention_pct,
+                    karat_avg_views = excluded.karat_avg_views,
+                    regular_avg_views = excluded.regular_avg_views,
+                    non_id_views_pct = excluded.non_id_views_pct,
+                    top_countries_json = excluded.top_countries_json,
+                    international_potential = excluded.international_potential,
+                    karat_directives_json = excluded.karat_directives_json,
+                    summary = excluded.summary,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    snapshot["week_ending"],
+                    int(snapshot.get("subscribers") or 0),
+                    int(snapshot.get("total_views") or 0),
+                    int(snapshot.get("video_count_audited") or 0),
+                    snapshot.get("avg_qa"),
+                    snapshot.get("avg_retention_pct"),
+                    snapshot.get("karat_avg_views"),
+                    snapshot.get("regular_avg_views"),
+                    float(snapshot.get("non_id_views_pct") or 0.0),
+                    json.dumps(snapshot.get("top_countries") or [], ensure_ascii=False),
+                    snapshot.get("international_potential") or "",
+                    json.dumps(snapshot.get("karat_directives") or [], ensure_ascii=False),
+                    snapshot.get("summary") or "",
+                    now,
+                ),
+            )
+            conn.commit()
+
+    def get_milestone_summary(self) -> dict:
+        """Compute cumulative cross-week metrics from SQLite (0 AI tokens) for milestone evaluation."""
+        with sqlite3.connect(self.db_path) as conn:
+            total_videos = conn.execute("SELECT COUNT(*) FROM episode_analytics").fetchone()[0]
+            total_weeks = conn.execute("SELECT COUNT(*) FROM weekly_snapshots").fetchone()[0]
+            karat_row = conn.execute(
+                "SELECT COUNT(*), AVG(views), AVG(avg_view_percentage) FROM episode_analytics WHERE section = 'KARAT'"
+            ).fetchone()
+            reg_row = conn.execute(
+                "SELECT COUNT(*), AVG(views), AVG(avg_view_percentage) FROM episode_analytics WHERE section != 'KARAT'"
+            ).fetchone()
+            best_disc_row = conn.execute(
+                "SELECT discipline, COUNT(*), AVG(views) FROM episode_analytics WHERE discipline IS NOT NULL AND discipline != '-' GROUP BY discipline ORDER BY AVG(views) DESC LIMIT 1"
+            ).fetchone()
+            latest_week = conn.execute(
+                "SELECT week_ending, subscribers, total_views, non_id_views_pct FROM weekly_snapshots ORDER BY week_ending DESC LIMIT 1"
+            ).fetchone()
+
+        karat_cnt = int(karat_row[0] or 0)
+        reg_cnt = int(reg_row[0] or 0)
+        karat_avg_v = round(float(karat_row[1]), 1) if karat_row[1] is not None else None
+        reg_avg_v = round(float(reg_row[1]), 1) if reg_row[1] is not None else None
+        karat_avg_ret = round(float(karat_row[2]), 1) if karat_row[2] is not None else None
+        reg_avg_ret = round(float(reg_row[2]), 1) if reg_row[2] is not None else None
+        return {
+            "total_videos_archived": int(total_videos or 0),
+            "total_weeks_audited": int(total_weeks or 0),
+            "karat_videos": karat_cnt,
+            "regular_videos": reg_cnt,
+            "karat_avg_views": karat_avg_v,
+            "regular_avg_views": reg_avg_v,
+            "karat_avg_retention_pct": karat_avg_ret,
+            "regular_avg_retention_pct": reg_avg_ret,
+            "top_discipline": best_disc_row[0] if best_disc_row else "-",
+            "top_discipline_avg_views": round(float(best_disc_row[2]), 1) if best_disc_row and best_disc_row[2] is not None else 0.0,
+            "latest_week": latest_week[0] if latest_week else "-",
+            "latest_non_id_pct": round(float(latest_week[3]), 2) if latest_week and latest_week[3] is not None else 0.0,
+        }
+
+    def export_master_csv(self, csv_path: Path) -> int:
+        """Write ONE cumulative master CSV (UTF-8 BOM for Excel & Google Sheets) updated every week."""
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        headers = [
+            "Tipe_Data",
+            "Tanggal_WIB",
+            "Minggu_Audit",
+            "Episode_ID",
+            "Section",
+            "Judul_Atau_Laporan",
+            "Disiplin",
+            "Link_YouTube",
+            "Link_Drive",
+            "Durasi_Dtk",
+            "Skor_QA",
+            "Views",
+            "Likes",
+            "Komentar",
+            "Shares",
+            "Retensi_Pct",
+            "Avg_Durasi_Tonton_Dtk",
+            "Subs_Gained",
+            "Subscriber_Channel",
+            "Total_Views_Channel",
+            "Non_ID_Views_Pct",
+            "Top_Negara_Penonton",
+            "Waktu_Produksi_Dtk",
+            "Revisi",
+            "Model_AI_Dipakai",
+            "Sinyal_Internasional_Dan_Ringkasan",
+        ]
+        with sqlite3.connect(self.db_path) as conn:
+            weeks = conn.execute(
+                """
+                SELECT week_ending, subscribers, total_views, video_count_audited, avg_qa,
+                       avg_retention_pct, karat_avg_views, regular_avg_views, non_id_views_pct,
+                       top_countries_json, international_potential, summary
+                FROM weekly_snapshots
+                ORDER BY week_ending DESC
+                """
+            ).fetchall()
+            eps = conn.execute(
+                """
+                SELECT episode_id, published_at_wib, section, title, discipline,
+                       youtube_url, gdrive_folder_url, qa_score, duration_sec,
+                       production_seconds, revisions_used, views, likes, comments,
+                       shares, avg_view_percentage, avg_view_duration_sec,
+                       subscribers_gained, agent_models, last_audited_week
+                FROM episode_analytics
+                ORDER BY COALESCE(published_at_wib, updated_at) DESC, episode_id DESC
+                """
+            ).fetchall()
+
+        total_rows = 0
+        with csv_path.open("w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(headers)
+
+            for wk in weeks:
+                (
+                    w_end, subs, tot_v, v_cnt, avg_qa, avg_ret, k_avg, r_avg,
+                    non_id_pct, top_c_json, intl_pot, summary_txt
+                ) = wk
+                try:
+                    c_list = json.loads(top_c_json or "[]")
+                    c_str = ", ".join(f"{c.get('country')}:{c.get('views')}" for c in c_list[:5]) or "-"
+                except Exception:
+                    c_str = "-"
+                karat_cmp = f"KARAT avg {k_avg if k_avg is not None else '-'} vs REGULER avg {r_avg if r_avg is not None else '-'}"
+                note = f"{karat_cmp} | {intl_pot or '-'} | {summary_txt or '-'}"
+                writer.writerow([
+                    "AUDIT_MINGGUAN",
+                    w_end,
+                    w_end,
+                    f"audit_{w_end}",
+                    "MILESTONE",
+                    f"Audit Mingguan {w_end} ({v_cnt} video)",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    avg_qa if avg_qa is not None else "-",
+                    tot_v,
+                    "-",
+                    "-",
+                    "-",
+                    avg_ret if avg_ret is not None else "-",
+                    "-",
+                    "-",
+                    subs,
+                    tot_v,
+                    f"{float(non_id_pct or 0.0):.2f}%",
+                    c_str,
+                    "-",
+                    "-",
+                    "-",
+                    note[:1200],
+                ])
+                total_rows += 1
+
+            for ep in eps:
+                (
+                    ep_id, pub_at, sec, title, disc, yurl, gurl, qa, dur,
+                    prod_s, rev, views, likes, cmts, shares, ret, avg_t,
+                    subs_g, models, last_wk
+                ) = ep
+                writer.writerow([
+                    "VIDEO",
+                    pub_at or "-",
+                    last_wk or "-",
+                    ep_id,
+                    sec or "REGULER",
+                    title,
+                    disc or "-",
+                    yurl or "-",
+                    gurl or "-",
+                    dur if dur is not None else "-",
+                    qa if qa is not None else "-",
+                    views if views is not None else 0,
+                    likes if likes is not None else 0,
+                    cmts if cmts is not None else 0,
+                    shares if shares is not None else "-",
+                    ret if ret is not None else "-",
+                    avg_t if avg_t is not None else "-",
+                    subs_g if subs_g is not None else "-",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    prod_s if prod_s is not None else "-",
+                    rev if rev is not None else "-",
+                    models or "-",
+                    "-",
+                ])
+                total_rows += 1
+        return total_rows
 
     def get_sfx_path(self, cue: Optional[str]) -> Optional[str]:
         if not cue or cue == "none":
