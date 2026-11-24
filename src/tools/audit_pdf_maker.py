@@ -679,7 +679,7 @@ def generate_weekly_audit_pdf(
     d5.text((56, 30), "PETA TOPIK SEMINGGU KEDEPAN (7 HARI × 2 SLOT)", font=fonts["h2"], fill=YELLOW)
     d5.text(
         (56, 68),
-        f"Jadwal Otomatis: 12:00 WIB Kimia Dapur  •  19:00 WIB Reguler/Request (Sen-Jum) & KARAT Riset (Sab-Min) ({audit.week_ending})",
+        f"Disusun Agent 1 dari Audit Agent 8: 12:00 Kimia Dapur • 19:00 Reguler/Request (Sen-Jum) & KARAT (Sab-Min) ({audit.week_ending})",
         font=fonts["small"],
         fill=(203, 213, 225),
     )

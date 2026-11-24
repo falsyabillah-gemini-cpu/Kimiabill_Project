@@ -276,6 +276,13 @@ class NextWeekSlotPlan(BaseModel):
     rationale: str = Field(description="Alasan singkat (< 90 karakter): mis. teruskan pola rame / request penonton / isi gap disiplin")
 
 
+class NextWeekTopicMapOutput(BaseModel):
+    next_week_topic_map: list[NextWeekSlotPlan] = Field(
+        default_factory=list,
+        description="Tepat 14 slot roadmap (Senin-Minggu × 12:00 & 19:00 WIB): 12:00 selalu DAPUR, 19:00 Sen-Jum REGULER (termasuk request penonton), 19:00 Sab-Min KARAT",
+    )
+
+
 class Agent8WeeklyAuditOutput(BaseModel):
     week_ending: str = Field(description="ISO date YYYY-MM-DD (WIB) of the Sunday audit")
     summary: str = Field(description="Executive summary in Indonesian of this week's channel & video performance")

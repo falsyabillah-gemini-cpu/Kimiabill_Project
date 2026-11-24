@@ -226,6 +226,8 @@ def reset_model_usage_log() -> None:
 def _infer_agent_label(handoff_path: Path | None, system_prompt: str) -> str:
     if handoff_path is not None:
         stem = handoff_path.stem.lower()
+        if stem.startswith("agent1_topic_map"):
+            return "Agent 1 (Peta Topik Mingguan)"
         if stem.startswith("agent1"):
             return "Agent 1 (Ideasi Topik)"
         if stem.startswith("agent2"):

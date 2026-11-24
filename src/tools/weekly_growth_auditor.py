@@ -25,7 +25,7 @@ import requests
 import yaml
 
 from src.providers import call_structured_agent
-from src.state import Agent8WeeklyAuditOutput, AudienceRequestItem
+from src.state import Agent8WeeklyAuditOutput, AudienceRequestItem, NextWeekTopicMapOutput
 from src.tools.gdrive_sync import _normalize_webhook_url
 
 WIB = ZoneInfo("Asia/Jakarta")
@@ -938,15 +938,10 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             "4. INTERNATIONAL VIEWER POTENTIAL & MILESTONE READINESS: Evaluate `countries_summary` (non-ID view share & top countries), "
             "foreign-language comments, and `cumulative_milestone_stats` (Reguler vs KARAT & total database) in `international_potential`, "
             "noting which science topics/visuals show global appeal for a future English channel.\n"
-            "5. TOPIC LANDSCAPE & NEXT-WEEK 14-SLOT TOPIC MAPPING: Inspect `topic_landscape` (all produced science topics, `top_videos`, "
+            "5. TOPIC PERFORMANCE DIAGNOSIS: Inspect `topic_landscape` (all produced science topics, `top_videos`, "
             "`bottom_videos`, and `discipline_breakdown` gaps across 5 pillars). Populate `topic_performance_highlights` (3-5 crisp "
             "Indonesian findings naming exact highest-views vs lowest-views topics and WHY they succeeded/stalled). "
-            "Then populate `next_week_topic_map` with EXACTLY 14 slots covering Senin through Minggu:\n"
-            "   - Every day `12:00` WIB MUST be section='DAPUR' (Kimia Dapur / Sains Sehari-hari di rumah/makanan, relatable & filmable).\n"
-            "   - Senin-Jumat `19:00` WIB MUST be section='REGULER' (prioritizing pending/new `audience_requests`, filling 0-count discipline "
-            "gaps like Fisika/Matematika, and doubling down on winning themes).\n"
-            "   - Sabtu & Minggu `19:00` WIB MUST be section='KARAT' (breaking research-paper angles matching top themes).\n"
-            "   NEVER repeat any topic in `topic_landscape.all_produced_titles`.\n"
+            "Leave `next_week_topic_map` as `[]` — Agent 1 (Trend Scout & Planner) will draft the 14-slot weekly titles right after your audit!\n"
             "Produce sharp, concrete next-week upgrade directives for Agents 1, 2, 3, 5, and 6 so the entire studio "
             "becomes higher quality, faster, and more token-efficient every single week. "
             "Also populate `recommended_weekend_hours_wib` with 2 optimal HH:MM WIB upload times (1 midday slot around 11:30-13:30 "
@@ -973,6 +968,56 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
     queued_new = queue_audience_requests(audit.audience_requests, today_wib)
     if queued_new:
         print(f"[agent8] Berhasil mencatat {len(queued_new)} request penonton baru ke antrean minggu depan!")
+
+    # Delegate 14-slot next-week creative topic roadmapping to Agent 1 (Trend Scout & Ideation)
+    a1_cfg = agents_cfg.get("agents", {}).get(
+        "agent_1_ideation",
+        {"provider": "auto", "recommended_prod_model": "gemini-3.8-flash"},
+    )
+    try:
+        pending_queue = [r for r in load_audience_requests() if r.get("status") == "pending"][:7]
+        kitchen_cands = memory.get_kitchen_chemistry_ideas(count=12)
+        topic_map_res = call_structured_agent(
+            provider=a1_cfg.get("provider", "auto"),
+            model=a1_cfg.get("model", a1_cfg.get("recommended_prod_model", "gemini-3.8-flash")),
+            system_prompt=(
+                "You are Agent 1 (Viral Pure-Science Trend Scout & Weekly Topic Strategist) for Kimiabill. "
+                "Using Agent 8's strategic audit findings (`agent8_strategy`), design `next_week_topic_map` with EXACTLY 14 slots "
+                "covering Senin through Minggu (two slots per day: `12:00` and `19:00` WIB):\n"
+                "- EVERY day `12:00` WIB MUST be `section: 'DAPUR'` (Kimia Dapur / Sains Sehari-hari di rumah/makanan/minuman, "
+                "prioritizing `kitchen_chemistry_candidates` or fresh filmable kitchen-science concepts).\n"
+                "- Senin-Jumat `19:00` WIB MUST be `section: 'REGULER'`: prioritize `pending_audience_requests`, fill 0-video "
+                "discipline gaps (`fisika`, `matematika`, `biologi`), and double down on winning topic patterns from Agent 8.\n"
+                "- Sabtu & Minggu `19:00` WIB MUST be `section: 'KARAT'`: breaking research-paper angles aligned with Agent 8's `karat_weekend_directives`.\n"
+                "Apply Veritasium misconception-first hooks, concrete filmable visuals, and NEVER repeat any title in `avoid_titles`."
+            ),
+            user_payload={
+                "week_ending": today_wib,
+                "agent8_strategy": {
+                    "topic_performance_highlights": audit.topic_performance_highlights,
+                    "agent_1_directives": audit.agent_1_directives,
+                    "karat_weekend_directives": audit.karat_weekend_directives,
+                    "top_performing_patterns": audit.top_performing_patterns,
+                },
+                "discipline_gaps": topic_landscape_brief["discipline_breakdown"],
+                "pending_audience_requests": [
+                    {"requester": r.get("requester_name"), "topic": r.get("topic_title"), "discipline": r.get("discipline")}
+                    for r in pending_queue
+                ],
+                "kitchen_chemistry_candidates": [
+                    {"title": k.get("title"), "discipline": k.get("discipline"), "phenomenon": k.get("phenomenon")}
+                    for k in kitchen_cands
+                ],
+                "avoid_titles": topic_landscape_brief["all_produced_titles"],
+            },
+            response_model=NextWeekTopicMapOutput,
+            handoff_path=AUDITS_DIR / f"agent1_topic_map_{today_wib}.json",
+        )
+        if topic_map_res.next_week_topic_map:
+            audit.next_week_topic_map = list(topic_map_res.next_week_topic_map)
+            print(f"[agent8->agent1] Agent 1 menyusun {len(audit.next_week_topic_map)} slot peta topik minggu depan!")
+    except Exception as exc:
+        print(f"[agent8->agent1] Peringatan delegasi peta topik ke Agent 1 gagal ({exc}); memakai peta cadangan visual PDF.")
 
     DIRECTIVES_PATH.parent.mkdir(parents=True, exist_ok=True)
     DIRECTIVES_PATH.write_text(audit.model_dump_json(indent=2), encoding="utf-8")
