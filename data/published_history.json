@@ -74,26 +74,19 @@
   },
   {
     "episode_id": "ep_20261124_1924",
-    "published_at_wib": "2026-11-24T19:40:13+07:00",
+    "published_at_wib": "2026-11-24T20:00:32+07:00",
     "title": "Rahasia Obat Nyeri: Kok Bisa Tahu Bagian Tubuh Mana yang Lagi Sakit?",
-    "discipline": "medisinal",
-    "youtube_url": null,
+    "discipline": "kimia",
+    "section": "REGULER",
+    "youtube_url": "https://youtube.com/shorts/pSWsTnf4bdg",
     "gdrive_folder_url": "https://drive.google.com/drive/folders/1dBbXI_PCZ6tPzwKZziTSYssefZCUOJhm",
     "qa_score": 9.2,
-    "duration_sec": 73.906,
+    "duration_sec": null,
     "hook_line": "Obat nyeri masuk melalui saluran pencernaan, namun bagaimana molekulnya mendeteksi titik spesifik tubuh yang sedang sakit tanpa sistem navigasi khusus?",
-    "revisions_used": 1,
+    "revisions_used": 0,
     "topic_attempts_used": 1,
-    "production_seconds": 946.3,
+    "production_seconds": null,
     "publish_mode": "public",
-    "agent_models": {
-      "Agent 1 (Ideasi Topik)": "gemini-3.5-flash (fallback dari gemini-3.8-flash)",
-      "Agent 2 (Auditor Hook)": "gemini-3.6-flash (fallback dari gemini-4-hydrogen)",
-      "Agent 3 (Skrip & Storyboard)": "gemini-3.6-flash (fallback dari gemini-4-hydrogen)",
-      "Agent 6 (Screening Klip)": "gemini-3.5-flash-lite (24x)",
-      "Agent 5 (QA Video v1)": "gemini-3.5-flash (fallback dari gemini-4-hydrogen)",
-      "Agent 5 (QA Video v2)": "gemini-3.5-flash-lite (fallback dari gemini-4-hydrogen)",
-      "Agent 7 (Packaging & SEO)": "gemini-3.5-flash (fallback dari gemini-3.8-flash)"
-    }
+    "agent_models": {}
   }
 ]
