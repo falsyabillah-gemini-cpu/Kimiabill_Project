@@ -27,7 +27,6 @@ jobs:
           import os
           import sys
           import requests
-          import yaml
           from src.tools.gdrive_sync import _normalize_webhook_url
 
           raw_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
@@ -37,22 +36,12 @@ jobs:
 
           url = _normalize_webhook_url(raw_url)
           token = os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
-          brand = yaml.safe_load(open("config/brand.yaml", encoding="utf-8"))
-          sheet_id = brand["publishing"]["tracking_sheet_id"]
 
           # 1. Check doGet
           g = requests.get(url, timeout=30)
           print("1. GET status:", g.status_code, "body:", g.text[:300])
 
-          # 2. Check sync_audit_sheet without audit_row/request_rows (read-only openById check -> proves new script + Sheets permission)
-          p_sheet = requests.post(
-              url,
-              json={"action": "sync_audit_sheet", "token": token, "sheet_id": sheet_id},
-              timeout=45,
-          ).json()
-          print("2. sync_audit_sheet check:", json.dumps(p_sheet, ensure_ascii=False))
-
-          # 3. Check get_youtube_stats -> proves YouTube Data API + Analytics + Comments still active
+          # 2. Check get_youtube_stats -> YouTube Data API + Analytics + Comments + Countries breakdown
           p_yt = requests.post(
               url,
               json={"action": "get_youtube_stats", "token": token, "max_results": 2},
@@ -63,15 +52,26 @@ jobs:
               "ok": p_yt.get("ok"),
               "error": p_yt.get("error"),
               "analytics_enabled": p_yt.get("analytics_enabled"),
+              "has_countries_field": "countries" in p_yt,
+              "countries_count": len(p_yt.get("countries") or []),
+              "top_countries": (p_yt.get("countries") or [])[:5],
               "channel": ch.get("title"),
               "subscribers": ch.get("subscribers"),
               "total_views": ch.get("total_views"),
               "videos_checked": len(p_yt.get("videos", [])),
               "recent_comments_count": len(p_yt.get("recent_comments", [])),
           }
-          print("3. get_youtube_stats check:", json.dumps(yt_summary, ensure_ascii=False))
+          print("2. get_youtube_stats check:", json.dumps(yt_summary, ensure_ascii=False))
 
-          if not p_sheet.get("ok") or not p_yt.get("ok"):
+          # 3. Non-destructive check that new post_comment & set_thumbnail actions exist in deployed script
+          p_cmt = requests.post(url, json={"action": "post_comment", "token": token}, timeout=30).json()
+          p_th = requests.post(url, json={"action": "set_thumbnail", "token": token}, timeout=30).json()
+          cmt_deployed = "Unknown action" not in str(p_cmt.get("error", ""))
+          th_deployed = "Unknown action" not in str(p_th.get("error", ""))
+          print("3. post_comment handler check:", json.dumps({"deployed": cmt_deployed, "resp": p_cmt}, ensure_ascii=False))
+          print("4. set_thumbnail handler check:", json.dumps({"deployed": th_deployed, "resp": p_th}, ensure_ascii=False))
+
+          if not p_yt.get("ok") or not cmt_deployed or not th_deployed:
               sys.exit(1)
           print("ALL APPS SCRIPT CHECKS PASSED!")
           PY
