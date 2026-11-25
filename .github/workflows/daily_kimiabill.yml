@@ -111,6 +111,9 @@ jobs:
           GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
           GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
           NOTIFY_EMAIL_TO: ${{ vars.NOTIFY_EMAIL_TO || 'researchfalsyabillah@gmail.com' }}
+          NOTIFY_EMAIL_ALSO: ${{ vars.NOTIFY_EMAIL_ALSO || 'true' }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           AUTO_UPLOAD_GDRIVE: "true"
         run: |
           mkdir -p _rescue_art episodes
@@ -188,7 +191,7 @@ jobs:
           GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
           GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
           NOTIFY_EMAIL_TO: ${{ vars.NOTIFY_EMAIL_TO || 'researchfalsyabillah@gmail.com' }}
-          NOTIFY_EMAIL_ALSO: ${{ vars.NOTIFY_EMAIL_ALSO || 'false' }}
+          NOTIFY_EMAIL_ALSO: ${{ vars.NOTIFY_EMAIL_ALSO || 'true' }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           OWNER_FEEDBACK_OVERRIDE: ${{ github.event.inputs.owner_feedback || github.event.client_payload.feedback || '' }}

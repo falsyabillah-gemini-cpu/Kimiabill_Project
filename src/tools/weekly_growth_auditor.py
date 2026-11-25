@@ -947,7 +947,7 @@ def _deliver_audit_to_drive_and_email(
     email_body = ("\n\n".join(header_links) + "\n\n" if header_links else "") + report_md
 
     tg_sent = False
-    notify_email_also = os.environ.get("NOTIFY_EMAIL_ALSO", "false").strip().lower() == "true"
+    notify_email_also = os.environ.get("NOTIFY_EMAIL_ALSO", "true").strip().lower() == "true"
     try:
         from src.tools.telegram_notify import (
             send_telegram_document,
@@ -1487,7 +1487,7 @@ def send_flow_prompts_and_guide_email(
         subject = f"[Kimiabill] Link Google AI Flow, Folder Drive & {len(prompts)} Prompt Pilihan ({today})"
 
         tg_sent = False
-        notify_email_also = os.environ.get("NOTIFY_EMAIL_ALSO", "false").strip().lower() == "true"
+        notify_email_also = os.environ.get("NOTIFY_EMAIL_ALSO", "true").strip().lower() == "true"
         try:
             from src.tools.telegram_notify import (
                 send_telegram_document,

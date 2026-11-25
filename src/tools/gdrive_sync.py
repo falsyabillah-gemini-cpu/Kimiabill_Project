@@ -544,7 +544,7 @@ def _upload_via_webhook(
     ] if sheet_id else []
 
     tg_sent = False
-    notify_email_also = os.environ.get("NOTIFY_EMAIL_ALSO", "false").strip().lower() == "true"
+    notify_email_also = os.environ.get("NOTIFY_EMAIL_ALSO", "true").strip().lower() == "true"
     try:
         from src.tools.telegram_notify import send_telegram_message, send_telegram_video, telegram_enabled
 
