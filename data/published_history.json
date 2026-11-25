@@ -88,5 +88,33 @@
     "production_seconds": null,
     "publish_mode": "public",
     "agent_models": {}
+  },
+  {
+    "episode_id": "ep_20261125_1157",
+    "published_at_wib": "2026-11-25T12:21:30+07:00",
+    "title": "Kenapa Daging Keras Bisa Langsung Empuk Direndam Parutan Nanas?",
+    "discipline": "kimia",
+    "section": "DAPUR",
+    "youtube_url": "https://youtube.com/shorts/_3tpx9JeEKs",
+    "gdrive_folder_url": "https://drive.google.com/drive/folders/1oscMKaBcrUqIoRQHT4FPkW4KiJdNZgHA",
+    "qa_score": 9.2,
+    "duration_sec": 61.992,
+    "hook_line": "Mengapa daging sapi yang keras bisa hancur hanya karena direndam nanas? Bukan karena asamnya—melainkan karena nanas itu sedang memakan daging tersebut hidup-hid",
+    "revisions_used": 4,
+    "topic_attempts_used": 1,
+    "production_seconds": 1364.0,
+    "publish_mode": "public",
+    "agent_models": {
+      "Agent 1 (Ideasi Topik)": "gemini-3.5-flash (fallback dari gemini-3.8-flash)",
+      "Agent 2 (Auditor Hook)": "gemini-4-hydrogen",
+      "Agent 3 (Skrip & Storyboard)": "gemini-3.5-flash-lite (fallback dari gemini-4-hydrogen)",
+      "Agent 6 (Screening Klip)": "gemini-3.5-flash-lite (67x)",
+      "Agent 5 (QA Video v1)": "gemini-3.6-flash (fallback dari gemini-4-hydrogen)",
+      "Agent 5 (QA Video v2)": "gemini-4-hydrogen",
+      "Agent 5 (QA Video v3)": "gemini-4-hydrogen",
+      "Agent 5 (QA Video v4)": "gemini-3.5-flash (fallback dari gemini-4-hydrogen)",
+      "Agent 5 (QA Video v5)": "gemini-3.5-flash-lite (fallback dari gemini-4-hydrogen)",
+      "Agent 7 (Packaging & SEO)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)"
+    }
   }
 ]
