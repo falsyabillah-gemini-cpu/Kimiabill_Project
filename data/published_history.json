@@ -116,5 +116,30 @@
       "Agent 5 (QA Video v5)": "gemini-3.5-flash-lite (fallback dari gemini-4-hydrogen)",
       "Agent 7 (Packaging & SEO)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)"
     }
+  },
+  {
+    "episode_id": "ep_20261125_1759",
+    "published_at_wib": "2026-11-25T18:59:59+07:00",
+    "title": "Misteri Tersembunyi Jari Keriput Berendam",
+    "discipline": "biologi",
+    "section": "REGULER",
+    "youtube_url": "https://youtube.com/shorts/biKqQyYr6xQ",
+    "gdrive_folder_url": "https://drive.google.com/drive/folders/1sJE_LyBi5Pd660Hp4d4rAQsjMa8Az5Rp",
+    "qa_score": 9.5,
+    "duration_sec": 43.813,
+    "hook_line": "Coba tebak! Berani taruhan, jari keriput saat kamu berendam lama itu bukan karena kulit kemasukan air!",
+    "revisions_used": 1,
+    "topic_attempts_used": 1,
+    "production_seconds": 816.9,
+    "publish_mode": "public",
+    "agent_models": {
+      "Agent 1 (Ideasi Topik)": "gemini-3.6-flash (fallback dari gemini-3.8-flash)",
+      "Agent 2 (Auditor Hook)": "gemini-4-hydrogen",
+      "Agent 3 (Skrip & Storyboard)": "gemini-3.6-flash (fallback dari gemini-4-hydrogen)",
+      "Agent 6 (Screening Klip)": "gemini-3.5-flash-lite / gemini-3.6-flash / gemini-3.5-flash (34x)",
+      "Agent 5 (QA Video v1)": "gemini-3.5-flash-lite (fallback dari gemini-4-hydrogen)",
+      "Agent 5 (QA Video v2)": "gemini-3.5-flash-lite (fallback dari gemini-4-hydrogen)",
+      "Agent 7 (Packaging & SEO)": "gemini-3.6-flash (fallback dari gemini-3.8-flash)"
+    }
   }
 ]
