@@ -277,10 +277,24 @@ class NextWeekSlotPlan(BaseModel):
     rationale: str = Field(description="Alasan singkat (< 90 karakter): mis. teruskan pola rame / request penonton / isi gap disiplin")
 
 
+class FlowClipPromptPlan(BaseModel):
+    slot_label: str = Field(description="Target jadwal, mis. 'Selasa 12:00 WIB (DAPUR)' atau 'Sabtu 19:00 WIB (KARAT)'")
+    topic_title: str = Field(description="Judul singkat topik episode")
+    suggested_filename: str = Field(description="Nama file MP4 huruf kecil + underscore agar Agent 6 otomatis mengenali (mis. nanas_serat_daging.mp4)")
+    why_flow_needed: str = Field(description="Alasan singkat (< 100 char) mengapa adegan ini paling efektif digenerate di Google Flow")
+    flow_prompt_en: str = Field(description="Prompt bahasa Inggris siap salin ke Google Flow (9:16 vertical, photorealistic macro/laboratory B-roll, no text/watermark)")
+    recommended_model: str = Field(default="Omni Flash 1.2 (720p, ~18-24 cr)", description="Model hemat kredit di Google Flow (Veo 3.1 Lite 10 cr atau Omni Flash 1.2)")
+    estimated_credits: int = Field(default=20, description="Perkiraan konsumsi kredit Flow untuk 1 klip (~10 cr Lite / ~18-24 cr Omni Flash)")
+
+
 class NextWeekTopicMapOutput(BaseModel):
     next_week_topic_map: list[NextWeekSlotPlan] = Field(
         default_factory=list,
         description="Tepat 14 slot roadmap (Senin-Minggu × 12:00 & 19:00 WIB): 12:00 selalu DAPUR, 19:00 Sen-Jum REGULER (termasuk request penonton), 19:00 Sab-Min KARAT",
+    )
+    flow_clip_prompts: list[FlowClipPromptPlan] = Field(
+        default_factory=list,
+        description="Hanya 4-6 adegan pilihan paling berdampak minggu depan yang disarankan digenerate manual di Google AI Flow (tidak semuanya)",
     )
 
 
@@ -302,6 +316,10 @@ class Agent8WeeklyAuditOutput(BaseModel):
     next_week_topic_map: list[NextWeekSlotPlan] = Field(
         default_factory=list,
         description="14-slot weekly roadmap (Senin-Minggu × 12:00 & 19:00 WIB): 12:00 always DAPUR, 19:00 Mon-Fri REGULER (with viewer requests), 19:00 Sat-Sun KARAT",
+    )
+    flow_clip_prompts: list[FlowClipPromptPlan] = Field(
+        default_factory=list,
+        description="4-6 high-impact weekly prompts selected for manual Google AI Flow generation",
     )
     agent_1_directives: list[str] = Field(
         default_factory=list,

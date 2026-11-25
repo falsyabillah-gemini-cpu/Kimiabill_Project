@@ -108,6 +108,33 @@ class StudioMemory:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS flow_clip_usage (
+                    file_id TEXT PRIMARY KEY,
+                    filename TEXT NOT NULL,
+                    episode_id TEXT,
+                    used_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.commit()
+
+    def get_used_flow_clip_ids(self) -> set[str]:
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute("SELECT file_id FROM flow_clip_usage").fetchall()
+            return {str(r[0]) for r in rows if r and r[0]}
+
+    def mark_flow_clip_used(self, file_id: str, filename: str, episode_id: str = "") -> None:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO flow_clip_usage (file_id, filename, episode_id, used_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (str(file_id), str(filename), str(episode_id or ""), now_iso),
+            )
             conn.commit()
 
     def sync_idea_bank_from_json(self) -> int:

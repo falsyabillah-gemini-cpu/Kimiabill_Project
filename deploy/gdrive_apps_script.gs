@@ -485,6 +485,60 @@ function doPost(e) {
       });
     }
 
+    if (action === "list_flow_clips") {
+      const rootName = payload.root_folder || DEFAULT_ROOT_FOLDER;
+      const bankName = payload.folder_name || "Flow_Clip_Bank";
+      const bankFolder = payload.folder_id
+        ? DriveApp.getFolderById(String(payload.folder_id))
+        : _getOrCreateFolder(bankName, _getOrCreateFolder(rootName, null));
+      const clips = [];
+      const files = bankFolder.getFiles();
+      while (files.hasNext()) {
+        const f = files.next();
+        const nameLow = String(f.getName() || "").toLowerCase();
+        const mime = String(f.getMimeType() || "").toLowerCase();
+        const isVid = nameLow.endsWith(".mp4") || nameLow.endsWith(".mov") || nameLow.endsWith(".webm") || mime.indexOf("video/") === 0;
+        if (!isVid) continue;
+        const sz = f.getSize();
+        if (sz <= 10240 || sz > 36 * 1024 * 1024) continue;
+        clips.push({
+          file_id: f.getId(),
+          filename: f.getName(),
+          mime_type: f.getMimeType(),
+          size_bytes: sz,
+          modified_time: f.getLastUpdated().toISOString(),
+          web_url: f.getUrl(),
+        });
+      }
+      return _jsonResponse({
+        ok: true,
+        folder_id: bankFolder.getId(),
+        folder_url: bankFolder.getUrl(),
+        clips: clips,
+      });
+    }
+
+    if (action === "download_drive_file") {
+      const fid = String(payload.file_id || "").trim();
+      if (!fid) {
+        return _jsonResponse({ ok: false, error: "file_id wajib diisi." });
+      }
+      const f = DriveApp.getFileById(fid);
+      const sz = f.getSize();
+      if (sz > 36 * 1024 * 1024) {
+        return _jsonResponse({ ok: false, error: "File melebihi batas 36 MB Apps Script (" + sz + " bytes)." });
+      }
+      const blob = f.getBlob();
+      return _jsonResponse({
+        ok: true,
+        file_id: f.getId(),
+        filename: f.getName(),
+        mime_type: blob.getContentType() || f.getMimeType(),
+        size_bytes: sz,
+        content_base64: Utilities.base64Encode(blob.getBytes()),
+      });
+    }
+
     if (action === "send_custom_email") {
       const to = payload.to || DEFAULT_NOTIFY_EMAIL;
       const subject = payload.subject || "[Kimiabill] Laporan Otomatis";

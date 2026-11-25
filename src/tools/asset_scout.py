@@ -10,6 +10,7 @@ Reuses local SFX cache via StudioMemory so basic SFX are never re-fetched.
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -339,6 +340,184 @@ def search_nasa_videos(query: str, limit: int = 5) -> list[VideoCandidate]:
     return out
 
 
+_FLOW_BILINGUAL_SYNONYMS: dict[str, set[str]] = {
+    "nanas": {"pineapple", "bromelain", "enzim", "enzyme"},
+    "pineapple": {"nanas", "bromelain", "enzyme"},
+    "daging": {"meat", "beef", "steak", "protein", "serat"},
+    "meat": {"daging", "beef", "steak"},
+    "beef": {"daging", "steak", "meat"},
+    "kopi": {"coffee", "caffeine", "kafein", "seduh", "brew"},
+    "coffee": {"kopi", "caffeine", "brew"},
+    "air": {"water", "droplet", "h2o", "tetes", "liquid", "cairan"},
+    "water": {"air", "droplet", "tetes", "liquid"},
+    "minyak": {"oil", "frying", "goreng", "lipid", "lemak"},
+    "oil": {"minyak", "frying", "goreng"},
+    "es": {"ice", "beku", "frost", "kristal", "crystal"},
+    "ice": {"es", "beku", "frost", "melting", "mencair"},
+    "garam": {"salt", "nacl", "sodium", "kristal"},
+    "salt": {"garam", "nacl", "sodium", "crystal"},
+    "gula": {"sugar", "karamel", "caramel", "glukosa"},
+    "sugar": {"gula", "caramel", "glucose"},
+    "api": {"fire", "flame", "pembakaran", "nyala", "burn"},
+    "fire": {"api", "flame", "burn", "combustion"},
+    "karat": {"rust", "korosi", "corrosion", "iron", "besi", "oksidasi"},
+    "rust": {"karat", "korosi", "corrosion", "iron", "besi"},
+    "sel": {"cell", "cells", "mikroskop", "microscope", "bakteri"},
+    "cell": {"sel", "microscope", "mikroskop"},
+    "telur": {"egg", "albumin", "protein"},
+    "egg": {"telur", "protein", "boiling"},
+    "bawang": {"onion", "garlic", "tear", "mata"},
+    "onion": {"bawang", "garlic"},
+    "susu": {"milk", "casein", "kasein", "emulsion"},
+    "milk": {"susu", "emulsion"},
+    "pisang": {"banana", "buah", "fruit"},
+    "banana": {"pisang", "fruit"},
+    "asam": {"acid", "ph", "cuka", "vinegar", "lemon"},
+    "acid": {"asam", "vinegar", "lemon"},
+    "panas": {"heat", "hot", "boiling", "mendidih", "thermal"},
+    "mendidih": {"boiling", "bubbles", "gelembung", "heat"},
+    "boiling": {"mendidih", "bubbles", "panas"},
+    "goreng": {"frying", "oil", "minyak", "pan", "wajan"},
+    "frying": {"goreng", "oil", "minyak", "pan"},
+    "kristal": {"crystal", "crystals", "lattice", "kisi"},
+    "crystal": {"kristal", "salt", "garam"},
+}
+
+
+def list_flow_clip_bank() -> list[dict]:
+    """Fetch available Google AI Flow MP4 clips from Kimiabill_Studio/Flow_Clip_Bank via Apps Script webhook."""
+    raw_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
+    if not raw_url:
+        return []
+    try:
+        from src.tools.gdrive_sync import _normalize_webhook_url
+
+        webhook_url = _normalize_webhook_url(raw_url)
+        token = os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
+        resp = requests.post(
+            webhook_url,
+            json={
+                "action": "list_flow_clips",
+                "token": token,
+                "root_folder": "Kimiabill_Studio",
+                "folder_name": "Flow_Clip_Bank",
+            },
+            timeout=25,
+        )
+        if resp.status_code != 200:
+            return []
+        data = resp.json()
+        if not data.get("ok"):
+            return []
+        clips = data.get("clips") or []
+        return [c for c in clips if isinstance(c, dict) and c.get("file_id") and c.get("filename")]
+    except Exception:
+        return []
+
+
+def _score_flow_clip_for_scene(filename: str, scene: SceneSpec) -> int:
+    stem = Path(filename).stem.lower()
+    raw_tokens = [
+        t for t in re.findall(r"[a-z0-9]+", stem)
+        if len(t) >= 2 and t not in {"flow", "clip", "clips", "video", "scene", "kimiabill", "9x16", "hd", "mp4", "mov"}
+    ]
+    if not raw_tokens:
+        return 0
+    expanded_file_tokens: set[str] = set(raw_tokens)
+    for tok in raw_tokens:
+        expanded_file_tokens |= _FLOW_BILINGUAL_SYNONYMS.get(tok, set())
+
+    scene_blob = " ".join([scene.visual_query, *scene.fallback_queries, scene.narration or ""]).lower()
+    scene_tokens = set(re.findall(r"[a-z0-9]+", scene_blob))
+    overlap = expanded_file_tokens & scene_tokens
+    return len(overlap)
+
+
+def _try_match_flow_bank_clip(
+    scene: SceneSpec,
+    flow_clips: list[dict],
+    used_flow_ids: set[str],
+    used_urls: set[str],
+    dest_mp4: Path,
+    episode_id: str,
+    memory: StudioMemory,
+) -> Optional[tuple[VideoCandidate, dict]]:
+    if not flow_clips:
+        return None
+    scored: list[tuple[int, dict]] = []
+    for clip in flow_clips:
+        fid = str(clip.get("file_id") or "")
+        wurl = str(clip.get("web_url") or f"flow://{fid}")
+        if not fid or fid in used_flow_ids or wurl in used_urls:
+            continue
+        sc = _score_flow_clip_for_scene(str(clip.get("filename") or ""), scene)
+        if sc >= 1:
+            scored.append((sc, clip))
+    if not scored:
+        return None
+    scored.sort(key=lambda pair: (-pair[0], str(pair[1].get("filename") or "")))
+
+    raw_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
+    if not raw_url:
+        return None
+    from src.tools.gdrive_sync import _normalize_webhook_url
+
+    webhook_url = _normalize_webhook_url(raw_url)
+    token = os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
+
+    for _sc, clip in scored[:3]:
+        fid = str(clip["file_id"])
+        fname = str(clip["filename"])
+        wurl = str(clip.get("web_url") or f"flow://{fid}")
+        try:
+            dl_resp = requests.post(
+                webhook_url,
+                json={"action": "download_drive_file", "token": token, "file_id": fid},
+                timeout=90,
+            )
+            if dl_resp.status_code != 200:
+                continue
+            dl_json = dl_resp.json()
+            if not dl_json.get("ok") or not dl_json.get("content_base64"):
+                continue
+            raw_path = dest_mp4.with_suffix(".raw_dl")
+            raw_path.write_bytes(base64.b64decode(dl_json["content_base64"]))
+            raw_info = probe_video(raw_path)
+            if not raw_info or raw_info.get("duration", 0) < 2.0:
+                raw_path.unlink(missing_ok=True)
+                continue
+            ok, _clean, reason = vision_screen_clip(raw_path, scene)
+            print(f"[asset_scout] {scene.scene_id} Flow_Clip_Bank '{fname}': ok={ok} ({reason[:140]})")
+            used_urls.add(wurl)
+            if not ok:
+                raw_path.unlink(missing_ok=True)
+                continue
+            chosen_info = _transcode_to_mp4(raw_path, raw_info, dest_mp4)
+            if not chosen_info:
+                raw_path.unlink(missing_ok=True)
+                continue
+            used_flow_ids.add(fid)
+            try:
+                memory.mark_flow_clip_used(fid, fname, episode_id)
+            except Exception:
+                pass
+            cand = VideoCandidate(
+                source="google_flow",
+                title=f"Google Flow - {fname}"[:120],
+                download_url=wurl,
+                page_url=wurl,
+                license="Google AI Flow (User Subscription Bank)",
+                duration_sec=float(chosen_info.get("duration") or raw_info.get("duration") or 6.0),
+                width=int(chosen_info.get("width") or 1080),
+                height=int(chosen_info.get("height") or 1920),
+                thumb_url=None,
+            )
+            return cand, chosen_info
+        except Exception as exc:
+            print(f"[asset_scout] Peringatan ambil Flow_Clip_Bank '{fname}': {exc}")
+    return None
+
+
 def search_wikimedia_videos(query: str, limit: int = 12) -> list[VideoCandidate]:
     """Search Wikimedia Commons for real video files (.webm / .mp4 / .ogv)."""
     headers = {"User-Agent": USER_AGENT}
@@ -620,6 +799,15 @@ def scout_assets_for_scenes(
     used_urls: set[str] = set(exclude_urls or ())
     used_stems: set[str] = set()
     max_screens = int(os.environ.get("ASSET_MAX_SCREENS_PER_SCENE", "6"))
+    flow_bank_clips = list_flow_clip_bank()
+    used_flow_ids: set[str] = set()
+    try:
+        raw_used = memory.get_used_flow_clip_ids()
+        if isinstance(raw_used, set):
+            used_flow_ids = set(raw_used)
+    except Exception:
+        pass
+    episode_id = assets_dir.parent.name if assets_dir.parent else ""
 
     for scene in scenes:
         if target_scene_ids is not None and scene.scene_id not in target_scene_ids and existing_assets and scene.scene_id in existing_assets:
@@ -640,6 +828,19 @@ def scout_assets_for_scenes(
             info = download_and_normalize_clip(cand, dest_mp4)
             if info:
                 chosen_cand, chosen_info = cand, info
+
+        if chosen_cand is None and flow_bank_clips:
+            flow_hit = _try_match_flow_bank_clip(
+                scene=scene,
+                flow_clips=flow_bank_clips,
+                used_flow_ids=used_flow_ids,
+                used_urls=used_urls,
+                dest_mp4=dest_mp4,
+                episode_id=episode_id,
+                memory=memory,
+            )
+            if flow_hit:
+                chosen_cand, chosen_info = flow_hit
 
         if chosen_cand is None:
             raw_queries = [scene.visual_query] + list(scene.fallback_queries)

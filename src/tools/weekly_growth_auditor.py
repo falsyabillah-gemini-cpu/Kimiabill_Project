@@ -25,7 +25,7 @@ import requests
 import yaml
 
 from src.providers import call_structured_agent
-from src.state import Agent8WeeklyAuditOutput, AudienceRequestItem, NextWeekTopicMapOutput
+from src.state import Agent8WeeklyAuditOutput, AudienceRequestItem, FlowClipPromptPlan, NextWeekTopicMapOutput
 from src.tools.gdrive_sync import _normalize_webhook_url
 
 WIB = ZoneInfo("Asia/Jakarta")
@@ -35,6 +35,10 @@ DIRECTIVES_PATH = BASE_DIR / "data" / "weekly_agent_directives.json"
 AUDITS_DIR = BASE_DIR / "data" / "weekly_audits"
 REQUESTS_PATH = BASE_DIR / "data" / "audience_requests.json"
 MASTER_CSV_PATH = BASE_DIR / "data" / "KIMIABILL_MASTER_DATABASE.csv"
+GOOGLE_FLOW_URL = "https://labs.google/fx/tools/flow"
+FLOW_CLIP_BANK_FOLDER_ID = "1I-axC0oNrPpoY1Pd3F-PB8C0N7lIfVB8"
+FLOW_CLIP_BANK_URL = f"https://drive.google.com/drive/folders/{FLOW_CLIP_BANK_FOLDER_ID}"
+FLOW_PROMPTS_LATEST_PATH = BASE_DIR / "data" / "FLOW_PROMPTS_LATEST.txt"
 
 
 def load_audience_requests() -> list[dict[str, Any]]:
@@ -594,12 +598,130 @@ def _format_audit_markdown(
             ],
         )
     _sec("Eksperimen Minggu Depan", audit.next_week_experiments)
+    if getattr(audit, "flow_clip_prompts", None):
+        lines.append("")
+        lines.append("## Rencana & Prompt Google AI Flow Minggu Depan (Pilihan B-Roll Hero)")
+        lines.append(f"- **Link Google AI Flow:** {GOOGLE_FLOW_URL}")
+        lines.append(f"- **Folder Output Drive:** `Kimiabill_Studio / Flow_Clip_Bank` ({FLOW_CLIP_BANK_URL})")
+        lines.append(f"- **File Prompt Siap Salin:** `data/FLOW_PROMPTS_LATEST.txt` & `Kimiabill_Studio/Flow_Clip_Bank/PROMPT_GOOGLE_FLOW_TERBARU.txt`")
+        rem_cr = _parse_flow_credits_remaining()
+        total_est = sum(max(10, int(p.estimated_credits or 20)) for p in audit.flow_clip_prompts)
+        lines.append(
+            f"- **Estimasi Kredit Minggu Depan ({len(audit.flow_clip_prompts)} klip pilihan):** ~{total_est} kredit "
+            f"(patokan Veo 3.1 Lite = 10 cr/klip, Omni Flash 1.2 720p = 18-24 cr/klip)"
+            + (f" | **Sisa Kredit Tercatat:** {rem_cr} cr" if rem_cr is not None else " | **Cek saldo langsung:** pojok kanan atas profil di Google Flow")
+        )
+        for idx, fp in enumerate(audit.flow_clip_prompts, 1):
+            lines.append(
+                f"  {idx}. **{fp.slot_label} — {fp.topic_title}** → simpan sbg `{fp.suggested_filename}` (~{fp.estimated_credits} cr)  \n"
+                f"     Prompt: `{fp.flow_prompt_en}`"
+            )
+
     if audit.recommended_weekend_hours_wib:
         _sec(
             "Rekomendasi Jam Rame Edisi Weekend KARAT (Otomatis Diterapkan)",
             [f"{', '.join(audit.recommended_weekend_hours_wib)} WIB"],
         )
     return "\n".join(lines) + "\n"
+
+
+def _parse_flow_credits_remaining() -> Optional[int]:
+    raw = os.environ.get("FLOW_CREDITS_REMAINING", "").strip()
+    if not raw:
+        return None
+    digits = re.sub(r"[^0-9]", "", raw)
+    return int(digits) if digits else None
+
+
+def _recommended_flow_clip_quota(credits_remaining: Optional[int]) -> tuple[int, str]:
+    """Recommend how many optional Flow clips to generate next week based on user-provided credit balance."""
+    if credits_remaining is None:
+        return 5, (
+            "Agent tidak dapat membaca sisa kredit Google Flow secara otomatis karena tidak ada API saldo akun Google One/Flow.\n"
+            "Cek saldo langsung di pojok kanan atas profil Google Flow: https://labs.google/fx/tools/flow\n"
+            "Opsional: isi angka sisa kredit di GitHub Repo Variable `FLOW_CREDITS_REMAINING` agar jumlah prompt minggu depan otomatis menyesuaikan."
+        )
+    if credits_remaining >= 400:
+        return 6, f"Sisa kredit tercatat: {credits_remaining} cr — leluasa generate 5-6 klip pilihan minggu depan (~100-140 cr di Omni Flash 1.2 atau 50-60 cr di Veo 3.1 Lite)."
+    if credits_remaining >= 150:
+        return 4, f"Sisa kredit tercatat: {credits_remaining} cr — fokus generate 3-4 klip yang paling sulit dicari stok nyatanya (~40-90 cr)."
+    return 2, f"Sisa kredit tercatat: {credits_remaining} cr — hemat! Gunakan Veo 3.1 Lite (10 cr/klip) atau 50 kredit harian gratis Flow untuk 1-2 klip hero KARAT/DAPUR saja."
+
+
+def _format_flow_prompt_guide(
+    flow_prompts: list[FlowClipPromptPlan],
+    today_wib: str,
+    flow_folder_url: str = FLOW_CLIP_BANK_URL,
+    drive_prompt_url: str = "",
+) -> str:
+    rem_credits = _parse_flow_credits_remaining()
+    _target_n, credit_status_line = _recommended_flow_clip_quota(rem_credits)
+    total_omni = sum(max(10, int(p.estimated_credits or 20)) for p in flow_prompts)
+    total_lite = len(flow_prompts) * 10
+    lines = [
+        f"PANDUAN & DAFTAR PROMPT GOOGLE AI FLOW — KIMIABILL STUDIO ({today_wib})",
+        "=" * 68,
+        "",
+        "1) LINK MENUJU GOOGLE AI FLOW",
+        f"   {GOOGLE_FLOW_URL}",
+        "",
+        "2) LOKASI MENARUH VIDEO OUTPUT DI GOOGLE DRIVE",
+        f"   Folder : Kimiabill_Studio / Flow_Clip_Bank",
+        f"   Link   : {flow_folder_url or FLOW_CLIP_BANK_URL}",
+        "   Penting: Upload hasil MP4 (format vertikal 9:16, durasi 6-8 detik) ke folder ini",
+        "   dengan nama file sesuai daftar di bawah agar Agent 6 otomatis mengenali & memakainya",
+        "   lebih dulu sebelum mencari stok gratis Wikimedia/NASA/Pixabay.",
+        "",
+        "3) LETAK FILE PROMPT MINGGUAN",
+        "   - Langsung di badan email ini (lihat bagian #5 di bawah)",
+        f"   - Google Drive : Kimiabill_Studio / Flow_Clip_Bank / PROMPT_GOOGLE_FLOW_TERBARU.txt"
+        + (f" ({drive_prompt_url})" if drive_prompt_url else ""),
+        f"   - GitHub Repo  : data/FLOW_PROMPTS_LATEST.txt & data/weekly_audits/FLOW_PROMPTS_{today_wib}.txt",
+        "",
+        "4) CEK SISA KREDIT & PERENCANAAN PENGGUNAAN",
+        f"   {credit_status_line}",
+        f"   Perkiraan kebutuhan {len(flow_prompts)} klip di bawah:",
+        f"   - Mode hemat (Veo 3.1 Lite 720p, 10 cr/klip)     : ~{total_lite} kredit total",
+        f"   - Mode detail (Omni Flash 1.2 720p, 18-24 cr/klip): ~{total_omni} kredit total",
+        "   Catatan: Google Flow juga memberi 50 kredit harian (tidak diakumulasi/no rollover).",
+        "",
+        "5) DAFTAR PROMPT SIAP SALIN KE GOOGLE AI FLOW (PILIHAN SAJA, TIDAK SEMUANYA)",
+        "-" * 68,
+    ]
+    for i, fp in enumerate(flow_prompts, 1):
+        lines.extend(
+            [
+                f"[{i}] {fp.slot_label} | Topik: {fp.topic_title}",
+                f"    Simpan di Drive sebagai : {fp.suggested_filename}",
+                f"    Model & estimasi kredit : {fp.recommended_model} (~{fp.estimated_credits} cr)",
+                f"    Kenapa pakai Flow       : {fp.why_flow_needed}",
+                f"    PROMPT (Copy-Paste)     :",
+                f"    {fp.flow_prompt_en}",
+                "",
+            ]
+        )
+    lines.append("-- Kimiabill Studio Automated Planner")
+    return "\n".join(lines) + "\n"
+
+
+def _write_flow_prompt_files(
+    flow_prompts: list[FlowClipPromptPlan],
+    today_wib: str,
+    flow_folder_url: str = FLOW_CLIP_BANK_URL,
+    drive_prompt_url: str = "",
+) -> Path:
+    guide_text = _format_flow_prompt_guide(
+        flow_prompts=flow_prompts,
+        today_wib=today_wib,
+        flow_folder_url=flow_folder_url,
+        drive_prompt_url=drive_prompt_url,
+    )
+    AUDITS_DIR.mkdir(parents=True, exist_ok=True)
+    dated_path = AUDITS_DIR / f"FLOW_PROMPTS_{today_wib}.txt"
+    dated_path.write_text(guide_text, encoding="utf-8")
+    FLOW_PROMPTS_LATEST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    FLOW_PROMPTS_LATEST_PATH.write_text(guide_text, encoding="utf-8")
+    return dated_path
 
 
 def _get_tracking_sheet_id() -> str:
@@ -701,6 +823,51 @@ def _deliver_audit_to_drive_and_email(
     except Exception as exc:
         print(f"[agent8] Peringatan upload Drive laporan mingguan: {exc}")
 
+    flow_folder_url = FLOW_CLIP_BANK_URL
+    flow_prompt_drive_url = ""
+    if getattr(audit, "flow_clip_prompts", None):
+        try:
+            f_init = requests.post(
+                webhook_url,
+                json={
+                    "action": "init_episode",
+                    "token": token,
+                    "root_folder": "Kimiabill_Studio",
+                    "episode_name": "Flow_Clip_Bank",
+                },
+                timeout=45,
+            ).json()
+            if f_init.get("ok"):
+                flow_folder_id = f_init["folder_id"]
+                flow_folder_url = f_init.get("folder_url") or FLOW_CLIP_BANK_URL
+                local_prompt_file = _write_flow_prompt_files(
+                    audit.flow_clip_prompts,
+                    audit.week_ending,
+                    flow_folder_url=flow_folder_url,
+                )
+                up_fp = requests.post(
+                    webhook_url,
+                    json={
+                        "action": "upload_file",
+                        "token": token,
+                        "folder_id": flow_folder_id,
+                        "filename": "PROMPT_GOOGLE_FLOW_TERBARU.txt",
+                        "mime_type": "text/plain",
+                        "content_base64": base64.b64encode(local_prompt_file.read_bytes()).decode("ascii"),
+                    },
+                    timeout=45,
+                ).json()
+                if up_fp.get("ok"):
+                    flow_prompt_drive_url = up_fp.get("file_url", "")
+                    _write_flow_prompt_files(
+                        audit.flow_clip_prompts,
+                        audit.week_ending,
+                        flow_folder_url=flow_folder_url,
+                        drive_prompt_url=flow_prompt_drive_url,
+                    )
+        except Exception as exc:
+            print(f"[agent8] Peringatan upload prompt Flow ke Drive: {exc}")
+
     sheet_id = _get_tracking_sheet_id()
     sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit" if sheet_id else ""
     if sheet_id:
@@ -765,6 +932,10 @@ def _deliver_audit_to_drive_and_email(
         header_links.append(f"📊 BUKA GOOGLE SHEET TRACKER LIVE (Upload & Audit YPP): {sheet_url}")
     if folder_url:
         header_links.append(f"📁 Folder Arsip Audit Drive: {folder_url}")
+    header_links.append(f"🎬 BUKA GOOGLE AI FLOW (Generate B-Roll Pilihan): {GOOGLE_FLOW_URL}")
+    header_links.append(f"📥 UPLOAD OUTPUT MP4 FLOW KE DRIVE INI (Kimiabill_Studio/Flow_Clip_Bank): {flow_folder_url}")
+    if flow_prompt_drive_url:
+        header_links.append(f"📝 FILE PROMPT GOOGLE FLOW SIAP SALIN (Drive): {flow_prompt_drive_url}")
     try:
         from src.providers import format_model_usage_summary
 
@@ -969,11 +1140,12 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
     if queued_new:
         print(f"[agent8] Berhasil mencatat {len(queued_new)} request penonton baru ke antrean minggu depan!")
 
-    # Delegate 14-slot next-week creative topic roadmapping to Agent 1 (Trend Scout & Ideation)
+    # Delegate 14-slot next-week creative topic roadmapping + selective Google Flow prompts to Agent 1
     a1_cfg = agents_cfg.get("agents", {}).get(
         "agent_1_ideation",
         {"provider": "auto", "recommended_prod_model": "gemini-3.8-flash"},
     )
+    flow_quota_n, _flow_budget_note = _recommended_flow_clip_quota(_parse_flow_credits_remaining())
     try:
         pending_queue = [r for r in load_audience_requests() if r.get("status") == "pending"][:7]
         kitchen_cands = memory.get_kitchen_chemistry_ideas(count=12)
@@ -989,7 +1161,10 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
                 "- Senin-Jumat `19:00` WIB MUST be `section: 'REGULER'`: prioritize `pending_audience_requests`, fill 0-video "
                 "discipline gaps (`fisika`, `matematika`, `biologi`), and double down on winning topic patterns from Agent 8.\n"
                 "- Sabtu & Minggu `19:00` WIB MUST be `section: 'KARAT'`: breaking research-paper angles aligned with Agent 8's `karat_weekend_directives`.\n"
-                "Apply Veritasium misconception-first hooks, concrete filmable visuals, and NEVER repeat any title in `avoid_titles`."
+                "Apply Veritasium misconception-first hooks, concrete filmable visuals, and NEVER repeat any title in `avoid_titles`.\n\n"
+                f"ALSO populate `flow_clip_prompts` with EXACTLY {flow_quota_n} HIGH-IMPACT B-roll clip prompts (NOT all 14!) "
+                "where custom Google AI Flow generation adds the most value (e.g., macro enzyme/cellular breakdown, kitchen reaction close-ups, "
+                "or KARAT research visualizations hard to find on free stock). Use lowercase underscore `.mp4` `suggested_filename` matching Indonesian+English keywords."
             ),
             user_payload={
                 "week_ending": today_wib,
@@ -1009,6 +1184,7 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
                     for k in kitchen_cands
                 ],
                 "avoid_titles": topic_landscape_brief["all_produced_titles"],
+                "target_flow_prompt_count": flow_quota_n,
             },
             response_model=NextWeekTopicMapOutput,
             handoff_path=AUDITS_DIR / f"agent1_topic_map_{today_wib}.json",
@@ -1016,6 +1192,9 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
         if topic_map_res.next_week_topic_map:
             audit.next_week_topic_map = list(topic_map_res.next_week_topic_map)
             print(f"[agent8->agent1] Agent 1 menyusun {len(audit.next_week_topic_map)} slot peta topik minggu depan!")
+        if topic_map_res.flow_clip_prompts:
+            audit.flow_clip_prompts = list(topic_map_res.flow_clip_prompts)[:flow_quota_n]
+            print(f"[agent8->agent1] Agent 1 memilih {len(audit.flow_clip_prompts)} prompt prioritas Google AI Flow!")
     except Exception as exc:
         print(f"[agent8->agent1] Peringatan delegasi peta topik ke Agent 1 gagal ({exc}); memakai peta cadangan visual PDF.")
 
@@ -1098,3 +1277,222 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
     )
     print(f"[agent8] Audit mingguan selesai ({today_wib}). Instruksi terbaru disimpan di {DIRECTIVES_PATH}")
     return audit
+
+
+def _build_default_flow_starter_prompts(kitchen_cands: list[dict[str, Any]], count: int = 5) -> list[FlowClipPromptPlan]:
+    prompts: list[FlowClipPromptPlan] = [
+        FlowClipPromptPlan(
+            slot_label="Jadwal Siang 12:00 (KIMIA DAPUR)",
+            topic_title="Kenapa Es Batu + Garam Bikin Minuman Super Dingin?",
+            suggested_filename="es_garam_kalor_kristal.mp4",
+            why_flow_needed="Makro kristal es & garam mencair perlahan sangat estetik dan sulit dapat stok vertikal tajam.",
+            flow_prompt_en=(
+                "Vertical 9:16 extreme macro time-lapse photography of clear ice cubes sprinkled with coarse white salt crystals "
+                "inside a chilled glass beaker, frost condensation forming rapidly on glass surface, crisp studio lighting, "
+                "photorealistic scientific documentary footage, no text, no watermarks"
+            ),
+            recommended_model="Omni Flash 1.2 (720p, ~18-24 cr)",
+            estimated_credits=18,
+        ),
+        FlowClipPromptPlan(
+            slot_label="Jadwal Siang 12:00 (KIMIA DAPUR)",
+            topic_title="Kenapa Bawang Merah Bikin Mata Perih Saat Dipotong?",
+            suggested_filename="bawang_merah_uap_iris.mp4",
+            why_flow_needed="Adegan uap tipis keluar dari irisan bawang di pencahayaan backlight sangat jarang ada di stok gratis.",
+            flow_prompt_en=(
+                "Vertical 9:16 backlit macro cinema shot of a sharp stainless chef knife slicing freshly peeled red onion on a dark wooden board, "
+                "delicate fine mist droplets and volatile vapor rising cleanly into warm kitchen light, slow motion, photorealistic, no text"
+            ),
+            recommended_model="Omni Flash 1.2 (720p, ~18-24 cr)",
+            estimated_credits=18,
+        ),
+        FlowClipPromptPlan(
+            slot_label="Jadwal Siang 12:00 (KIMIA DAPUR)",
+            topic_title="Kenapa Minyak Panas Meledak Saat Ketemu Setetes Air?",
+            suggested_filename="minyak_goreng_air_meledak.mp4",
+            why_flow_needed="Tetesan air jatuh ke minyak panas slow motion butuh framing vertikal rapi.",
+            flow_prompt_en=(
+                "Vertical 9:16 ultra slow-motion studio close-up of a single clear water droplet hitting shimmering golden cooking oil "
+                "in a dark cast-iron skillet, tiny vapor micro-bubbles erupting cleanly, warm amber rim lighting, photorealistic documentary, no text"
+            ),
+            recommended_model="Veo 3.1 Lite (720p, 10 cr)",
+            estimated_credits=10,
+        ),
+        FlowClipPromptPlan(
+            slot_label="Jadwal Malam 19:00 (REGULER / FISIKA-KIMIA)",
+            topic_title="Kenapa Sabun Bisa Mengangkat Minyak Membandel?",
+            suggested_filename="sabun_minyak_air_emulsi.mp4",
+            why_flow_needed="Stok makro emulsi minyak-air-sabun sering berwatermark atau resolusi rendah.",
+            flow_prompt_en=(
+                "Vertical 9:16 macro laboratory close-up of golden oil droplets suspended in crystal clear water inside a glass cylinder, "
+                "a single drop of clear liquid soap dispersing them into swirling pearlescent micro-emulsion spheres, bright lab light, photorealistic, no text"
+            ),
+            recommended_model="Omni Flash 1.2 (720p, ~18-24 cr)",
+            estimated_credits=18,
+        ),
+        FlowClipPromptPlan(
+            slot_label="Weekend 19:00 (KARAT / RISET TERKINI)",
+            topic_title="Mikroplastik / Material Nano Dalam Riset Air Bersih",
+            suggested_filename="karat_riset_membran_air.mp4",
+            why_flow_needed="Visual eksperimen riset membran filtrasi air modern hampir tidak tersedia di Wikimedia/Pixabay.",
+            flow_prompt_en=(
+                "Vertical 9:16 clean scientific laboratory close-up of filtered water passing through a translucent nano-fiber membrane filter "
+                "inside clear glassware, subtle caustic light reflections, precision university lab aesthetic, photorealistic, no text"
+            ),
+            recommended_model="Veo 3.1 Lite (720p, 10 cr)",
+            estimated_credits=10,
+        ),
+    ]
+    return prompts[:max(1, count)]
+
+
+def send_flow_prompts_and_guide_email(
+    flow_prompts: Optional[list[FlowClipPromptPlan]] = None,
+    today_wib: Optional[str] = None,
+) -> dict[str, Any]:
+    """Generate/load selective Google AI Flow prompts, upload prompt guide to Drive Flow_Clip_Bank, and email user."""
+    from src.memory import StudioMemory
+
+    today = today_wib or datetime.now(WIB).strftime("%Y-%m-%d")
+    memory = StudioMemory(BASE_DIR)
+    target_n, credit_note = _recommended_flow_clip_quota(_parse_flow_credits_remaining())
+
+    prompts: list[FlowClipPromptPlan] = list(flow_prompts or [])
+    if not prompts and DIRECTIVES_PATH.exists():
+        try:
+            prev_data = json.loads(DIRECTIVES_PATH.read_text(encoding="utf-8"))
+            raw_list = prev_data.get("flow_clip_prompts") or []
+            prompts = [FlowClipPromptPlan.model_validate(item) for item in raw_list if isinstance(item, dict)]
+        except Exception:
+            prompts = []
+
+    if not prompts:
+        kitchen_cands = memory.get_kitchen_chemistry_ideas(count=8)
+        pending_req = get_next_pending_audience_request()
+        agents_cfg = yaml.safe_load((BASE_DIR / "config" / "agents.yaml").read_text(encoding="utf-8"))
+        a1_cfg = agents_cfg.get("agents", {}).get(
+            "agent_1_ideation",
+            {"provider": "auto", "recommended_prod_model": "gemini-3.8-flash"},
+        )
+        try:
+            if os.environ.get("GEMINI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENROUTER_API_KEY"):
+                tm = call_structured_agent(
+                    provider=a1_cfg.get("provider", "auto"),
+                    model=a1_cfg.get("model", a1_cfg.get("recommended_prod_model", "gemini-3.8-flash")),
+                    system_prompt=(
+                        f"You are Agent 1 for Kimiabill. Generate `flow_clip_prompts` with EXACTLY {target_n} selective "
+                        "9:16 photorealistic science B-roll prompts for the user to run in Google AI Flow this week "
+                        "(covering 2-3 KIMIA DAPUR slots + 1-2 REGULER/KARAT tricky shots; NOT all 14 videos). "
+                        "Set `next_week_topic_map` to `[]`. Every `suggested_filename` must use lowercase snake_case `.mp4` keywords."
+                    ),
+                    user_payload={
+                        "today_wib": today,
+                        "target_count": target_n,
+                        "kitchen_ideas": [{"title": k.get("title"), "phenomenon": k.get("phenomenon")} for k in kitchen_cands],
+                        "pending_audience_request": pending_req,
+                    },
+                    response_model=NextWeekTopicMapOutput,
+                    handoff_path=None,
+                )
+                if tm.flow_clip_prompts:
+                    prompts = list(tm.flow_clip_prompts)[:target_n]
+        except Exception as exc:
+            print(f"[flow_planner] Peringatan generate prompt Flow via LLM ({exc}); memakai starter prompt pilihan.")
+        if not prompts:
+            prompts = _build_default_flow_starter_prompts(kitchen_cands, count=target_n)
+
+    flow_folder_url = FLOW_CLIP_BANK_URL
+    drive_prompt_url = ""
+    local_prompt_file = _write_flow_prompt_files(prompts, today, flow_folder_url=flow_folder_url)
+
+    raw_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
+    notify_to = os.environ.get("NOTIFY_EMAIL_TO", "researchfalsyabillah@gmail.com").strip()
+    emailed = False
+    if raw_url:
+        webhook_url = _normalize_webhook_url(raw_url)
+        token = os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
+        try:
+            f_init = requests.post(
+                webhook_url,
+                json={
+                    "action": "init_episode",
+                    "token": token,
+                    "root_folder": "Kimiabill_Studio",
+                    "episode_name": "Flow_Clip_Bank",
+                },
+                timeout=45,
+            ).json()
+            if f_init.get("ok"):
+                flow_folder_id = f_init["folder_id"]
+                flow_folder_url = f_init.get("folder_url") or FLOW_CLIP_BANK_URL
+                up_fp = requests.post(
+                    webhook_url,
+                    json={
+                        "action": "upload_file",
+                        "token": token,
+                        "folder_id": flow_folder_id,
+                        "filename": "PROMPT_GOOGLE_FLOW_TERBARU.txt",
+                        "mime_type": "text/plain",
+                        "content_base64": base64.b64encode(local_prompt_file.read_bytes()).decode("ascii"),
+                    },
+                    timeout=45,
+                ).json()
+                if up_fp.get("ok"):
+                    drive_prompt_url = up_fp.get("file_url", "")
+                    local_prompt_file = _write_flow_prompt_files(
+                        prompts,
+                        today,
+                        flow_folder_url=flow_folder_url,
+                        drive_prompt_url=drive_prompt_url,
+                    )
+        except Exception as exc:
+            print(f"[flow_planner] Peringatan upload file prompt ke Drive: {exc}")
+
+        guide_body = local_prompt_file.read_text(encoding="utf-8")
+        subject = f"[Kimiabill] Link Google AI Flow, Folder Drive & {len(prompts)} Prompt Pilihan ({today})"
+        try:
+            r1 = requests.post(
+                webhook_url,
+                json={
+                    "action": "send_custom_email",
+                    "token": token,
+                    "to": notify_to,
+                    "subject": subject,
+                    "body": guide_body,
+                },
+                timeout=45,
+            ).json()
+            emailed = bool(r1.get("ok"))
+        except Exception:
+            emailed = False
+        if not emailed:
+            try:
+                r2 = requests.post(
+                    webhook_url,
+                    json={
+                        "action": "notify_email",
+                        "token": token,
+                        "to": notify_to,
+                        "episode_name": f"flow_prompts_{today}",
+                        "title": subject,
+                        "folder_url": flow_folder_url,
+                        "video_url": drive_prompt_url or GOOGLE_FLOW_URL,
+                        "captions_preview": guide_body,
+                    },
+                    timeout=45,
+                ).json()
+                emailed = bool(r2.get("ok"))
+            except Exception:
+                emailed = False
+
+    print(f"[flow_planner] Prompt Flow tersimpan: {local_prompt_file} | Drive: {drive_prompt_url or flow_folder_url} | Email terkirim: {emailed}")
+    return {
+        "ok": True,
+        "prompt_count": len(prompts),
+        "local_prompt_path": str(local_prompt_file),
+        "flow_folder_url": flow_folder_url,
+        "drive_prompt_url": drive_prompt_url,
+        "google_flow_url": GOOGLE_FLOW_URL,
+        "emailed_to": notify_to if emailed else None,
+        "credit_note": credit_note,
+    }
