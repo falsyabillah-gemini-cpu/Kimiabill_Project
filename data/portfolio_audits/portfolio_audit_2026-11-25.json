@@ -1,5 +1,5 @@
 {
-  "generated_at_wib": "2026-11-25 23:51 WIB",
+  "generated_at_wib": "2026-11-25 23:48 WIB",
   "date": "2026-11-25",
   "report_title": "KIMIABILL ECOSYSTEM — PORTFOLIO CEO REPORT",
   "active_units_count": 3,
@@ -8,9 +8,9 @@
   ],
   "kpis": {
     "active_units": 3,
-    "overall_reliability_pct": 85.7,
-    "runs_ok": 30,
-    "runs_total": 35,
+    "overall_reliability_pct": 89.2,
+    "runs_ok": 33,
+    "runs_total": 37,
     "total_yt_views": 8411,
     "total_yt_subs": 55
   },
@@ -56,24 +56,12 @@
         }
       ],
       "runs": {
-        "total": 18,
-        "success": 17,
-        "failure": 1,
-        "success_rate_pct": 94.4,
-        "failed_workflows": [
-          "Kimiabill Ecosystem — Portfolio CEO Visual Audit (failure, 2026-11-25 16:49Z)"
-        ],
+        "total": 20,
+        "success": 20,
+        "failure": 0,
+        "success_rate_pct": 100.0,
+        "failed_workflows": [],
         "recent_runs": [
-          {
-            "name": "Kimiabill Ecosystem — Portfolio CEO Visual Audit",
-            "conclusion": "failure",
-            "created_at": "2026-11-25T16:49:39Z"
-          },
-          {
-            "name": "pages build and deployment",
-            "conclusion": "success",
-            "created_at": "2026-11-25T16:49:38Z"
-          },
           {
             "name": "Kimiabill Daily Auto-Video",
             "conclusion": "success",
@@ -103,6 +91,16 @@
             "name": "pages build and deployment",
             "conclusion": "success",
             "created_at": "2026-11-25T10:15:55Z"
+          },
+          {
+            "name": "Kimiabill Daily Auto-Video",
+            "conclusion": "success",
+            "created_at": "2026-11-25T10:15:47Z"
+          },
+          {
+            "name": "pages build and deployment",
+            "conclusion": "success",
+            "created_at": "2026-11-25T09:50:47Z"
           }
         ]
       },

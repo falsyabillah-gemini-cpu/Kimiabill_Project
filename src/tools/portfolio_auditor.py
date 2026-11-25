@@ -319,16 +319,83 @@ def _fetch_threads_api_insights(post_ids: list[str]) -> dict[str, Any]:
     return out
 
 
+def _fetch_live_spreadsheet_via_webhook(sheet_id: str) -> Optional[dict[str, Any]]:
+    """Read any Google Sheet owned by user via GDRIVE_WEBHOOK_URL `read_spreadsheet` action (0 extra credentials)."""
+    webhook_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
+    if not webhook_url or not sheet_id:
+        return None
+    try:
+        r = requests.post(
+            webhook_url,
+            json={"action": "read_spreadsheet", "sheet_id": sheet_id, "max_rows": 250},
+            timeout=30,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            if isinstance(data, dict) and data.get("ok") and isinstance(data.get("sheets"), dict):
+                return data["sheets"]
+    except Exception:
+        pass
+    return None
+
+
+def _parse_affiliate_sheets_to_snapshot(sheet_id: str, sheets_map: dict[str, list[list[Any]]]) -> dict[str, Any]:
+    from collections import Counter
+
+    ant = sheets_map.get("Antrean_Produk") or []
+    st_cnt = dict(Counter((str(r[1]).strip() if len(r) > 1 and r[1] is not None else "") for r in ant[1:] if any(r)))
+    cat_cnt = dict(Counter((str(r[2]).strip() if len(r) > 2 and r[2] is not None else "") for r in ant[1:] if any(r)))
+    logs = sheets_map.get("Log_Performa") or []
+    live_logs = [
+        {
+            "tanggal_wib": str(r[0] or "") if len(r) > 0 else "",
+            "produk": str(r[2] or "") if len(r) > 2 else "",
+            "mode": str(r[3] or "") if len(r) > 3 else "",
+            "status": str(r[4] or "") if len(r) > 4 else "",
+            "post_id": str(r[5] or "") if len(r) > 5 else "",
+        }
+        for r in logs[1:]
+        if any(r)
+    ]
+    sett_rows = sheets_map.get("Pengaturan_Agent") or []
+    sett_map = {str(r[0]).strip(): str(r[1] if len(r) > 1 and r[1] is not None else "").strip() for r in sett_rows[1:] if r and r[0]}
+    snap = {
+        "captured_at_wib": datetime.now(WIB).strftime("%Y-%m-%d %H:%M WIB"),
+        "sheet_id": sheet_id,
+        "status_counts": st_cnt,
+        "category_counts": cat_cnt,
+        "log_count": max(0, len(logs) - 1),
+        "live_logs": live_logs,
+        "comments_count": max(0, len(sheets_map.get("Komentar_Threads") or []) - 1),
+        "audit_riset_count": max(0, len(sheets_map.get("Audit_Riset_Threads") or []) - 1),
+        "settings": sett_map,
+    }
+    try:
+        AFFILIATE_SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        AFFILIATE_SNAPSHOT_PATH.write_text(json.dumps(snap, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+    return snap
+
+
 def _audit_threads_affiliate_unit(unit: dict[str, Any]) -> dict[str, Any]:
     repo = unit.get("repo", "")
-    runs_info = _fetch_gh_workflow_runs(repo, limit=20)
+    runs_info = _fetch_gh_workflow_runs(repo, limit=25)
+    sheet_id = str(unit.get("sheet_id") or "").strip()
 
-    sheet_snap: dict[str, Any] = {}
-    if AFFILIATE_SNAPSHOT_PATH.exists():
+    live_sheets = _fetch_live_spreadsheet_via_webhook(sheet_id)
+    if live_sheets:
+        sheet_snap = _parse_affiliate_sheets_to_snapshot(sheet_id, live_sheets)
+        sheet_mode = "live_sheet"
+    elif AFFILIATE_SNAPSHOT_PATH.exists():
         try:
             sheet_snap = json.loads(AFFILIATE_SNAPSHOT_PATH.read_text(encoding="utf-8"))
         except Exception:
             sheet_snap = {}
+        sheet_mode = "sheets_snapshot"
+    else:
+        sheet_snap = {}
+        sheet_mode = "github_only"
 
     status_counts = sheet_snap.get("status_counts") or {}
     pending_count = int(status_counts.get("PENDING") or 0)
@@ -338,32 +405,48 @@ def _audit_threads_affiliate_unit(unit: dict[str, Any]) -> dict[str, Any]:
     settings_map = sheet_snap.get("settings") or {}
     live_logs = sheet_snap.get("live_logs") or []
 
-    post_ids = []
+    post_ids = [str(lg.get("post_id") or "").strip() for lg in live_logs if str(lg.get("post_id") or "").strip()]
     threads_api = _fetch_threads_api_insights(post_ids)
 
+    ms = unit.get("milestone") or {}
+    min_buf = int(ms.get("min_queue_buffer") or 15)
     strengths: list[str] = []
     issues: list[str] = []
     if published_count > 0:
-        strengths.append(f"Baru resmi LIVE di Threads ({published_count} post + reply link, {pending_count} PENDING stok ~16 hari)")
+        days_stock = pending_count // 3
+        strengths.append(f"LIVE di Threads ({published_count} post + reply link, {pending_count} PENDING stok ~{days_stock} hari)")
     elif pending_count > 0:
         strengths.append(f"Antrean aman ({pending_count} produk PENDING siap tayang 3x/hari)")
     if runs_info.get("success", 0) >= 4:
-        strengths.append(f"Publish 3x/hari & Admin 21.00 WIB sukses beruntun")
+        strengths.append("Publish 3x/hari & Admin 21.00 WIB sukses beruntun")
+    if threads_api.get("connected") and threads_api.get("views", 0) > 0:
+        strengths.append(f"API Threads aktif: {threads_api.get('views', 0):,} views, {threads_api.get('clicks', 0):,} clicks")
 
-    if any("Agent 6" in fn for fn in (runs_info.get("failed_workflows") or [])):
-        issues.append("Agent 6 Riset & Audit Threads gagal (semua model Gemini 429/404)")
+    failed_wf = runs_info.get("failed_workflows") or []
+    if failed_wf:
+        issues.append(f"Workflow gagal: {failed_wf[0][:75]}")
+    if pending_count < min_buf:
+        issues.append(f"Stok PENDING menipis ({pending_count} < batas {min_buf})")
+
     min_rating_val = str(settings_map.get("Min_Rating_Shopee") or "")
     tok_date_val = str(settings_map.get("Tanggal_Token_Threads") or "")
     if re.fullmatch(r"\d+(\.0)?", min_rating_val) and float(min_rating_val) > 100:
         issues.append("Sheet Min_Rating_Shopee jadi serial tanggal (set Plain Text '4.7)")
     if re.fullmatch(r"\d+(\.0)?", tok_date_val) and float(tok_date_val) > 1000:
         issues.append("Sheet Tanggal_Token_Threads jadi serial (set Plain Text '2026-11-25)")
+    elif re.fullmatch(r"\d{4}-\d{2}-\d{2}", tok_date_val):
+        try:
+            age_d = (datetime.now(WIB).date() - datetime.strptime(tok_date_val, "%Y-%m-%d").date()).days
+            if age_d >= 50:
+                issues.append(f"Token Threads berumur {age_d} hari (mendekati expired 60 hari!)")
+        except Exception:
+            pass
     if not threads_api.get("connected"):
-        issues.append("Token API Threads Insights besok dipasang untuk baca views/klik")
+        issues.append("Token API Threads Insights belum dipasang (belum baca views/klik)")
+    elif threads_api.get("warnings"):
+        issues.append(f"API Threads: {threads_api['warnings'][0][:75]}")
 
-    ms = unit.get("milestone") or {}
     target_weekly = int(ms.get("target_weekly_posts") or 21)
-    # Count recent live posts vs runs
     ms_cur = published_count
     progress_pct = round(min(100.0, (ms_cur / max(1, target_weekly)) * 100.0), 1)
     if ms_cur > 0 and progress_pct < 5.0:
@@ -372,7 +455,7 @@ def _audit_threads_affiliate_unit(unit: dict[str, Any]) -> dict[str, Any]:
     health = "SEHAT"
     if issues:
         health = "PERHATIAN"
-    if runs_info.get("total", 0) > 0 and runs_info.get("success", 0) == 0:
+    if (runs_info.get("total", 0) > 0 and runs_info.get("success", 0) == 0) or pending_count == 0:
         health = "KRITIS"
 
     return {
@@ -396,14 +479,14 @@ def _audit_threads_affiliate_unit(unit: dict[str, Any]) -> dict[str, Any]:
         "strengths": strengths[:3],
         "issues": issues[:3],
         "live_logs": live_logs[-5:],
-        "source_mode": "threads_api+sheets" if threads_api.get("connected") else "sheets+github_runs",
+        "source_mode": f"threads_api+{sheet_mode}" if threads_api.get("connected") else f"{sheet_mode}+gh_runs",
     }
 
 
 def _audit_digital_products_unit(unit: dict[str, Any]) -> dict[str, Any]:
-    """Generic modular collector for future Kantor Produk Digital when enabled=true."""
+    """Modular collector for Kantor Produk Digital (supports repo runs + Apps Script webhook + sales Google Sheet)."""
     repo = unit.get("repo", "")
-    runs_info = _fetch_gh_workflow_runs(repo, limit=15) if repo else {"total": 0, "success": 0, "failure": 0, "success_rate_pct": 100.0, "failed_workflows": []}
+    runs_info = _fetch_gh_workflow_runs(repo, limit=20) if repo else {"total": 0, "success": 0, "failure": 0, "success_rate_pct": 100.0, "failed_workflows": []}
     orders = 0
     revenue_idr = 0
     webhook_env = unit.get("webhook_env", "")
@@ -417,15 +500,24 @@ def _audit_digital_products_unit(unit: dict[str, Any]) -> dict[str, Any]:
                 revenue_idr = int(d.get("monthly_revenue_idr") or 0)
         except Exception:
             pass
+    sheet_id = str(unit.get("sheet_id") or "").strip()
+    if orders == 0 and sheet_id:
+        sh = _fetch_live_spreadsheet_via_webhook(sheet_id)
+        if sh:
+            first_tab = next(iter(sh.values()), [])
+            orders = max(0, len(first_tab) - 1)
     ms = unit.get("milestone") or {}
     target_orders = int(ms.get("target_monthly_orders") or 50)
+    issues: list[str] = []
+    if runs_info.get("failure", 0) > 0:
+        issues.append(f"{runs_info['failure']} workflow gagal baru-baru ini")
     return {
         "id": unit["id"],
         "name": unit["name"],
         "handle": unit.get("handle", ""),
         "type": "digital_products",
         "repo": repo,
-        "health": "SEHAT",
+        "health": "PERHATIAN" if issues else "SEHAT",
         "orders": orders,
         "revenue_idr": revenue_idr,
         "runs": runs_info,
@@ -434,12 +526,151 @@ def _audit_digital_products_unit(unit: dict[str, Any]) -> dict[str, Any]:
         "milestone_target": target_orders,
         "milestone_pct": round(min(100.0, (orders / max(1, target_orders)) * 100.0), 1),
         "strengths": [f"{orders} order produk digital (Rp {revenue_idr:,})"],
-        "issues": [],
-        "source_mode": "digital_webhook",
+        "issues": issues,
+        "source_mode": "digital_webhook_live",
     }
 
 
-def run_portfolio_ceo_audit(send_telegram: bool = True) -> dict[str, Any]:
+def _build_dynamic_priority_fixes(unit_results: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Generate actionable fixes strictly from live anomalies observed across all enabled units."""
+    fixes: list[dict[str, str]] = []
+    for u in unit_results:
+        u_name = u.get("name") or u.get("id")
+        u_health = u.get("health") or "SEHAT"
+        issues = list(u.get("issues") or [])
+        runs = u.get("runs") or {}
+        if issues:
+            sev = "KRITIS" if (u_health == "KRITIS" or runs.get("failure", 0) >= 2) else "PERHATIAN"
+            fixes.append(
+                {
+                    "unit": u_name[:26],
+                    "severity": sev,
+                    "title": issues[0][:56],
+                    "action": " / ".join(issues[:2])[:115],
+                }
+            )
+    if not fixes:
+        fixes.append(
+            {
+                "unit": "Semua Unit",
+                "severity": "SEHAT",
+                "title": "Seluruh Workflow & Integrasi Berjalan Normal",
+                "action": "Fokus ke peningkatan hook 0-3 detik, retensi video, dan evaluasi produk konversi tertinggi minggu ini.",
+            }
+        )
+    return fixes[:4]
+
+
+def _update_portfolio_history(report_payload: dict[str, Any]) -> dict[str, Any]:
+    """Persist weekly snapshots so CEO audit shows Week-over-Week growth deltas."""
+    hist_path = PORTFOLIO_OUT_DIR / "portfolio_history.json"
+    rows: list[dict[str, Any]] = []
+    if hist_path.exists():
+        try:
+            raw = json.loads(hist_path.read_text(encoding="utf-8"))
+            if isinstance(raw, list):
+                rows = raw
+        except Exception:
+            rows = []
+
+    kpis = report_payload.get("kpis") or {}
+    snap = {
+        "date": report_payload.get("date"),
+        "total_yt_subs": int(kpis.get("total_yt_subs") or 0),
+        "total_yt_views": int(kpis.get("total_yt_views") or 0),
+        "overall_reliability_pct": float(kpis.get("overall_reliability_pct") or 100.0),
+        "units_summary": {
+            u["id"]: {
+                "subs": u.get("subscribers"),
+                "views": u.get("total_views"),
+                "published": u.get("published_count"),
+                "pending": u.get("pending_queue"),
+                "orders": u.get("orders"),
+                "revenue_idr": u.get("revenue_idr"),
+            }
+            for u in (report_payload.get("units") or [])
+        },
+    }
+    prev = next((r for r in reversed(rows) if r.get("date") != snap["date"]), None)
+    deltas = {}
+    if prev:
+        deltas = {
+            "subs_delta": snap["total_yt_subs"] - int(prev.get("total_yt_subs") or 0),
+            "views_delta": snap["total_yt_views"] - int(prev.get("total_yt_views") or 0),
+            "prev_date": prev.get("date"),
+        }
+
+    rows = [r for r in rows if r.get("date") != snap["date"]] + [snap]
+    rows = rows[-52:]
+    PORTFOLIO_OUT_DIR.mkdir(parents=True, exist_ok=True)
+    hist_path.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+    return deltas
+
+
+def _optional_ai_ceo_synthesis(report_payload: dict[str, Any], use_llm: bool = True) -> tuple[list[str], list[tuple[str, str]]]:
+    """Use 1 lightweight AI call on Sunday weekly audit to customize synergy & 4-week roadmap (safe deterministic fallback)."""
+    default_synergy = [
+        "1. YT ID (Kimia Dapur 1.2K+ views)  -->  Adaptasi visual & hook ke YT ENG (@bill_explains RPM global)",
+        "2. Topik Dapur/Gadget Viral di YT  -->  Cocokkan antrean produk kos/meja di Threads Affiliate",
+        "3. Komentar & Insights API Threads  -->  Validasi produk klik tertinggi sebelum skala promosi",
+        "4. [Slot Siap] Kantor Produk Digital  -->  CTA Ebook/Template di deskripsi YT + bio Threads Affiliate",
+    ]
+    default_roadmap = [
+        ("Minggu 1 (Stabilisasi)", "Selesaikan seluruh temuan error & izin API aktif, pastikan seluruh repo hijau tanpa error 429/timeout."),
+        ("Minggu 2 (Engagement)", "Dorong komentar CTA 1-kata YT, pantau views/klik perdana API Threads, & jaga stok antrean aman."),
+        ("Minggu 3 (Seleksi Topik)", "Pangkas topik/produk ber-engagement rendah; fokuskan kredit Google Flow ke pemenang retensi."),
+        ("Minggu 4 (Monetisasi & Ekspansi)", "Evaluasi laju YPP & komisi affiliate, serta siapkan integrasi unit Kantor Produk Digital ke laporan ini."),
+    ]
+    if not use_llm:
+        return default_synergy, default_roadmap
+    try:
+        from pydantic import BaseModel, Field
+        from src.providers import call_structured_agent
+
+        class _CeoSynthesis(BaseModel):
+            synergy_flows: list[str] = Field(min_length=4, max_length=4)
+            roadmap_items: list[list[str]] = Field(
+                min_length=4,
+                max_length=4,
+                description="4 item tepat berformat [judul_singkat_minggu, aksi_konkret_1_kalimat]",
+            )
+
+        compact_units = [
+            {
+                "name": u.get("name"),
+                "health": u.get("health"),
+                "metrics": {k: u.get(k) for k in ("subscribers", "total_views", "avg_recent_views", "video_count", "published_count", "pending_queue", "orders", "revenue_idr") if u.get(k) is not None},
+                "issues": u.get("issues"),
+                "runs_ok": f"{(u.get('runs') or {}).get('success', 0)}/{(u.get('runs') or {}).get('total', 0)}",
+            }
+            for u in (report_payload.get("units") or [])
+        ]
+        res = call_structured_agent(
+            provider="auto",
+            model="gemini-3.8-flash",
+            system_prompt=(
+                "Kamu adalah Asisten CEO Ekosistem Digital Kimiabill. Buat 4 baris singkat sinergi lintas akun "
+                "dan 4 tahap Roadmap Mingguan berdasarkan data live minggu ini (pakai angka nyata, bahasa Indonesia lugas, "
+                "tanpa backticks markdown, tiap item maksimal 115 karakter)."
+            ),
+            user_payload={
+                "date": report_payload.get("date"),
+                "deltas": report_payload.get("deltas"),
+                "units": compact_units,
+                "standby_units": report_payload.get("standby_units"),
+            },
+            response_model=_CeoSynthesis,
+        )
+        syn = [str(s).replace("`", "")[:115] for s in res.synergy_flows][:4]
+        rm = [(str(x[0]).replace("`", "")[:32], str(x[1]).replace("`", "")[:118]) for x in res.roadmap_items if len(x) >= 2][:4]
+        if len(syn) == 4 and len(rm) == 4:
+            return syn, rm
+    except Exception as exc:
+        print(f"[portfolio] AI synthesis dilewati (pakai roadmap deterministik): {exc}")
+    return default_synergy, default_roadmap
+
+
+def run_portfolio_ceo_audit(send_telegram: bool = True, use_ai_synthesis: bool = True) -> dict[str, Any]:
     """Collect live cross-portfolio data, build visual PNG+PDF report, and optionally send to Telegram."""
     cfg = load_portfolio_config()
     now_wib = datetime.now(WIB)
@@ -466,42 +697,9 @@ def run_portfolio_ceo_audit(send_telegram: bool = True) -> dict[str, Any]:
     total_views_all = sum(int(u.get("total_views") or 0) for u in unit_results)
     total_subs_all = sum(int(u.get("subscribers") or 0) for u in unit_results)
 
-    priority_fixes = [
-        {
-            "unit": "Kimiabill (YT ID)",
-            "severity": "PERHATIAN",
-            "title": "Izin youtube.force-ssl Belum Aktif",
-            "action": "Jalankan YouTube.CommentThreads 1x di Apps Script YT ID agar pinned comment CTA 1-kata otomatis masuk.",
-        },
-        {
-            "unit": "Bill Explains (YT ENG)",
-            "severity": "PERHATIAN",
-            "title": "History JSON Masih 0 + 2 Run 429",
-            "action": "Cek commit published_history.json di Kimiabill_Project_Eng agar 2 video hari ini tercatat untuk Agent 8.",
-        },
-        {
-            "unit": "Threads Affiliate",
-            "severity": "KRITIS",
-            "title": "Agent 6 Error 429 & Format Tanggal Sheet",
-            "action": "Set sel 4.7 & 2026-11-25 di Sheet ke Plain Text, buang model 2.5 (404), dan pasang Token Insights besok.",
-        },
-    ]
+    priority_fixes = _build_dynamic_priority_fixes(unit_results)
 
-    synergy_flows = [
-        "1. YT ID (Kimia Dapur 1.2K+ views)  -->  Adaptasi visual & hook ke YT ENG (@bill_explains RPM global)",
-        "2. Topik Dapur/Gadget Viral di YT  -->  Cocokkan antrean produk kos/meja di Threads Affiliate",
-        "3. Komentar & Insights API Threads  -->  Validasi produk klik tertinggi sebelum skala Shopee Ads",
-        "4. [Slot Siap] Kantor Produk Digital  -->  CTA Ebook/Template di deskripsi YT + bio Threads Affiliate",
-    ]
-
-    roadmap = [
-        ("Minggu 1 (Stabilisasi)", "Bereskan bug force-ssl YT ID, history YT ENG, Plain Text Sheet Threads + pasang API Insights Threads."),
-        ("Minggu 2 (Engagement)", "Target YT ID tembus 100+ subs, aktifkan pinned comment 1-kata, validasi 14 Shorts ENG & 21 post Threads."),
-        ("Minggu 3 (Seleksi Topik)", "Pangkas kategori lemah; fokuskan kredit Google AI Flow hanya pada topik retensi tertinggi di YT ID & ENG."),
-        ("Minggu 4 (Monetisasi & Ekspansi)", "Evaluasi komisi Shopee vs laju RPM YT ENG; siapkan integrasi Kantor Produk Digital ke Unit #4 report."),
-    ]
-
-    report_payload = {
+    report_payload: dict[str, Any] = {
         "generated_at_wib": time_wib_str,
         "date": date_str,
         "report_title": (cfg.get("portfolio") or {}).get("report_title", "KIMIABILL ECOSYSTEM — PORTFOLIO CEO REPORT"),
@@ -517,9 +715,11 @@ def run_portfolio_ceo_audit(send_telegram: bool = True) -> dict[str, Any]:
         },
         "units": unit_results,
         "priority_fixes": priority_fixes,
-        "synergy_flows": synergy_flows,
-        "roadmap": roadmap,
     }
+    report_payload["deltas"] = _update_portfolio_history(report_payload)
+    syn, rm = _optional_ai_ceo_synthesis(report_payload, use_llm=use_ai_synthesis)
+    report_payload["synergy_flows"] = syn
+    report_payload["roadmap"] = rm
 
     PORTFOLIO_OUT_DIR.mkdir(parents=True, exist_ok=True)
     json_path = PORTFOLIO_OUT_DIR / f"portfolio_audit_{date_str}.json"
@@ -533,7 +733,6 @@ def run_portfolio_ceo_audit(send_telegram: bool = True) -> dict[str, Any]:
     if send_telegram:
         from src.tools.telegram_notify import (
             send_telegram_document,
-            send_telegram_message,
             send_telegram_photo,
             telegram_enabled,
         )
@@ -550,24 +749,122 @@ def run_portfolio_ceo_audit(send_telegram: bool = True) -> dict[str, Any]:
                     unit_bullets.append(f"Threads: {u.get('published_count', 0)} LIVE, {u.get('pending_queue', 0)} PENDING")
                 else:
                     unit_bullets.append(f"{u.get('name')}: {u.get('orders', 0)} orders (Rp {u.get('revenue_idr', 0):,})")
+            delta_note = ""
+            if report_payload["deltas"].get("prev_date"):
+                d = report_payload["deltas"]
+                delta_note = f"\n• Pertumbuhan vs {d['prev_date']}: {d['subs_delta']:+d} subs | {d['views_delta']:+,} YT views"
             send_telegram_photo(
                 p1,
                 caption=(
-                    f"📊 PORTFOLIO CEO VISUAL REPORT ({time_wib_str})\n"
-                    f"• {len(unit_results)} Akun Aktif | Workflow Sukses: {all_runs_ok}/{all_runs_total} ({overall_reliability}%)\n"
+                    f"📊 AUDIT BESAR ASISTEN CEO ({time_wib_str})\n"
+                    f"• {len(unit_results)} Unit Aktif | Workflow Sukses: {all_runs_ok}/{all_runs_total} ({overall_reliability}%)"
+                    f"{delta_note}\n"
                     f"• " + " | ".join(unit_bullets)
                 ),
             )
             send_telegram_photo(
                 p2,
-                caption="🗺️ Peta Temuan Bug, Sinergi Lintas Ekosistem & Roadmap 4 Minggu (+ slot siap untuk Kantor Produk Digital).",
+                caption="🗺️ Peta Temuan Real, Sinergi Lintas Ekosistem & Roadmap 4 Minggu (+ slot siap untuk Kantor Produk Digital).",
             )
             send_telegram_document(
                 pdf_p,
-                caption=f"📄 PDF Lengkap Portfolio CEO Audit ({date_str})",
+                caption=f"📄 PDF Lengkap 3-Halaman Portfolio CEO Audit ({date_str})",
             )
-            print("[portfolio] Infografis PNG 1 & 2 + PDF Visual berhasil dikirim ke Telegram!")
+            print("[portfolio] Audit Besar (2 Infografis PNG + PDF 3-Halaman) berhasil dikirim ke Telegram!")
         else:
             print("[portfolio] Telegram belum dikonfigurasi di env; file visual tersimpan secara lokal.")
 
     return report_payload
+
+
+def run_daily_portfolio_watchdog(always_notify: bool = False) -> dict[str, Any]:
+    """Zero-token daily health watchdog across all portfolio units to catch errors within <=24 hours."""
+    cfg = load_portfolio_config()
+    now_wib = datetime.now(WIB)
+    state_path = PORTFOLIO_OUT_DIR / "watchdog_state.json"
+    seen_ids: set[str] = set()
+    if state_path.exists():
+        try:
+            raw = json.loads(state_path.read_text(encoding="utf-8"))
+            seen_ids = set(raw.get("alerted_keys") or [])
+        except Exception:
+            seen_ids = set()
+
+    new_alerts: list[str] = []
+    checked_units: list[str] = []
+    cutoff_ts = now_wib.timestamp() - 28 * 3600
+
+    for unit in cfg.get("units") or []:
+        if not unit.get("enabled", True):
+            continue
+        uname = str(unit.get("name") or unit.get("id"))
+        repo = str(unit.get("repo") or "").strip()
+        checked_units.append(uname)
+
+        if repo:
+            runs_data = _gh_api_get(f"repos/{repo}/actions/runs", params={"per_page": 12})
+            for run in (runs_data or {}).get("workflow_runs") or []:
+                wf_name = str(run.get("name") or "")
+                wf_low = wf_name.lower()
+                if "pages-build" in wf_low or "pages build" in wf_low or run.get("status") != "completed":
+                    continue
+                if run.get("conclusion") in ("success", "skipped", "neutral", "cancelled", None):
+                    continue
+                created = str(run.get("created_at") or "")
+                try:
+                    dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                    if dt.timestamp() < cutoff_ts:
+                        continue
+                except Exception:
+                    pass
+                rid = str(run.get("id") or "")
+                key = f"gh:{repo}:{rid}"
+                if key not in seen_ids:
+                    seen_ids.add(key)
+                    new_alerts.append(
+                        f"🔴 {uname}: `{wf_name}` GAGAL ({run.get('conclusion')}) — {run.get('html_url', '')}"
+                    )
+
+        if unit.get("type") == "threads_affiliate":
+            live_sh = _fetch_live_spreadsheet_via_webhook(str(unit.get("sheet_id") or ""))
+            if live_sh:
+                snap = _parse_affiliate_sheets_to_snapshot(str(unit.get("sheet_id") or ""), live_sh)
+                pend = int((snap.get("status_counts") or {}).get("PENDING") or 0)
+                min_buf = int((unit.get("milestone") or {}).get("min_queue_buffer") or 15)
+                if pend < min_buf:
+                    key = f"stock:{now_wib.strftime('%Y-%m-%d')}"
+                    if key not in seen_ids:
+                        seen_ids.add(key)
+                        new_alerts.append(f"🟡 {uname}: Stok antrean PENDING tinggal {pend} (< {min_buf}). Isi Antrean_Produk!")
+
+    PORTFOLIO_OUT_DIR.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps({"last_checked_wib": now_wib.strftime("%Y-%m-%d %H:%M WIB"), "alerted_keys": sorted(seen_ids)[-200:]}, indent=2),
+        encoding="utf-8",
+    )
+
+    notified = False
+    if new_alerts or always_notify:
+        from src.tools.telegram_notify import send_telegram_message, telegram_enabled
+
+        if telegram_enabled():
+            if new_alerts:
+                msg = "\n".join(
+                    [
+                        f"🚨 WATCHDOG HARIAN ASISTEN CEO ({now_wib.strftime('%Y-%m-%d %H:%M WIB')})",
+                        f"Terdeteksi {len(new_alerts)} kendala baru dalam 24 jam terakhir:",
+                        *new_alerts[:8],
+                        "",
+                        "💡 Balas /audit_ceo kalau ingin langsung generate laporan visual lengkap sekarang.",
+                    ]
+                )
+            else:
+                msg = (
+                    f"🟢 WATCHDOG HARIAN ASISTEN CEO ({now_wib.strftime('%Y-%m-%d %H:%M WIB')})\n"
+                    f"Semua {len(checked_units)} unit aktif ({', '.join(checked_units)}) berjalan sehat tanpa error workflow dalam 24 jam terakhir."
+                )
+            notified = send_telegram_message(msg)
+
+    print(f"[watchdog] Checked {len(checked_units)} units | new_alerts={len(new_alerts)} | notified={notified}")
+    return {"checked_units": checked_units, "new_alerts": new_alerts, "notified": notified}
+

@@ -358,7 +358,107 @@ def _render_roadmap_page(payload: dict[str, Any], fonts: dict[str, ImageFont.Fre
 
     # Footer
     draw.rounded_rectangle([40, 1612, CANVAS_W - 40, 1656], radius=10, fill=DARK_HDR)
-    draw.text((62, 1624), "Kimiabill CEO Portfolio Visual Engine (0 Token AI)  •  Siap terima integrasi API Threads Insights & Kantor Produk Digital", font=fonts["small"], fill=(203, 213, 225))
+    draw.text((62, 1624), "Kimiabill CEO Portfolio Visual Engine  •  Siap terima integrasi API Threads Insights & Kantor Produk Digital", font=fonts["small"], fill=(203, 213, 225))
+    return img
+
+
+def _render_detail_page(payload: dict[str, Any], fonts: dict[str, ImageFont.FreeTypeFont]) -> Image.Image:
+    img = Image.new("RGB", (CANVAS_W, CANVAS_H), BG)
+    draw = ImageDraw.Draw(img)
+
+    _draw_header(
+        draw,
+        title="LAMPIRAN TELEMETRI LIVE & REKAP 7 HARI",
+        subtitle=f"Log Workflow GitHub Actions, Metrik Threads API & Pertumbuhan  •  {payload.get('generated_at_wib', '')}",
+        badge_text="Halaman 3 • Detail Audit",
+        fonts=fonts,
+    )
+
+    units: list[dict[str, Any]] = list(payload.get("units") or [])
+    deltas = payload.get("deltas") or {}
+
+    # 1. Week-over-Week Growth Card (y=154..290)
+    _card(draw, (40, 154, CANVAS_W - 40, 290), fill=WHITE, outline=BORDER, radius=16)
+    draw.text((62, 170), "1. PERTUMBUHAN MINGGU-KE-MINGGU & REKAP WATCHDOG", font=fonts["h3"], fill=NAVY)
+    if deltas.get("prev_date"):
+        d_txt = (
+            f"Dibanding audit {deltas['prev_date']}: Subscribers YT {deltas.get('subs_delta', 0):+d} | "
+            f"Total Views YT {deltas.get('views_delta', 0):+,}"
+        )
+    else:
+        d_txt = "Snapshot perdana tersimpan di data/portfolio_audits/portfolio_history.json — delta pertumbuhan otomatis muncul di audit berikutnya."
+    draw.text((62, 206), d_txt, font=fonts["body"], fill=BLUE if deltas.get("prev_date") else SLATE)
+    draw.text(
+        (62, 240),
+        "Jadwal Asisten CEO: (a) Watchdog Error Harian 21:15 WIB (0 Token)  •  (b) Audit Besar Visual Tiap Minggu 20:30 WIB  •  (c) Telegram /audit_ceo kapan saja.",
+        font=fonts["small"],
+        fill=SLATE,
+    )
+
+    # 2. Recent Workflow Runs Across All Units (y=312..970)
+    _card(draw, (40, 312, CANVAS_W - 40, 976), fill=WHITE, outline=BORDER, radius=16)
+    draw.text((62, 328), "2. LOG WORKFLOW TERBARU LINTAS REPOSITORY GITHUB", font=fonts["h3"], fill=NAVY)
+    ry = 368
+    for u in units:
+        draw.text((62, ry), f"{u.get('name', '')} ({u.get('repo', '-')})", font=fonts["body_b"], fill=NAVY)
+        ry += 28
+        rec = (u.get("runs") or {}).get("recent_runs") or []
+        if not rec:
+            draw.text((80, ry), "- Belum ada riwayat run workflow atau repo belum diisi.", font=fonts["small"], fill=SLATE)
+            ry += 30
+        else:
+            for rr in rec[:5]:
+                conc = str(rr.get("conclusion") or "-").upper()
+                c_col = GREEN if conc == "SUCCESS" else RED
+                ts = str(rr.get("created_at") or "")[:16].replace("T", " ")
+                wf = str(rr.get("name") or "-")[:56]
+                _pill(draw, 80, ry, conc, SOFT_GREEN if conc == "SUCCESS" else SOFT_RED, c_col, fonts["micro_b"], pad_x=8, pad_y=2)
+                draw.text((195, ry + 3), f"{ts} UTC  |  {wf}", font=fonts["small"], fill=NAVY if conc != "SUCCESS" else SLATE)
+                ry += 30
+        ry += 12
+        if ry > 930:
+            break
+
+    # 3. Threads Affiliate Log & API Insights Breakdown (y=998..1590)
+    _card(draw, (40, 998, CANVAS_W - 40, 1594), fill=WHITE, outline=BORDER, radius=16)
+    draw.text((62, 1014), "3. DETAIL KANTOR AFFILIATE (GOOGLE SHEETS + API THREADS)", font=fonts["h3"], fill=NAVY)
+    tu = next((u for u in units if u.get("type") == "threads_affiliate"), None)
+    ty = 1052
+    if not tu:
+        draw.text((62, ty), "Unit Threads Affiliate tidak aktif di config/portfolio.yaml.", font=fonts["body"], fill=SLATE)
+    else:
+        tapi = tu.get("threads_api") or {}
+        if tapi.get("connected"):
+            draw.text(
+                (62, ty),
+                f"API Threads Aktif: Views={tapi.get('views', 0):,} | Likes={tapi.get('likes', 0):,} | Replies={tapi.get('replies', 0):,} | Reposts={tapi.get('reposts', 0):,} | Clicks={tapi.get('clicks', 0):,} | Followers={tapi.get('followers', '-')}",
+                font=fonts["body_b"],
+                fill=GREEN,
+            )
+            ty += 34
+            for pi in (tapi.get("post_insights") or [])[:6]:
+                draw.text(
+                    (78, ty),
+                    f"Post {pi.get('post_id')}  ->  Views: {pi.get('views', 0):,} | Likes: {pi.get('likes', 0)} | Replies: {pi.get('replies', 0)} | Reposts: {pi.get('reposts', 0)} | Shares: {pi.get('shares', 0)}",
+                    font=fonts["small"],
+                    fill=NAVY,
+                )
+                ty += 26
+        else:
+            draw.text((62, ty), "API Threads Insights: Menunggu Secret THREADS_ACCESS_TOKEN & THREADS_USER_ID (akan otomatis muncul di sini).", font=fonts["body"], fill=AMBER)
+            ty += 34
+
+        draw.text((62, ty + 8), "Riwayat Publikasi Terbaru di Google Sheet (Log_Performa):", font=fonts["body_b"], fill=NAVY)
+        ty += 38
+        for lg in (tu.get("live_logs") or [])[-6:]:
+            st = str(lg.get("status") or "-")
+            s_col = GREEN if st == "PUBLISHED" else AMBER
+            _pill(draw, 78, ty, st[:18], SOFT_GREEN if st == "PUBLISHED" else SOFT_AMBER, s_col, fonts["micro_b"], pad_x=8, pad_y=2)
+            draw.text((260, ty + 3), f"{lg.get('tanggal_wib', '')} | {str(lg.get('produk', ''))[:52]}", font=fonts["small"], fill=NAVY)
+            ty += 32
+
+    draw.rounded_rectangle([40, 1612, CANVAS_W - 40, 1656], radius=10, fill=DARK_HDR)
+    draw.text((62, 1624), "Kimiabill CEO Assistant Dossier  •  Halaman 3/3  •  Siap ekspansi ke Kantor Produk Digital", font=fonts["small"], fill=(203, 213, 225))
     return img
 
 
@@ -367,6 +467,7 @@ def generate_portfolio_visuals(payload: dict[str, Any], out_dir: Path, date_str:
     fonts = _load_fonts()
     p1_img = _render_dashboard_page(payload, fonts)
     p2_img = _render_roadmap_page(payload, fonts)
+    p3_img = _render_detail_page(payload, fonts)
 
     p1_path = out_dir / f"PORTFOLIO_INFOGRAFIK_1_DASHBOARD_{date_str}.png"
     p2_path = out_dir / f"PORTFOLIO_INFOGRAFIK_2_ROADMAP_{date_str}.png"
@@ -379,7 +480,7 @@ def generate_portfolio_visuals(payload: dict[str, Any], out_dir: Path, date_str:
         "PDF",
         resolution=150.0,
         save_all=True,
-        append_images=[p2_img.convert("RGB")],
+        append_images=[p2_img.convert("RGB"), p3_img.convert("RGB")],
     )
     return {
         "png_dashboard": str(p1_path),

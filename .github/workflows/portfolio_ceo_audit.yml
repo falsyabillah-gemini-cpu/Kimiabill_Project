@@ -1,13 +1,25 @@
-name: Kimiabill Ecosystem — Portfolio CEO Visual Audit
+name: Kimiabill Ecosystem — Portfolio CEO Assistant (Daily Watchdog + Weekly Visual Audit)
 
 on:
   schedule:
-    # Setiap Minggu 20:30 WIB (13:30 UTC), setelah audit Agent 8 per-channel selesai
+    # 1. Watchdog Error Harian (0 Token AI): Setiap hari 21:15 WIB (14:15 UTC)
+    - cron: "15 14 * * *"
+    # 2. Audit Besar-besaran Visual Mingguan: Setiap Minggu 20:30 WIB (13:30 UTC)
     - cron: "30 13 * * 0"
+  repository_dispatch:
+    types: [telegram_ceo_audit]
   workflow_dispatch:
     inputs:
+      mode:
+        description: "Mode (weekly_ceo_audit = Audit Besar PNG+PDF | watchdog_daily = Cek Error Cepat 24 Jam)"
+        required: false
+        default: "weekly_ceo_audit"
+        type: choice
+        options:
+          - weekly_ceo_audit
+          - watchdog_daily
       send_to_telegram:
-        description: "Kirim 2 Infografis PNG + PDF Visual ke Telegram?"
+        description: "Kirim hasil ke Telegram? (untuk watchdog_daily tetap selalu kirim jika ada error baru)"
         required: false
         default: true
         type: boolean
@@ -17,7 +29,7 @@ permissions:
   actions: read
 
 jobs:
-  portfolio-ceo-audit:
+  portfolio-ceo-assistant:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,16 +38,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Minimal Visual & API Dependencies
+      - name: Install Dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq fonts-dejavu-core fonts-liberation
-          pip install -q pillow pyyaml requests pydantic
+          pip install -q pillow pyyaml requests pydantic python-dotenv
 
-      - name: Run Modular Portfolio CEO Visual Audit (3+ Units)
+      - name: Run CEO Assistant (Daily Watchdog or Weekly Big Visual Audit)
         env:
           PYTHONUNBUFFERED: "1"
           GH_TOKEN: ${{ github.token }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
           ENG_YOUTUBE_WEBHOOK_URL: ${{ secrets.ENG_YOUTUBE_WEBHOOK_URL }}
           THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
@@ -43,30 +58,49 @@ jobs:
           DIGITAL_PRODUCTS_WEBHOOK_URL: ${{ secrets.DIGITAL_PRODUCTS_WEBHOOK_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          SEND_TG: ${{ github.event_name == 'schedule' && 'true' || inputs.send_to_telegram }}
+          EVENT_NAME: ${{ github.event_name }}
+          CRON_EXPR: ${{ github.event.schedule }}
+          INPUT_MODE: ${{ inputs.mode }}
+          SEND_TG: ${{ inputs.send_to_telegram }}
         run: |
           python - <<'PY'
           import os
-          from src.tools.portfolio_auditor import run_portfolio_ceo_audit
+          from src.tools.portfolio_auditor import run_daily_portfolio_watchdog, run_portfolio_ceo_audit
 
+          ev = os.environ.get("EVENT_NAME", "")
+          cron = os.environ.get("CRON_EXPR", "")
+          mode = os.environ.get("INPUT_MODE", "weekly_ceo_audit")
           send_tg = os.environ.get("SEND_TG", "true").strip().lower() == "true"
-          res = run_portfolio_ceo_audit(send_telegram=send_tg)
-          print("[portfolio] Done:", res.get("kpis"), res.get("visual_files"))
+
+          if ev == "schedule" and cron == "15 14 * * *":
+              mode = "watchdog_daily"
+          elif ev in ("schedule", "repository_dispatch"):
+              mode = "weekly_ceo_audit"
+              send_tg = True
+
+          print(f"[ceo_assistant] Running mode={mode} (event={ev}, cron={cron})")
+          if mode == "watchdog_daily":
+              res = run_daily_portfolio_watchdog(always_notify=(ev == "workflow_dispatch" and send_tg))
+              print("[watchdog] Result:", res)
+          else:
+              res = run_portfolio_ceo_audit(send_telegram=send_tg, use_ai_synthesis=True)
+              print("[portfolio] Done:", res.get("kpis"), res.get("visual_files"))
           PY
 
-      - name: Commit Portfolio Audit Visuals & Snapshots
+      - name: Commit Portfolio Audits, History & Watchdog State
         run: |
           git config user.name "Kimiabill Portfolio Bot"
           git config user.email "bot@kimiabill.local"
           git add data/portfolio_audits/ 2>/dev/null || true
           if ! git diff --cached --quiet; then
-            git commit -m "chore: save weekly portfolio CEO visual audit [skip ci]"
+            git commit -m "chore: save portfolio CEO assistant audit & watchdog state [skip ci]"
             git pull --rebase origin main || true
             git push
           fi
 
       - name: Upload Visual Audit Artifacts
         uses: actions/upload-artifact@v4
+        if: ${{ github.event.schedule == '30 13 * * 0' || github.event_name != 'schedule' }}
         with:
           name: portfolio-ceo-audit-${{ github.run_number }}
           path: |

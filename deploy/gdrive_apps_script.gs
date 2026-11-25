@@ -112,12 +112,15 @@ function _processTelegramUpdate(payload) {
 
   const isRulesCmd = low.indexOf("/rules") === 0 || low === "/aturan";
   const isClearCmd = low.indexOf("/clear_rules") === 0 || low.indexOf("/clear") === 0;
+  const isCeoAuditCmd = low.indexOf("/audit_ceo") === 0 || low.indexOf("/audit_all") === 0;
   const isRerender = low.indexOf("/rerender") === 0;
   const cleanNote = isRerender
     ? text.slice(9).trim()
-    : (isRulesCmd || isClearCmd ? text : (low.indexOf("/feedback") === 0 ? text.slice(9).trim() : text));
+    : (isRulesCmd || isClearCmd || isCeoAuditCmd ? text : (low.indexOf("/feedback") === 0 ? text.slice(9).trim() : text));
 
-  const eventType = isRerender ? "telegram_rerender" : "telegram_feedback";
+  const eventType = isCeoAuditCmd
+    ? "telegram_ceo_audit"
+    : (isRerender ? "telegram_rerender" : "telegram_feedback");
   const dispatchResp = UrlFetchApp.fetch(
     "https://api.github.com/repos/" + githubRepo + "/dispatches",
     {
@@ -141,7 +144,9 @@ function _processTelegramUpdate(payload) {
   const code = dispatchResp.getResponseCode();
   console.log("[tg_webhook] GitHub dispatch HTTP " + code);
   if (code >= 200 && code < 300) {
-    if (isRulesCmd) {
+    if (isCeoAuditCmd) {
+      _replyTg(botToken, allowedChatId, "📊 Menjalankan Audit Visual Asisten CEO lintas seluruh akun (tunggu ~30 detik)...");
+    } else if (isRulesCmd) {
       _replyTg(botToken, allowedChatId, "🔎 Mengecek daftar aturan aktif di semua Agent (tunggu ~10 detik)...");
     } else if (isClearCmd) {
       _replyTg(botToken, allowedChatId, "🧹 Mengirim perintah reset aturan tambahan ke semua Agent...");
@@ -776,6 +781,29 @@ function doPost(e) {
         size_bytes: sz,
         content_base64: Utilities.base64Encode(blob.getBytes()),
       });
+    }
+
+    if (action === "read_spreadsheet") {
+      const sid = String(payload.sheet_id || "").trim();
+      if (!sid) {
+        return _jsonResponse({ ok: false, error: "sheet_id wajib diisi." });
+      }
+      const ss = SpreadsheetApp.openById(sid);
+      const wantTabs = Array.isArray(payload.tabs) ? payload.tabs : null;
+      const maxRows = Number(payload.max_rows || 200);
+      const sheetsOut = {};
+      ss.getSheets().forEach(function (sh) {
+        const sname = sh.getName();
+        if (wantTabs && wantTabs.indexOf(sname) === -1) return;
+        const lastR = Math.min(sh.getLastRow(), maxRows);
+        const lastC = Math.min(sh.getLastColumn(), 20);
+        if (lastR <= 0 || lastC <= 0) {
+          sheetsOut[sname] = [];
+          return;
+        }
+        sheetsOut[sname] = sh.getSheetValues(1, 1, lastR, lastC);
+      });
+      return _jsonResponse({ ok: true, sheet_id: sid, title: ss.getName(), sheets: sheetsOut });
     }
 
     if (action === "send_custom_email") {
