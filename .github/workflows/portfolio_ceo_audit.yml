@@ -1,0 +1,75 @@
+name: Kimiabill Ecosystem — Portfolio CEO Visual Audit
+
+on:
+  schedule:
+    # Setiap Minggu 20:30 WIB (13:30 UTC), setelah audit Agent 8 per-channel selesai
+    - cron: "30 13 * * 0"
+  workflow_dispatch:
+    inputs:
+      send_to_telegram:
+        description: "Kirim 2 Infografis PNG + PDF Visual ke Telegram?"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  portfolio-ceo-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Minimal Visual & API Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-dejavu-core fonts-liberation
+          pip install -q pillow pyyaml requests
+
+      - name: Run Modular Portfolio CEO Visual Audit (3+ Units)
+        env:
+          PYTHONUNBUFFERED: "1"
+          GH_TOKEN: ${{ github.token }}
+          GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
+          ENG_YOUTUBE_WEBHOOK_URL: ${{ secrets.ENG_YOUTUBE_WEBHOOK_URL }}
+          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
+          DIGITAL_PRODUCTS_WEBHOOK_URL: ${{ secrets.DIGITAL_PRODUCTS_WEBHOOK_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SEND_TG: ${{ github.event_name == 'schedule' && 'true' || inputs.send_to_telegram }}
+        run: |
+          python - <<'PY'
+          import os
+          from src.tools.portfolio_auditor import run_portfolio_ceo_audit
+
+          send_tg = os.environ.get("SEND_TG", "true").strip().lower() == "true"
+          res = run_portfolio_ceo_audit(send_telegram=send_tg)
+          print("[portfolio] Done:", res.get("kpis"), res.get("visual_files"))
+          PY
+
+      - name: Commit Portfolio Audit Visuals & Snapshots
+        run: |
+          git config user.name "Kimiabill Portfolio Bot"
+          git config user.email "bot@kimiabill.local"
+          git add data/portfolio_audits/ 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: save weekly portfolio CEO visual audit [skip ci]"
+            git pull --rebase origin main || true
+            git push
+          fi
+
+      - name: Upload Visual Audit Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: portfolio-ceo-audit-${{ github.run_number }}
+          path: |
+            data/portfolio_audits/*.png
+            data/portfolio_audits/*.pdf
+            data/portfolio_audits/*.json

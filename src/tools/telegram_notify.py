@@ -124,6 +124,35 @@ def send_telegram_video(
     return send_telegram_message(caption, chat_id_override=chat_id) if caption else False
 
 
+def send_telegram_photo(
+    photo_path: str | Path,
+    caption: str = "",
+    chat_id_override: Optional[str] = None,
+) -> bool:
+    """Send an image infographic (PNG/JPG) inline to owner's Telegram chat."""
+    token, default_chat = _bot_creds()
+    chat_id = (chat_id_override or default_chat).strip()
+    img_path = Path(photo_path)
+    if not token or not chat_id or not img_path.exists():
+        return False
+    short_cap = (caption or "").strip()[:1000]
+    try:
+        with img_path.open("rb") as fh:
+            resp = requests.post(
+                _api_url(token, "sendPhoto"),
+                data={"chat_id": chat_id, "caption": short_cap},
+                files={"photo": (img_path.name, fh)},
+                timeout=60,
+            )
+        data = resp.json() if resp.status_code == 200 else {}
+        if data.get("ok"):
+            return True
+        print(f"[telegram] sendPhoto gagal ({resp.status_code}): {resp.text[:160]}")
+    except Exception as exc:
+        print(f"[telegram] sendPhoto error: {exc}")
+    return send_telegram_document(img_path, caption=short_cap, chat_id_override=chat_id)
+
+
 def send_telegram_document(
     file_path: Path,
     caption: str = "",

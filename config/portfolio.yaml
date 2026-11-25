@@ -1,0 +1,80 @@
+# Modular Portfolio Registry for Kimiabill CEO Visual Auditor
+# Untuk menambah unit baru nanti (mis. Kantor Produk Digital), cukup tambah 1 blok di `units` (enabled: true).
+
+portfolio:
+  owner_name: "Falsyabillah"
+  report_title: "KIMIABILL ECOSYSTEM — PORTFOLIO CEO REPORT"
+  timezone: "Asia/Jakarta"
+
+units:
+  - id: "yt_id"
+    enabled: true
+    name: "Kimiabill (YouTube ID)"
+    handle: "@kimiabill"
+    type: "youtube"
+    repo: "falsyabillah-gemini-cpu/Kimiabill_Project"
+    local_repo: true
+    webhook_env: "GDRIVE_WEBHOOK_URL"
+    workflows:
+      - "daily_kimiabill.yml"
+      - "weekly_audit_kimiabill.yml"
+    milestone:
+      label: "YPP Tier 1 (Subscribers)"
+      target_subscribers: 500
+      target_views_90d: 3000000
+      full_subscribers: 1000
+      full_views_90d: 10000000
+
+  - id: "yt_eng"
+    enabled: true
+    name: "Bill Explains (YouTube ENG)"
+    handle: "@bill_explains"
+    type: "youtube"
+    repo: "falsyabillah-gemini-cpu/Kimiabill_Project_Eng"
+    local_repo: false
+    webhook_env: "ENG_YOUTUBE_WEBHOOK_URL"
+    public_sample_videos:
+      - "8oHhnF-PA5o"
+      - "PWoNfrFiY7Q"
+    workflows:
+      - "daily_studio.yml"
+      - "weekly_audit.yml"
+    milestone:
+      label: "YPP Global Tier 1 (Subscribers)"
+      target_subscribers: 500
+      target_views_90d: 3000000
+      full_subscribers: 1000
+      full_views_90d: 10000000
+
+  - id: "threads_affiliate"
+    enabled: true
+    name: "Kantor Affiliate (Threads + Shopee)"
+    handle: "Threads Affiliate"
+    type: "threads_affiliate"
+    repo: "falsyabillah-gemini-cpu/Kimiabill_Foundation"
+    local_repo: false
+    sheet_id: "1PZ024Tr8kONsIlKf68i2Y-YQLX3BFKhOmS3pvl2BRcc"
+    threads_token_env: "THREADS_ACCESS_TOKEN"
+    threads_user_id_env: "THREADS_USER_ID"
+    workflows:
+      - "publish_content.yml"
+      - "engagement_manager.yml"
+    milestone:
+      label: "Target Produk Live Mingguan (3x/hari)"
+      target_weekly_posts: 21
+      min_queue_buffer: 15
+
+  # Siap diaktifkan kapan saja saat Kantor Produk Digital sudah jadi:
+  - id: "digital_products"
+    enabled: false
+    name: "Kantor Produk Digital"
+    handle: "Digital Store"
+    type: "digital_products"
+    repo: ""
+    local_repo: false
+    sheet_id: ""
+    webhook_env: "DIGITAL_PRODUCTS_WEBHOOK_URL"
+    milestone:
+      label: "Target Penjualan Produk Digital / Bulan"
+      target_monthly_orders: 50
+      target_monthly_revenue_idr: 5000000

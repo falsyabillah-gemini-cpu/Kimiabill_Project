@@ -1,0 +1,62 @@
+{
+  "captured_at_wib": "2026-11-25 23:30 WIB",
+  "sheet_id": "1PZ024Tr8kONsIlKf68i2Y-YQLX3BFKhOmS3pvl2BRcc",
+  "status_counts": {
+    "CONTOH": 2,
+    "DRAFT_ONLY": 3,
+    "PUBLISHED": 1,
+    "PENDING": 50
+  },
+  "category_counts": {
+    "Meja Kerja": 1,
+    "Kos & Rumah": 2,
+    "Lampu & Pendingin": 4,
+    "Gadget & Audio": 7,
+    "Meja & Ergonomi": 24,
+    "Aksesoris Meja": 9,
+    "Rak & Organizer": 9
+  },
+  "log_count": 4,
+  "live_logs": [
+    {
+      "tanggal_wib": "2026-11-24 21:20:28 WIB",
+      "produk": "Hilya Furnitur",
+      "mode": "TELEGRAM_ONLY",
+      "status": "SKIPPED_NO_TOKEN"
+    },
+    {
+      "tanggal_wib": "2026-11-25 12:56:01 WIB",
+      "produk": "TNW Lampu Foto Lampu LED Video Light Fill light Tripod Ring Light Lampu Fotografi Live Vlogging",
+      "mode": "TELEGRAM_ONLY",
+      "status": "SKIPPED_NO_TOKEN"
+    },
+    {
+      "tanggal_wib": "2026-11-25 17:57:25 WIB",
+      "produk": "BASIKE Kepala Charger iPhone Fast Charging PD 40W Dual Port Type-C USB Fast Charging Soket Eropa Aman Mini Praktis Kompatibel iPhone Android HP Tablet Headset Rumah Kantor",
+      "mode": "TELEGRAM_ONLY",
+      "status": "SKIPPED_NO_TOKEN"
+    },
+    {
+      "tanggal_wib": "2026-11-25 21:21:47 WIB",
+      "produk": "Mipanda Watch Charger Kabel Pengisi Daya Magnet USB untuk Pengisian 1 / 2 / 3 / 4 / 5 / 6 / 7 / SE",
+      "mode": "LIVE",
+      "status": "PUBLISHED"
+    }
+  ],
+  "comments_count": 0,
+  "audit_riset_count": 0,
+  "settings": {
+    "Niche_Utama": "Gadget Meja Kerja & Perlengkapan Kos/Rumah Tangga",
+    "Gaya_Bahasa_Threads": "Santai, jujur, conversational, seperti teman merekomendasikan barang (bukan bahasa iklan kaku)",
+    "Gaya_Bahasa_X": "Kurasi ringkas, to-the-point, pakai poin manfaat nyata, elegan & informatif",
+    "Persona_Panggilan": "aku / kamu",
+    "Model_Gemini_Utama": "gemini-4-hydrogen",
+    "Rantai_Fallback_Gemini": "gemini-4-hydrogen, gemini-3.8-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite, gemini-2.5-pro, gemini-2.5-flash-lite",
+    "Kata_Kunci_Auto_Hunter": "lampu monitor, charger gan, stand laptop, kabel organizer, rak kos tanpa paku, vakum meja mini, kotak penyimpanan estetik",
+    "Min_Rating_Shopee": "46207.0",
+    "Min_Stok_Peringatan": "5.0",
+    "Auto_Reply_Komentar": "OFF",
+    "Link_Bio_Landing": "",
+    "Tanggal_Token_Threads": "46351.0"
+  }
+}
