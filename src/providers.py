@@ -69,17 +69,15 @@ GEMINI_FALLBACK_MODELS: tuple[str, ...] = (
     "gemini-3.8-flash",
     "gemini-3.6-flash",
     "gemini-3.5-flash",
-    "gemini-2.5-flash",
     "gemini-3.5-flash-lite",
-    "gemini-2.5-pro",
-    "gemini-2.5-flash-lite",
 )
 
 TRANSIENT_STATUS_CODES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
 _HYDROGEN_ALERT_SENT = False
-# Per-run in-memory skip cache so once Hydrogen (or any model) hits 429/402/403/404 during a run,
-# subsequent calls in the same run switch instantly to highest free Flash; next run automatically retries Hydrogen first.
+# Permanent skip for models that return 402/403/404 (deprecated or paid-only on this API key).
 _EXHAUSTED_MODELS_THIS_RUN: set[str] = set()
+# Short cooldown map (seconds) for temporary RPM 429 / 503 / timeout bursts so working models recover automatically.
+_MODEL_COOLDOWN_UNTIL: dict[str, float] = {}
 
 
 def _notify_hydrogen_alert(status_code: int, detail: str) -> None:
@@ -159,15 +157,15 @@ def _post_with_retry(
     raise last_exc
 
 
-def _discover_gemini_flash_model(api_key: str) -> str | None:
-    """Query Gemini /v1beta/models to find the highest-tier available Flash model supporting generateContent."""
+def _discover_gemini_flash_models(api_key: str) -> list[str]:
+    """Query Gemini /v1beta/models to find available Flash models supporting generateContent (non-omni first)."""
     try:
         resp = requests.get(
             f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}",
-            timeout=30,
+            timeout=25,
         )
         if resp.status_code != 200:
-            return None
+            return []
         models = resp.json().get("models", [])
         candidates: list[str] = []
         for m in models:
@@ -175,14 +173,23 @@ def _discover_gemini_flash_model(api_key: str) -> str | None:
             name = m.get("name", "").removeprefix("models/")
             if "generateContent" in methods and name.startswith("gemini-") and "flash" in name:
                 if not any(skip in name for skip in ("tts", "image", "audio", "live", "embedding")):
-                    candidates.append(name)
+                    if name not in _EXHAUSTED_MODELS_THIS_RUN:
+                        candidates.append(name)
         if candidates:
-            # Prefer full non-lite, non-preview Flash models of the highest generation
-            candidates.sort(key=lambda n: ("lite" not in n, "preview" not in n, n), reverse=True)
-            return candidates[0]
+            # Prefer full numeric Flash generations (3.x/2.x) over experimental omni / lite / preview
+            candidates.sort(
+                key=lambda n: ("omni" not in n, "lite" not in n, "preview" not in n, n),
+                reverse=True,
+            )
+            return candidates
     except Exception:
-        return None
-    return None
+        return []
+    return []
+
+
+def _discover_gemini_flash_model(api_key: str) -> str | None:
+    models = _discover_gemini_flash_models(api_key)
+    return models[0] if models else None
 
 
 def resolve_provider_and_model(provider: str, model: str) -> tuple[str, str]:
@@ -378,7 +385,16 @@ def call_structured_agent(
         for parse_try in range(2):
             tried: list[str] = []
             raw_candidates = [model, *[m for m in GEMINI_FALLBACK_MODELS if m != model]]
-            candidates = [m for m in raw_candidates if m not in _EXHAUSTED_MODELS_THIS_RUN] or raw_candidates
+            non_perm = [m for m in raw_candidates if m not in _EXHAUSTED_MODELS_THIS_RUN] or raw_candidates
+            now_mono = time.monotonic()
+            candidates = [m for m in non_perm if _MODEL_COOLDOWN_UNTIL.get(m, 0.0) <= now_mono]
+            if not candidates:
+                earliest = min(_MODEL_COOLDOWN_UNTIL.get(m, now_mono) for m in non_perm)
+                cool_wait = min(25.0, max(4.0, earliest - now_mono))
+                print(f"[providers] Semua model Gemini sedang jeda RPM sesaat; menunggu {cool_wait:.0f}s agar kuota pulih...")
+                time.sleep(cool_wait)
+                candidates = non_perm
+
             resp = None
             active_model = model
             for cand_idx, cand_model in enumerate(candidates):
@@ -399,14 +415,17 @@ def call_structured_agent(
                 except requests.RequestException as exc:
                     print(f"[providers] Gemini model '{cand_model}' timeout/network error ({exc}), trying next fallback...")
                     if has_more:
-                        _EXHAUSTED_MODELS_THIS_RUN.add(cand_model)
+                        _MODEL_COOLDOWN_UNTIL[cand_model] = time.monotonic() + 45.0
                     resp = None
                     continue
                 if resp.status_code == 200:
+                    _MODEL_COOLDOWN_UNTIL.pop(cand_model, None)
                     active_model = cand_model
                     break
-                if resp.status_code in (402, 403, 404, 429, 503) and has_more:
+                if resp.status_code in (402, 403, 404) and has_more:
                     _EXHAUSTED_MODELS_THIS_RUN.add(cand_model)
+                elif resp.status_code in (429, 503) and has_more:
+                    _MODEL_COOLDOWN_UNTIL[cand_model] = time.monotonic() + 35.0
                 if cand_model == "gemini-4-hydrogen" and resp.status_code in (402, 403):
                     _notify_hydrogen_alert(resp.status_code, resp.text[:400])
                 if resp.status_code not in (402, 403, 404, *TRANSIENT_STATUS_CODES):
@@ -414,15 +433,21 @@ def call_structured_agent(
                 label = "limit/quota" if resp.status_code == 429 else f"HTTP {resp.status_code}"
                 print(f"[providers] Model '{cand_model}' ({label}), otomatis beralih ke fallback berikutnya...")
             if resp is None or resp.status_code in (404, *TRANSIENT_STATUS_CODES):
-                discovered = _discover_gemini_flash_model(api_key)
-                if discovered and discovered not in tried:
+                for discovered in _discover_gemini_flash_models(api_key):
+                    if discovered in tried or _MODEL_COOLDOWN_UNTIL.get(discovered, 0.0) > time.monotonic():
+                        continue
                     url = (
                         f"https://generativelanguage.googleapis.com/v1beta/models/"
                         f"{discovered}:generateContent?key={api_key}"
                     )
-                    resp = _post_with_retry(url, json_body=body, max_attempts=3)
+                    resp = _post_with_retry(url, json_body=body, max_attempts=2, fail_fast_429=True)
                     if resp.status_code == 200:
                         active_model = discovered
+                        break
+                    if resp.status_code in (429, 503):
+                        _MODEL_COOLDOWN_UNTIL[discovered] = time.monotonic() + 35.0
+                    elif resp.status_code in (402, 403, 404):
+                        _EXHAUSTED_MODELS_THIS_RUN.add(discovered)
             assert resp is not None
             resp.raise_for_status()
             text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]

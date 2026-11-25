@@ -82,6 +82,13 @@ DISALLOWED_TITLE_TOKENS = (
     "recipe",
     "street light",
     "full moon",
+    "carpentry",
+    "woodworking",
+    "screw pump",
+    "grouted connection",
+    "primordial germ cells",
+    "astronaut moments",
+    "nogizaka",
 )
 
 # Family-safety blocklist (checked against title + categories + description metadata)
@@ -90,7 +97,8 @@ UNSAFE_TOKENS = (
     "genital", "penis", "vagina", "breast", "nipple", "masturbat", "orgasm", "fetish",
     "bdsm", "bondage", "lingerie", "bikini", "stripper", "striptease", "intercourse",
     "condom", "explicit", "adult film", "xxx", "gore", "corpse", "dead body", "autopsy",
-    "beheading", "execution", "suicide", "murder", "torture", "gun", "weapon", "war crime",
+    "beheading", "execution", "suicide", "murder", "shoot", "shooting", "knife-wielding",
+    "suspect", "gun", "weapon", "war crime",
     "drug use", "injecting", "surgery", "pregnan", "childbirth",
     "dancing", "pole dance", "fashion show", "model posing",
 )
@@ -396,6 +404,10 @@ def vision_screen_clip(clip: Path, scene: SceneSpec) -> tuple[bool, bool, str]:
     strip = _build_frame_strip(clip, clip.with_name(f"{clip.stem}_screen.jpg"))
     if strip is None:
         return False, False, "could not extract frames"
+    import time
+
+    # Gentle spacing keeps Vision screening below free-tier per-minute RPM bursts
+    time.sleep(1.2)
     try:
         from pydantic import BaseModel, Field
 
@@ -430,7 +442,10 @@ def vision_screen_clip(clip: Path, scene: SceneSpec) -> tuple[bool, bool, str]:
             image_paths=[strip],
         )
     except Exception as exc:  # noqa: BLE001
-        return False, False, f"vision screening error (rejected for safety): {exc}"
+        err_str = str(exc)
+        if "429" in err_str or "503" in err_str or "timed out" in err_str.lower():
+            return False, True, f"vision rate-limit fallback eligible ({err_str[:80]})"
+        return False, False, f"vision screening error (rejected for safety): {err_str[:120]}"
     finally:
         strip.unlink(missing_ok=True)
 
@@ -528,16 +543,20 @@ def scout_assets_for_scenes(
                     pexels_cands += search_pexels(q, orientation="landscape")
                 is_generic_q = q in generic_science_fallbacks
                 wiki_cands = search_wikimedia_videos(q) if (len(pexels_cands) < 2 or is_generic_q) else []
-                if wiki_cands and not is_generic_q:
-                    q_terms = [w for w in re.findall(r"[a-z]+", q.lower()) if len(w) > 3 and w not in stop_words]
-                    if q_terms:
-                        wiki_cands = [
-                            wc for wc in wiki_cands
-                            if any(t in wc.title.lower() for t in q_terms)
-                        ]
+                q_terms = [w for w in re.findall(r"[a-z]+", q.lower()) if len(w) > 3 and w not in stop_words]
+                if wiki_cands and not is_generic_q and q_terms:
+                    matched_wiki = [
+                        wc for wc in wiki_cands
+                        if any(t in wc.title.lower() for t in q_terms)
+                    ]
+                    # Only keep relevant matches; drop unrelated Wikimedia noise
+                    wiki_cands = matched_wiki
+                    wiki_cands.sort(
+                        key=lambda c: (-sum(1 for t in q_terms if t in c.title.lower()), 0 if c.width >= 720 else 1, -min(c.width, 1920))
+                    )
                 cands = pexels_cands + wiki_cands
-                # Prefer Pexels & >=720p clips first
-                cands.sort(key=lambda c: (0 if c.source == "pexels" else 1, 0 if c.width >= 720 else 1, -min(c.width, 1920)))
+                if not wiki_cands or is_generic_q:
+                    cands.sort(key=lambda c: (0 if c.source == "pexels" else 1, 0 if c.width >= 720 else 1, -min(c.width, 1920)))
                 per_query_screens = 0
                 for cand in cands:
                     stem = cand.title.lower()[:32]
