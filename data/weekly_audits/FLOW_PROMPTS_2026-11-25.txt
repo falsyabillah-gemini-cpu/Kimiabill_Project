@@ -13,7 +13,7 @@ PANDUAN & DAFTAR PROMPT GOOGLE AI FLOW — KIMIABILL STUDIO (2026-11-25)
 
 3) LETAK FILE PROMPT MINGGUAN
    - Langsung di badan email ini (lihat bagian #5 di bawah)
-   - Google Drive : Kimiabill_Studio / Flow_Clip_Bank / PROMPT_GOOGLE_FLOW_TERBARU.txt (https://drive.google.com/file/d/1D-U90PM3sq5rK1L8ZVmw6pYmkO6hWZa5/view?usp=drivesdk)
+   - Google Drive : Kimiabill_Studio / Flow_Clip_Bank / PROMPT_GOOGLE_FLOW_TERBARU.txt (https://drive.google.com/file/d/1jrXX00w4RkwzVGnPO7RjGhvuYG8AtUFv/view?usp=drivesdk)
    - GitHub Repo  : data/FLOW_PROMPTS_LATEST.txt & data/weekly_audits/FLOW_PROMPTS_2026-11-25.txt
 
 4) CEK SISA KREDIT & PERENCANAAN PENGGUNAAN
@@ -22,44 +22,44 @@ Cek saldo langsung di pojok kanan atas profil Google Flow: https://labs.google/f
 Opsional: isi angka sisa kredit di GitHub Repo Variable `FLOW_CREDITS_REMAINING` agar jumlah prompt minggu depan otomatis menyesuaikan.
    Perkiraan kebutuhan 5 klip di bawah:
    - Mode hemat (Veo 3.1 Lite 720p, 10 cr/klip)     : ~50 kredit total
-   - Mode detail (Omni Flash 1.2 720p, 18-24 cr/klip): ~100 kredit total
+   - Mode detail (Omni Flash 1.2 720p, 18-24 cr/klip): ~102 kredit total
    Catatan: Google Flow juga memberi 50 kredit harian (tidak diakumulasi/no rollover).
 
 5) DAFTAR PROMPT SIAP SALIN KE GOOGLE AI FLOW (PILIHAN SAJA, TIDAK SEMUANYA)
 --------------------------------------------------------------------
 [1] Selasa 12:00 WIB (DAPUR) | Topik: Kenapa Iris Bawang Selalu Bikin Mata Perih Menangis?
-    Simpan di Drive sebagai : bawang_gas_mata_syn_propanethial.mp4
+    Simpan di Drive sebagai : bawang_gas_sulfat.mp4
     Model & estimasi kredit : Omni Flash 1.2 (720p, ~18-24 cr) (~20 cr)
-    Kenapa pakai Flow       : Visualisasi makro pelepasan mikroskopis gas syn-propanethial-S-oxide saat sel bawang terpotong.
+    Kenapa pakai Flow       : Visualisasi mikroskopis gas syn-propanethial-S-oxide menguap dan bereaksi dengan lapisan air mata.
     PROMPT (Copy-Paste)     :
-    Vertical 9:16 extreme macro closeup of fresh onion cell walls being sliced open by a sharp blade, releasing faint glowing vapor droplets of syn-propanethial-S-oxide into humid air, high speed photorealistic scientific video, 4k detail, no text, no watermark
+    Extreme macro 9:16 vertical video of fresh onion cells rupturing under a sharp blade, releasing invisible chemical vapor gas rising towards liquid droplets, high speed camera photorealistic cinematic laboratory lighting, no text, no watermark.
 
-[2] Kamis 12:00 WIB (DAPUR) | Topik: Kenapa Minyak Goreng Panas Meledak Dahsyat Kena Setetes Air?!
-    Simpan di Drive sebagai : minyak_panas_air_mikro_ledakan.mp4
-    Model & estimasi kredit : Omni Flash 1.2 (720p, ~18-24 cr) (~20 cr)
-    Kenapa pakai Flow       : Simulasi mikro-uap air memuai mendadak 1.600x lipat di bawah permukaan minyak panas 180°C.
+[2] Rabu 12:00 WIB (DAPUR) | Topik: Kenapa Minyak Goreng Panas Meledak Dahsyat Kena Setetes Air?!
+    Simpan di Drive sebagai : minyak_air_meledak.mp4
+    Model & estimasi kredit : Omni Flash 1.2 (720p, ~18-24 cr) (~24 cr)
+    Kenapa pakai Flow       : Efek memuai 1600x lipat air di bawah minyak mendidih secara instan sangat sulit ditangkap kamera biasa.
     PROMPT (Copy-Paste)     :
-    Vertical 9:16 ultra slow motion macro of a tiny water droplet sinking into 180C hot transparent oil, instantly flash-boiling and violently expanding into micro-explosion shockwaves, cinematic photorealistic science visual, 4k, no text, no watermark
+    Ultra slow motion 9:16 vertical view of a single water droplet sinking into hot golden cooking oil at 180°C, instantly flash-boiling into massive expanding steam bubble bursting oil droplets, photorealistic physics experiment, 1000fps, no text, no watermark.
 
-[3] Sabtu 12:00 WIB (DAPUR) | Topik: Kenapa Putih Telur Bening Berubah Jadi Putih Padat Saat Digoreng?!
-    Simpan di Drive sebagai : denaturasi_protein_putih_telur.mp4
+[3] Jumat 12:00 WIB (DAPUR) | Topik: Reaksi Maillard: Rahasia Kimia Kenapa Steak Wangi Banget!
+    Simpan di Drive sebagai : reaksi_maillard_steak.mp4
     Model & estimasi kredit : Omni Flash 1.2 (720p, ~18-24 cr) (~20 cr)
-    Kenapa pakai Flow       : Proses denaturasi molekul albumin terurai dan mengikat forming jaring padat yang memantulkan cahaya.
+    Kenapa pakai Flow       : Perubahan warna molekuler dan karamelisasi asam amino secara close-up ekstrem pada permukaan daging.
     PROMPT (Copy-Paste)     :
-    Vertical 9:16 macro time-lapse of clear raw egg white denaturing under heat, translucent liquid protein chains unraveling and coagulating into solid opaque bright white mesh, crisp photorealistic studio lighting, 4k, no text, no watermark
+    Cinematic macro 9:16 vertical shot of raw meat surface contacting a searing hot cast-iron skillet, immediate sizzling, protein amino acids turning rich caramelized golden brown, molecular reaction, hyper-realistic depth of field, no text, no watermark.
 
-[4] Sabtu 19:00 WIB (KARAT) | Topik: Oksidasi Kilat Logam Besi Dalam Larutan Asam Pekat
-    Simpan di Drive sebagai : karat_besi_oksidasi_asam_macro.mp4
-    Model & estimasi kredit : Omni Flash 1.2 (720p, ~18-24 cr) (~20 cr)
-    Kenapa pakai Flow       : Proses korosi pekat dan pelepasan gelembung gas hidrogen pada permukaan besi ultra-close-up.
+[4] Kamis 19:00 WIB (REGULER) | Topik: Proses Oksidasi Kilat Pembentukan Karat Besi
+    Simpan di Drive sebagai : karat_besi_oksidasi.mp4
+    Model & estimasi kredit : Omni Flash 1.2 (720p, ~18-24 cr) (~18 cr)
+    Kenapa pakai Flow       : Proses karat besi alami membutuhkan waktu hari, perlu efek time-lapse photorealistic mikroskopis.
     PROMPT (Copy-Paste)     :
-    Vertical 9:16 macro shot of a shiny iron nail submerged in corrosive acidic fluid, rapid surface oxidation forming reddish brown rust flakes while micro bubbles detach, photorealistic scientific visual, high contrast, 4k, no text, no watermark
+    Time-lapse extreme macro 9:16 vertical view of shiny iron nail reacting with oxygen and moisture, orange-brown rust flakes blooming across the metallic lattice, scientific visual simulation, ultra high detail, dark background, no text, no watermark.
 
-[5] Minggu 19:00 WIB (KARAT) | Topik: Patina Hijau Tembaga: Reaksi Oksidasi Tembaga Karbonat
-    Simpan di Drive sebagai : karat_tembaga_patina_muda.mp4
+[5] Sabtu 19:00 WIB (KARAT) | Topik: Korosi Asam Klorida Lambung Terhadap Logam
+    Simpan di Drive sebagai : asam_lambung_pelarutan.mp4
     Model & estimasi kredit : Omni Flash 1.2 (720p, ~18-24 cr) (~20 cr)
-    Kenapa pakai Flow       : Perubahan warna permukaan tembaga dari kilap kemerahan menjadi lapisan patina turkuis dalam bentuk time-lapse.
+    Kenapa pakai Flow       : Eksperimen berbahaya melepaskan gas asam korosif, ideal digenerate AI secara aman.
     PROMPT (Copy-Paste)     :
-    Vertical 9:16 macro timelapse of a polished copper sheet undergoing chemical weathering, forming vibrant green-turquoise copper carbonate patina layer across the metal texture, photorealistic laboratory B-roll, 4k resolution, no text, no watermark
+    Macro 9:16 vertical laboratory footage of concentrated hydrochloric acid dissolving a piece of metal alloy, violent bubbling effervescence and chemical vapor, moody scientific lighting, photorealistic physics, no text, no watermark.
 
 -- Kimiabill Studio Automated Planner
