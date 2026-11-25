@@ -168,9 +168,202 @@ def load_owner_feedback_state() -> dict[str, Any]:
     return {"last_update_id": 0, "items": []}
 
 
+DEFAULT_RUNTIME_OVERRIDES: dict[str, Any] = {
+    "force_sfx_every_transition": True,
+    "force_sfx_every_animation": True,
+    "sfx_gain_db_delta": 0.0,
+    "bgm_gain_db_delta": 0.0,
+    "voice_speed_delta_pct": 0,
+    "subtitle_scale_delta": 0.0,
+    "visual_style_bias": "",
+    "target_duration_sec": None,
+}
+
+
+def load_owner_feedback_state() -> dict[str, Any]:
+    base = {
+        "last_update_id": 0,
+        "items": [],
+        "agent_directives": {},
+        "runtime_overrides": dict(DEFAULT_RUNTIME_OVERRIDES),
+    }
+    if not OWNER_FEEDBACK_PATH.exists():
+        return base
+    try:
+        raw = json.loads(OWNER_FEEDBACK_PATH.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            raw.setdefault("last_update_id", 0)
+            raw.setdefault("items", [])
+            raw.setdefault("agent_directives", {})
+            ro = dict(DEFAULT_RUNTIME_OVERRIDES)
+            if isinstance(raw.get("runtime_overrides"), dict):
+                ro.update(raw["runtime_overrides"])
+            raw["runtime_overrides"] = ro
+            return raw
+    except Exception:
+        pass
+    return base
+
+
 def save_owner_feedback_state(state: dict[str, Any]) -> None:
     OWNER_FEEDBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
     OWNER_FEEDBACK_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _extract_deterministic_overrides_and_notes(text: str) -> tuple[dict[str, Any], dict[str, list[str]], list[str]]:
+    """Deterministic fallback + hard engine guardrails for any owner Telegram feedback."""
+    low = (text or "").lower()
+    overrides: dict[str, Any] = {}
+    directives: dict[str, list[str]] = {}
+    notes: list[str] = []
+
+    if any(k in low for k in ("sfx", "efek suara", "sound effect", "whoosh", "pop", "ganti footage", "animasi")):
+        overrides["force_sfx_every_transition"] = True
+        overrides["force_sfx_every_animation"] = True
+        directives.setdefault("agent_3", []).append(
+            "WAJIB isi `sfx_cue` non-'none' (pilih whoosh/riser/pop/spark/ding/chime bebas copyright) di SETIAP scene, terutama setiap pergantian footage & kemunculan animasi."
+        )
+        directives.setdefault("agent_5", []).append(
+            "Pastikan seluruh pergantian footage & scene animasi memakai SFX bebas copyright yang pas dan seimbang."
+        )
+        notes.append("Engine Audio: SFX bebas copyright dikunci aktif di setiap pergantian footage & animasi")
+
+    if "sfx" in low and any(k in low for k in ("kecil", "pelan", "turun", "kurangin")):
+        overrides["sfx_gain_db_delta"] = -2.5
+        notes.append("Engine Audio: volume SFX diturunkan -2.5 dB")
+    elif "sfx" in low and any(k in low for k in ("besar", "keras", "naik", "kencang")):
+        overrides["sfx_gain_db_delta"] = 2.0
+        notes.append("Engine Audio: volume SFX dinaikkan +2.0 dB")
+
+    if any(k in low for k in ("musik", "bgm", "backsound")) and any(k in low for k in ("kecil", "pelan", "turun", "kebesaran", "berisik")):
+        overrides["bgm_gain_db_delta"] = -3.0
+        notes.append("Engine Audio: BGM diturunkan -3.0 dB agar narasi makin jelas")
+    elif any(k in low for k in ("musik", "bgm", "backsound")) and any(k in low for k in ("besar", "naik", "keras")):
+        overrides["bgm_gain_db_delta"] = 2.5
+        notes.append("Engine Audio: BGM dinaikkan +2.5 dB")
+
+    if any(k in low for k in ("suara", "ngomong", "narasi", "tempo", "voice")) and any(k in low for k in ("terlalu cepat", "kecepetan", "pelan", "lambat")):
+        overrides["voice_speed_delta_pct"] = -6
+        notes.append("Engine Voice: kecepatan narasi diturunkan -6%")
+    elif any(k in low for k in ("suara", "ngomong", "narasi", "tempo", "voice")) and any(k in low for k in ("terlalu lambat", "kelamaan", "cepatin", "lebih cepat")):
+        overrides["voice_speed_delta_pct"] = 6
+        notes.append("Engine Voice: kecepatan narasi dinaikkan +6%")
+
+    if any(k in low for k in ("subtitle", "teks", "tulisan", "caption layar")) and any(k in low for k in ("kecil", "kebesaran", "besar")):
+        if "kebesaran" in low or "terlalu besar" in low or "kecilkan" in low:
+            overrides["subtitle_scale_delta"] = -0.006
+            notes.append("Engine Visual: ukuran subtitle diperkecil sedikit")
+        else:
+            overrides["subtitle_scale_delta"] = 0.006
+            notes.append("Engine Visual: ukuran subtitle diperbesar agar makin terbaca")
+
+    import re as _re
+    m_dur = _re.search(r"\b(3[0-9]|4[0-9]|5[0-9])\s*(detik|dtk|s|sec)\b", low)
+    if m_dur:
+        sec = int(m_dur.group(1))
+        lo_s = max(28, sec - 5)
+        hi_s = min(58, sec + 4)
+        overrides["target_duration_sec"] = [lo_s, hi_s]
+        directives.setdefault("agent_3", []).append(
+            f"Target durasi total narasi WAJIB sekitar {lo_s}-{hi_s} detik sesuai arahan owner."
+        )
+        notes.append(f"Engine & Agent 3: target durasi disesuaikan ke {lo_s}-{hi_s} detik")
+
+    if any(k in low for k in ("footage", "visual", "klip", "gambar", "animasi", "diagram")):
+        directives.setdefault("agent_6", []).append(f"[ARAHAN OWNER]: {text[:260]}")
+
+    if any(k in low for k in ("judul", "thumbnail", "cover", "caption", "komen", "hashtag")):
+        directives.setdefault("agent_7", []).append(f"[ARAHAN OWNER]: {text[:260]}")
+
+    return overrides, directives, notes
+
+
+def compile_owner_feedback_state(use_llm: bool = True) -> dict[str, Any]:
+    """Compile all saved owner feedback items into concrete directives for Agents 1,2,3,5,6,7,8 + runtime overrides."""
+    st = load_owner_feedback_state()
+    items = [x for x in (st.get("items") or []) if isinstance(x, dict) and str(x.get("text") or "").strip()]
+
+    ro = dict(DEFAULT_RUNTIME_OVERRIDES)
+    merged_dirs: dict[str, list[str]] = {f"agent_{n}": [] for n in (1, 2, 3, 5, 6, 7, 8)}
+    compile_notes: list[str] = []
+
+    if not items:
+        st["agent_directives"] = merged_dirs
+        st["runtime_overrides"] = ro
+        save_owner_feedback_state(st)
+        return {"state": st, "notes": []}
+
+    for it in items:
+        d_ro, d_dirs, d_notes = _extract_deterministic_overrides_and_notes(str(it.get("text") or ""))
+        for k, v in d_ro.items():
+            if v not in (None, ""):
+                ro[k] = v
+        for ak, lst in d_dirs.items():
+            for line in lst:
+                if line not in merged_dirs.setdefault(ak, []):
+                    merged_dirs[ak].append(line)
+        for n in d_notes:
+            if n not in compile_notes:
+                compile_notes.append(n)
+
+    if use_llm:
+        try:
+            from pydantic import BaseModel, Field
+            from src.providers import call_structured_agent
+
+            class _CompiledFeedbackPlan(BaseModel):
+                summary_id: str = Field(description="1-2 kalimat ringkasan perubahan yang diterapkan untuk dikirim ke Telegram owner")
+                agent_1: list[str] = Field(default_factory=list, description="Instruksi konkret untuk Agent 1 (Ideasi/Topik)")
+                agent_2: list[str] = Field(default_factory=list, description="Instruksi konkret untuk Agent 2 (Seleksi Ide & Hook)")
+                agent_3: list[str] = Field(default_factory=list, description="Instruksi konkret untuk Agent 3 (Skrip, Durasi, Diag. Animasi & SFX)")
+                agent_5: list[str] = Field(default_factory=list, description="Instruksi konkret untuk Agent 5 (Video QA Auditor)")
+                agent_6: list[str] = Field(default_factory=list, description="Instruksi konkret untuk Agent 6 (Pencari Footage Real & Klip)")
+                agent_7: list[str] = Field(default_factory=list, description="Instruksi konkret untuk Agent 7 (Judul, Thumbnail, Caption & Pin Comment)")
+                agent_8: list[str] = Field(default_factory=list, description="Instruksi konkret untuk Agent 8 (Audit Mingguan & Peta Topik)")
+                visual_style_bias: str = Field(default="", description="Keyword/arahan visual singkat bahasa Inggris untuk Agent 6 jika relevan, atau ''")
+
+            compiled = call_structured_agent(
+                provider="auto",
+                model="gemini-3.8-flash",
+                system_prompt=(
+                    "Kamu adalah Koordinator Studio Kimiabill yang menerjemahkan masukan natural owner di Telegram "
+                    "menjadi instruksi operasional yang langsung dijalankan 100% oleh seluruh agent (Agent 1, 2, 3, 5, 6, 7, 8) "
+                    "tanpa perlu campur tangan manusia.\n"
+                    "Baca semua `owner_feedback_items`, lalu isi HANYA agent yang relevan dengan arahan singkat, tegas, dan actionable "
+                    "dalam Bahasa Indonesia. Jangan mengarang aturan yang tidak diminta owner; kalau masukan berkaitan dengan SFX, "
+                    "tekankan pada Agent 3 & 5 bahwa studio memakai SFX sintetis internal 100% bebas copyright (whoosh, pop, spark, ding, chime, riser)."
+                ),
+                user_payload={
+                    "owner_feedback_items": items[-8:],
+                    "existing_runtime_overrides": ro,
+                },
+                response_model=_CompiledFeedbackPlan,
+            )
+            for ak in ("agent_1", "agent_2", "agent_3", "agent_5", "agent_6", "agent_7", "agent_8"):
+                for line in getattr(compiled, ak, []) or []:
+                    clean_l = " ".join(str(line).strip().split())
+                    if clean_l and clean_l not in merged_dirs[ak]:
+                        merged_dirs[ak].append(clean_l)
+            if (compiled.visual_style_bias or "").strip():
+                ro["visual_style_bias"] = compiled.visual_style_bias.strip()[:160]
+            if (compiled.summary_id or "").strip():
+                compile_notes.insert(0, compiled.summary_id.strip())
+        except Exception as exc:
+            print(f"[telegram] Kompilasi LLM feedback dilewati (pakai rule deterministik): {exc}")
+
+    # Guarantee raw owner lines are also preserved cleanly for core creative agents if no specific LLM split happened
+    for it in reversed(items[-5:]):
+        raw_txt = str(it.get("text") or "").strip()
+        ts = str(it.get("created_at_wib") or "").strip()
+        tag = f"[MASUKAN OWNER • {ts}]: {raw_txt}"
+        for ak in ("agent_1", "agent_2", "agent_3", "agent_5", "agent_7", "agent_8"):
+            if not any(raw_txt[:40].lower() in existing.lower() for existing in merged_dirs[ak]):
+                merged_dirs[ak].append(tag)
+
+    st["agent_directives"] = {k: v[:10] for k, v in merged_dirs.items()}
+    st["runtime_overrides"] = ro
+    save_owner_feedback_state(st)
+    return {"state": st, "notes": compile_notes}
 
 
 def record_owner_feedback(
@@ -178,8 +371,10 @@ def record_owner_feedback(
     mode: str = "next_video",
     target_episode_id: str = "",
     update_id: Optional[int] = None,
+    compile_agents: bool = True,
+    use_llm_compiler: bool = True,
 ) -> dict[str, Any]:
-    """Persist owner feedback from Telegram so Agent 1/2/3/5 apply it on upcoming videos."""
+    """Persist owner feedback from Telegram and compile it directly into all Agents + runtime engine overrides."""
     clean = " ".join((text or "").strip().split())
     st = load_owner_feedback_state()
     if update_id is not None and int(update_id) > int(st.get("last_update_id") or 0):
@@ -201,13 +396,26 @@ def record_owner_feedback(
         )
     st["items"] = items[-20:]
     save_owner_feedback_state(st)
+    if compile_agents:
+        res = compile_owner_feedback_state(use_llm=use_llm_compiler)
+        return res["state"]
     return st
 
 
 def clear_owner_feedback() -> None:
     st = load_owner_feedback_state()
     st["items"] = []
+    st["agent_directives"] = {f"agent_{n}": [] for n in (1, 2, 3, 5, 6, 7, 8)}
+    st["runtime_overrides"] = dict(DEFAULT_RUNTIME_OVERRIDES)
     save_owner_feedback_state(st)
+
+
+def get_owner_runtime_overrides() -> dict[str, Any]:
+    st = load_owner_feedback_state()
+    ro = dict(DEFAULT_RUNTIME_OVERRIDES)
+    if isinstance(st.get("runtime_overrides"), dict):
+        ro.update(st["runtime_overrides"])
+    return ro
 
 
 def get_active_owner_feedback_directives(limit: int = 6) -> list[str]:
@@ -225,6 +433,89 @@ def get_active_owner_feedback_directives(limit: int = 6) -> list[str]:
         mode_tag = "RENDER ULANG" if item.get("mode") == "rerender" else "VIDEO BERIKUTNYA"
         out.append(f"[MASUKAN OWNER ({mode_tag} • {ts})]: {txt}")
     return out
+
+
+def get_agent_specific_owner_directives(agent_key: str, limit: int = 8) -> list[str]:
+    """Return compiled agent-specific directives merged with global owner feedback."""
+    st = load_owner_feedback_state()
+    if st.get("items") and not (st.get("agent_directives") or {}).get(agent_key):
+        try:
+            st = compile_owner_feedback_state(use_llm=False)["state"]
+        except Exception:
+            pass
+    out: list[str] = []
+    override = " ".join(os.environ.get("OWNER_FEEDBACK_OVERRIDE", "").strip().split())
+    if override:
+        out.append(f"[MASUKAN PRIORITAS OWNER - RENDER ULANG]: {override}")
+    for line in (st.get("agent_directives") or {}).get(agent_key, []):
+        s = str(line).strip()
+        if s and s not in out:
+            out.append(s)
+    for raw_line in get_active_owner_feedback_directives(limit=4):
+        if raw_line not in out:
+            out.append(raw_line)
+    return out[:limit]
+
+
+def format_active_owner_rules_text() -> str:
+    st = load_owner_feedback_state()
+    items = st.get("items") or []
+    ro = get_owner_runtime_overrides()
+    lines = ["📋 ATURAN & MASUKAN OWNER AKTIF DI SEMUA AGENT:"]
+    if not items:
+        lines.append("• Belum ada masukan teks khusus terbaru.")
+    else:
+        for i, it in enumerate(items[-6:], 1):
+            lines.append(f"{i}. ({it.get('created_at_wib', '-')}) {it.get('text', '')}")
+    lines.extend(
+        [
+            "",
+            "⚙️ SETELAN OTOMATIS ENGINE SAAT INI:",
+            f"• SFX ganti footage: {'AKTIF' if ro.get('force_sfx_every_transition', True) else 'Opsional'}",
+            f"• SFX setiap animasi/badge: {'AKTIF' if ro.get('force_sfx_every_animation', True) else 'Opsional'}",
+            f"• Delta volume SFX: {ro.get('sfx_gain_db_delta', 0.0):+.1f} dB | BGM: {ro.get('bgm_gain_db_delta', 0.0):+.1f} dB",
+            f"• Delta kecepatan suara: {int(ro.get('voice_speed_delta_pct', 0)):+d}%",
+        ]
+    )
+    if ro.get("target_duration_sec"):
+        lines.append(f"• Target durasi khusus: {ro['target_duration_sec'][0]}-{ro['target_duration_sec'][1]} detik")
+    lines.append("\nKirim /clear_rules kalau ingin reset aturan tambahan.")
+    return "\n".join(lines)
+
+
+def handle_telegram_dispatch_feedback(text: str, mode: str = "next_video") -> dict[str, Any]:
+    """Process an incoming webhook dispatch (normal feedback, /rules, or /clear_rules) directly to Agents 1-8."""
+    clean = " ".join((text or "").strip().split())
+    low = clean.lower()
+    if not clean:
+        return {"ok": True, "action": "empty"}
+
+    if low.startswith("/rules") or low == "/aturan":
+        msg = format_active_owner_rules_text()
+        send_telegram_message(msg)
+        return {"ok": True, "action": "rules_listed"}
+
+    if low.startswith("/clear_rules") or low.startswith("/clear"):
+        clear_owner_feedback()
+        send_telegram_message("🧹 Semua aturan/masukan sementara owner berhasil di-reset ke setelan standar studio (SFX transisi & animasi tetap aktif).")
+        return {"ok": True, "action": "rules_cleared"}
+
+    record_owner_feedback(clean, mode=mode, compile_agents=False)
+    comp = compile_owner_feedback_state(use_llm=True)
+    notes = comp.get("notes") or []
+    ro = (comp.get("state") or {}).get("runtime_overrides") or {}
+    summary_bullets = "\n".join(f"• {n}" for n in notes[:4]) if notes else "• Arahan langsung disimpan & diterapkan ke prompt Agent 1, 2, 3, 5, 6, 7, dan 8."
+    send_telegram_message(
+        "\n".join(
+            [
+                "🧠 100% Diterapkan Otomatis ke Sistem Agent (1, 2, 3, 5, 6, 7, 8 + Engine):",
+                summary_bullets,
+                f"🎛️ Engine: SFX transisi={'ON' if ro.get('force_sfx_every_transition', True) else 'AUTO'}, SFX animasi={'ON' if ro.get('force_sfx_every_animation', True) else 'AUTO'}",
+                "Ketik /rules untuk lihat daftar aturan aktif.",
+            ]
+        )
+    )
+    return {"ok": True, "action": "compiled", "notes": notes}
 
 
 def sync_telegram_feedback_updates() -> dict[str, Any]:
@@ -271,6 +562,9 @@ def sync_telegram_feedback_updates() -> dict[str, Any]:
         low = text.lower()
         if low in ("/start", "/status", "/help"):
             continue
+        if low.startswith("/rules") or low == "/aturan":
+            send_telegram_message(format_active_owner_rules_text())
+            continue
         if low.startswith("/clear"):
             clear_owner_feedback()
             send_telegram_message("🧹 Daftar masukan owner untuk video berikutnya sudah dikosongkan.")
@@ -278,16 +572,16 @@ def sync_telegram_feedback_updates() -> dict[str, Any]:
         if low.startswith("/rerender"):
             note = text[len("/rerender"):].strip()
             if note:
-                record_owner_feedback(note, mode="rerender", update_id=uid)
+                record_owner_feedback(note, mode="rerender", update_id=uid, use_llm_compiler=True)
                 saved_count += 1
-                send_telegram_message(f"🔄 Catatan render ulang diterapkan ke produksi kali ini: {note}")
+                send_telegram_message(f"🔄 Catatan render ulang diterapkan langsung ke semua Agent & produksi kali ini: {note}")
             continue
         if low.startswith("/feedback"):
             text = text[len("/feedback"):].strip()
         if text:
-            record_owner_feedback(text, mode="next_video", update_id=uid)
+            record_owner_feedback(text, mode="next_video", update_id=uid, use_llm_compiler=True)
             saved_count += 1
-            send_telegram_message(f"✅ Masukan dicatat untuk video ini & berikutnya:\n\"{text}\"")
+            send_telegram_message(f"✅ Masukan dicatat & dikompilasi ke Agent 1-8:\n\"{text}\"")
 
     if max_uid > int(st.get("last_update_id") or 0):
         st_latest = load_owner_feedback_state()

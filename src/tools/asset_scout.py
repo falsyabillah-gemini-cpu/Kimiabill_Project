@@ -783,6 +783,49 @@ def _next_free_path(assets_dir: Path, scene_id: str) -> Path:
     return assets_dir / f"{scene_id}_alt{k}.mp4"
 
 
+def resolve_scene_sfx_cues(
+    scene_idx: int,
+    total_scenes: int,
+    scene: SceneSpec,
+    memory: StudioMemory,
+    force_transition: bool = True,
+    force_animation: bool = True,
+) -> tuple[Optional[str], Optional[str]]:
+    """Assign fitting 100% copyright-free transition SFX + optional animation pop/spark SFX per scene."""
+    raw_cue = str(getattr(scene, "sfx_cue", "") or "").strip().lower()
+    if raw_cue in ("whoosh", "pop", "riser", "chime", "ding", "spark"):
+        trans_cue: Optional[str] = raw_cue
+    elif force_transition:
+        if scene_idx == 0:
+            trans_cue = "riser"
+        elif total_scenes >= 3 and scene_idx == total_scenes - 1:
+            trans_cue = "chime"
+        elif total_scenes >= 4 and scene_idx == total_scenes - 2:
+            trans_cue = "ding"
+        else:
+            trans_cue = "whoosh" if scene_idx % 2 == 1 else "pop"
+    else:
+        trans_cue = None
+
+    anim_cue: Optional[str] = None
+    has_visual_anim = bool(
+        getattr(scene, "mechanism", None) is not None
+        or getattr(scene, "overlay_badge", None)
+    )
+    if force_animation and has_visual_anim:
+        if trans_cue == "spark":
+            anim_cue = "pop"
+        elif trans_cue == "pop":
+            anim_cue = "spark"
+        else:
+            anim_cue = "spark" if scene_idx % 2 == 1 else "pop"
+
+    return (
+        memory.get_sfx_path(trans_cue) if trans_cue else None,
+        memory.get_sfx_path(anim_cue) if anim_cue else None,
+    )
+
+
 def scout_assets_for_scenes(
     scenes: list[SceneSpec],
     assets_dir: Path,
@@ -802,6 +845,15 @@ def scout_assets_for_scenes(
     flow_bank_clips = list_flow_clip_bank()
     used_flow_ids: set[str] = set()
     try:
+        from src.tools.telegram_notify import get_owner_runtime_overrides
+
+        _ro = get_owner_runtime_overrides()
+    except Exception:
+        _ro = {}
+    force_trans_sfx = bool(_ro.get("force_sfx_every_transition", True))
+    force_anim_sfx = bool(_ro.get("force_sfx_every_animation", True))
+    owner_visual_bias = str(_ro.get("visual_style_bias") or "").strip()
+    try:
         raw_used = memory.get_used_flow_clip_ids()
         if isinstance(raw_used, set):
             used_flow_ids = set(raw_used)
@@ -809,7 +861,16 @@ def scout_assets_for_scenes(
         pass
     episode_id = assets_dir.parent.name if assets_dir.parent else ""
 
-    for scene in scenes:
+    total_scenes = len(scenes)
+    for scene_idx, scene in enumerate(scenes):
+        trans_sfx_path, anim_sfx_path = resolve_scene_sfx_cues(
+            scene_idx=scene_idx,
+            total_scenes=total_scenes,
+            scene=scene,
+            memory=memory,
+            force_transition=force_trans_sfx,
+            force_animation=force_anim_sfx,
+        )
         if target_scene_ids is not None and scene.scene_id not in target_scene_ids and existing_assets and scene.scene_id in existing_assets:
             results.append(existing_assets[scene.scene_id])
             used_urls.add(existing_assets[scene.scene_id].source_url)
@@ -844,6 +905,8 @@ def scout_assets_for_scenes(
 
         if chosen_cand is None:
             raw_queries = [scene.visual_query] + list(scene.fallback_queries)
+            if owner_visual_bias:
+                raw_queries = [f"{scene.visual_query} {owner_visual_bias}".strip()] + raw_queries
             stop_words = {
                 "the", "and", "with", "from", "into", "that", "this", "for", "are", "was",
                 "in", "on", "of", "to", "a", "an", "at", "by", "or", "as", "is", "be",
@@ -993,7 +1056,8 @@ def scout_assets_for_scenes(
                 duration_sec=round(chosen_info["duration"], 2),
                 width=chosen_info["width"],
                 height=chosen_info["height"],
-                sfx_path=memory.get_sfx_path(scene.sfx_cue),
+                sfx_path=trans_sfx_path,
+                animation_sfx_path=anim_sfx_path,
                 notes=chosen_cand.title,
             )
         )

@@ -686,6 +686,8 @@ class StudioMemory:
         if not cue or cue == "none":
             return None
         path = self.sfx_dir / f"{cue}.wav"
+        if not path.exists():
+            self.ensure_sfx_cache()
         return str(path) if path.exists() else None
 
     def get_bgm_path(self) -> str:
@@ -695,7 +697,7 @@ class StudioMemory:
         return str(path)
 
     def ensure_sfx_cache(self) -> None:
-        """Synthesize clean, royalty-free reusable SFX & subtle science BGM bed once."""
+        """Synthesize clean, 100% royalty-free reusable SFX & subtle science BGM bed once."""
         sr = 44100
 
         def save_wav(path: Path, samples: np.ndarray) -> None:
@@ -711,7 +713,7 @@ class StudioMemory:
                 wf.setframerate(sr)
                 wf.writeframes(pcm.tobytes())
 
-        # 1. Whoosh (soft filtered noise sweep)
+        # 1. Whoosh (soft filtered noise sweep for footage cuts & transitions)
         t = np.linspace(0, 0.42, int(sr * 0.42), endpoint=False)
         rng = np.random.default_rng(42)
         noise = rng.normal(0, 1, len(t))
@@ -723,7 +725,7 @@ class StudioMemory:
         tone = 0.25 * np.sin(2 * np.pi * (220 + 520 * (t / t[-1])) * t)
         save_wav(self.sfx_dir / "whoosh.wav", (filtered * 0.75 + tone) * env * 0.85)
 
-        # 2. Pop (clean upbeat bubble pop)
+        # 2. Pop (clean upbeat bubble pop for badges & diagram pop-ins)
         t = np.linspace(0, 0.16, int(sr * 0.16), endpoint=False)
         freq = 320 + 680 * np.exp(-t * 28)
         phase = 2 * np.pi * np.cumsum(freq) / sr
@@ -755,6 +757,14 @@ class StudioMemory:
         phase = 2 * np.pi * np.cumsum(freq) / sr
         env = (t / t[-1]) ** 1.8 * np.minimum(1.0, (t[-1] - t) / 0.05)
         save_wav(self.sfx_dir / "riser.wav", np.sin(phase) * env * 0.65)
+
+        # 6. Spark (crisp light crystal shimmer for mechanistic animations)
+        t = np.linspace(0, 0.30, int(sr * 0.30), endpoint=False)
+        s1 = np.sin(2 * np.pi * 880.0 * t) * np.exp(-t * 14.0)
+        ts = np.maximum(0.0, t - 0.06)
+        ms = (t >= 0.06).astype(float)
+        s2 = ms * np.sin(2 * np.pi * 1318.5 * ts) * np.exp(-ts * 12.0)
+        save_wav(self.sfx_dir / "spark.wav", (s1 * 0.6 + s2 * 0.75) * 0.82)
 
         # 6. BGM: upbeat, subtle curiosity plucks + warm pad (loopable 16s bed)
         bgm_path = self.sfx_dir / "bgm_curious_science.wav"

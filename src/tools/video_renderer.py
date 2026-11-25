@@ -321,7 +321,7 @@ def _mix_audio(plan: RenderPlan, bgm_path: Optional[str], out_audio_wav: Path) -
         mix_labels.append("[bgm]")
         idx += 1
 
-    # Add timed SFX per segment
+    # Add timed transition SFX + optional animation pop/spark SFX per segment
     for seg in plan.segments:
         if seg.sfx_path and Path(seg.sfx_path).exists():
             delay_ms = max(0, int(round(seg.start_sec * 1000)))
@@ -332,6 +332,17 @@ def _mix_audio(plan: RenderPlan, bgm_path: Optional[str], out_audio_wav: Path) -
                 f"volume={seg.sfx_gain_db}dB,adelay={delay_ms}|{delay_ms}[{lbl}]"
             )
             mix_labels.append(f"[{lbl}]")
+            idx += 1
+        if seg.animation_sfx_path and Path(seg.animation_sfx_path).exists() and seg.duration_sec >= 1.8:
+            anim_delay_ms = max(0, int(round((seg.start_sec + 0.42) * 1000)))
+            anim_gain_db = round(float(seg.sfx_gain_db) - 2.5, 1)
+            inputs.extend(["-i", seg.animation_sfx_path])
+            lbl_anim = f"asfx{idx}"
+            filter_parts.append(
+                f"[{idx}:a]aformat=sample_rates=44100:channel_layouts=stereo,"
+                f"volume={anim_gain_db}dB,adelay={anim_delay_ms}|{anim_delay_ms}[{lbl_anim}]"
+            )
+            mix_labels.append(f"[{lbl_anim}]")
             idx += 1
 
     mix_str = "".join(mix_labels)

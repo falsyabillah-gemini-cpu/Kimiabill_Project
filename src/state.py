@@ -92,7 +92,7 @@ class SceneSpec(BaseModel):
         default=None,
         description="Structured scientific animation spec for visual mechanistic illustration (atoms, electrons, chains, receptors, waves, graphs)",
     )
-    sfx_cue: Optional[Literal["whoosh", "pop", "riser", "chime", "ding", "none"]] = "none"
+    sfx_cue: Optional[Literal["whoosh", "pop", "riser", "chime", "ding", "spark", "none"]] = "whoosh"
     motion: Literal["slow_zoom_in", "slow_zoom_out", "pan_right", "static"] = "slow_zoom_in"
 
 
@@ -119,6 +119,7 @@ class SceneAsset(BaseModel):
     width: int
     height: int
     sfx_path: Optional[str] = None
+    animation_sfx_path: Optional[str] = None
     notes: str = ""
 
 
@@ -144,6 +145,7 @@ class TimelineSegment(BaseModel):
     overlay_badge: Optional[str] = None
     mechanism: Optional[MechanismVisual] = None
     sfx_path: Optional[str] = None
+    animation_sfx_path: Optional[str] = None
     sfx_gain_db: float = -10.0
     motion: str = "slow_zoom_in"
 

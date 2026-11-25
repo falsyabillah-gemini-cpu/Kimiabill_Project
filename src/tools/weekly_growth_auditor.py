@@ -1149,7 +1149,7 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             "Indonesian findings naming exact highest-views vs lowest-views topics and WHY they succeeded/stalled). "
             "Leave `next_week_topic_map` as `[]` — Agent 1 (Trend Scout & Planner) will draft the 14-slot weekly titles right after your audit!\n"
             "Produce sharp, concrete next-week upgrade directives for Agents 1, 2, 3, 5, and 6 so the entire studio "
-            "becomes higher quality, faster, and more token-efficient every single week. "
+            "becomes higher quality, faster, and more token-efficient every single week — ALWAYS honoring any active `owner_telegram_directives` without contradicting the owner. "
             "Also populate `recommended_weekend_hours_wib` with 2 optimal HH:MM WIB upload times (1 midday slot around 11:30-13:30 "
             "and 1 evening slot around 18:30-20:30) and populate `karat_weekend_directives` with 2-3 EVERYDAY-RELATABLE research-paper "
             "themes/angles (health, human body, food, sleep, habits, weather, everyday household materials) derived from this week's top topics for next Saturday/Sunday's 'KARAT — Kabar Riset Terkini'."
@@ -1166,6 +1166,7 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             "viewer_comments": viewer_comments[:60],
             "existing_requests_queue": existing_requests[-25:],
             "previous_week_directives": prev_directives,
+            "owner_telegram_directives": __import__("src.tools.telegram_notify", fromlist=["get_agent_specific_owner_directives"]).get_agent_specific_owner_directives("agent_8"),
         },
         response_model=Agent8WeeklyAuditOutput,
         handoff_path=AUDITS_DIR / f"agent8_audit_{today_wib}.json",
@@ -1182,6 +1183,8 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
     )
     flow_quota_n, _flow_budget_note = _recommended_flow_clip_quota(_parse_flow_credits_remaining())
     try:
+        from src.tools.telegram_notify import get_agent_specific_owner_directives as _get_owner_dirs
+
         pending_queue = [r for r in load_audience_requests() if r.get("status") == "pending"][:7]
         kitchen_cands = memory.get_kitchen_chemistry_ideas(count=12)
         topic_map_res = call_structured_agent(
@@ -1189,7 +1192,7 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             model=a1_cfg.get("model", a1_cfg.get("recommended_prod_model", "gemini-3.8-flash")),
             system_prompt=(
                 "You are Agent 1 (Viral Pure-Science Trend Scout & Weekly Topic Strategist) for Kimiabill. "
-                "Using Agent 8's strategic audit findings (`agent8_strategy`), design `next_week_topic_map` with EXACTLY 14 slots "
+                "Using Agent 8's strategic audit findings (`agent8_strategy`) and `owner_telegram_directives`, design `next_week_topic_map` with EXACTLY 14 slots "
                 "covering Senin through Minggu (two slots per day: `12:00` and `19:00` WIB):\n"
                 "- EVERY day `12:00` WIB MUST be `section: 'DAPUR'` (Kimia Dapur / Sains Sehari-hari di rumah/makanan/minuman/kebiasaan sehari-hari, "
                 "prioritizing `kitchen_chemistry_candidates` or fresh relatable moments like asap bakaran, ngantuk habis makan, es batu).\n"
@@ -1211,6 +1214,7 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
                     "karat_weekend_directives": audit.karat_weekend_directives,
                     "top_performing_patterns": audit.top_performing_patterns,
                 },
+                "owner_telegram_directives": _get_owner_dirs("agent_1"),
                 "discipline_gaps": topic_landscape_brief["discipline_breakdown"],
                 "pending_audience_requests": [
                     {"requester": r.get("requester_name"), "topic": r.get("topic_title"), "discipline": r.get("discipline")}

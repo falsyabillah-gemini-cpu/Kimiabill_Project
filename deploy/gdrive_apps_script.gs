@@ -93,9 +93,10 @@ function _processTelegramUpdate(payload) {
     _replyTg(
       botToken,
       allowedChatId,
-      "🤖 Kimiabill Bot Aktif (Pola B).\n" +
-      "• Kirim pesan apa saja = masukan otomatis untuk VIDEO BERIKUTNYA.\n" +
-      "• Kirim `/rerender <catatan>` = langsung produksi & render ulang video pengganti sekarang!"
+      "🤖 Kimiabill Bot Aktif (Pola B — Langsung ke Semua Agent).\n" +
+      "• Kirim pesan apa saja = otomatis dikompilasi ke Agent 1, 2, 3, 5, 6, 7, 8 & Engine untuk VIDEO BERIKUTNYA.\n" +
+      "• Kirim `/rerender <catatan>` = langsung produksi & render ulang video pengganti sekarang!\n" +
+      "• Kirim `/rules` = cek aturan aktif | `/clear_rules` = reset aturan tambahan."
     );
     return { ok: true };
   }
@@ -109,10 +110,12 @@ function _processTelegramUpdate(payload) {
     return { ok: true, warning: "GITHUB_PAT missing" };
   }
 
+  const isRulesCmd = low.indexOf("/rules") === 0 || low === "/aturan";
+  const isClearCmd = low.indexOf("/clear_rules") === 0 || low.indexOf("/clear") === 0;
   const isRerender = low.indexOf("/rerender") === 0;
   const cleanNote = isRerender
     ? text.slice(9).trim()
-    : (low.indexOf("/feedback") === 0 ? text.slice(9).trim() : text);
+    : (isRulesCmd || isClearCmd ? text : (low.indexOf("/feedback") === 0 ? text.slice(9).trim() : text));
 
   const eventType = isRerender ? "telegram_rerender" : "telegram_feedback";
   const dispatchResp = UrlFetchApp.fetch(
@@ -138,13 +141,19 @@ function _processTelegramUpdate(payload) {
   const code = dispatchResp.getResponseCode();
   console.log("[tg_webhook] GitHub dispatch HTTP " + code);
   if (code >= 200 && code < 300) {
-    _replyTg(
-      botToken,
-      allowedChatId,
-      isRerender
-        ? "🔄 Siap! Mulai produksi & render ulang video baru dengan catatan:\n" + (cleanNote || "(tanpa catatan tambahan)")
-        : "✅ Masukan dicatat untuk VIDEO BERIKUTNYA:\n\"" + cleanNote + "\""
-    );
+    if (isRulesCmd) {
+      _replyTg(botToken, allowedChatId, "🔎 Mengecek daftar aturan aktif di semua Agent (tunggu ~10 detik)...");
+    } else if (isClearCmd) {
+      _replyTg(botToken, allowedChatId, "🧹 Mengirim perintah reset aturan tambahan ke semua Agent...");
+    } else {
+      _replyTg(
+        botToken,
+        allowedChatId,
+        isRerender
+          ? "🔄 Siap! Mulai produksi & render ulang video baru dengan catatan:\n" + (cleanNote || "(tanpa catatan tambahan)")
+          : "⏳ Masukan diterima! Sedang dikompilasi otomatis ke Agent 1, 2, 3, 5, 6, 7, 8 + Engine (~10 detik)..."
+      );
+    }
   } else {
     _replyTg(botToken, allowedChatId, "⚠️ Gagal menghubungi GitHub Actions (HTTP " + code + ").");
   }

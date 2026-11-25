@@ -140,6 +140,23 @@ def build_render_plan(
     scene_map = {s.scene_id: s for s in state.agent3.scenes}
     offsets = scene_offsets or {}
 
+    try:
+        from src.tools.telegram_notify import get_owner_runtime_overrides
+
+        ro = get_owner_runtime_overrides()
+    except Exception:
+        ro = {}
+
+    from src.tools.asset_scout import resolve_scene_sfx_cues
+
+    memory = StudioMemory(BASE_DIR)
+    force_trans_sfx = bool(ro.get("force_sfx_every_transition", True))
+    force_anim_sfx = bool(ro.get("force_sfx_every_animation", True))
+    base_sfx_db = float(brand.get("audio", {}).get("sfx_gain_db", -10.5))
+    sfx_gain_db = round(max(-18.0, min(-4.0, base_sfx_db + float(ro.get("sfx_gain_db_delta") or 0.0))), 2)
+    eff_bgm_gain_db = round(max(-34.0, min(-14.0, float(bgm_gain_db) + float(ro.get("bgm_gain_db_delta") or 0.0))), 2)
+    eff_sub_ratio = round(max(0.038, min(0.068, float(subtitle_font_size_ratio) + float(ro.get("subtitle_scale_delta") or 0.0))), 4)
+
     winner_disc = "kimia"
     if state.agent1 and state.agent2:
         winner = next((c for c in state.agent1.candidates if c.id == state.agent2.winner_id), None)
@@ -147,9 +164,24 @@ def build_render_plan(
             winner_disc = winner.discipline
 
     segments: list[TimelineSegment] = []
+    total_segs = len(scene_timings)
     for seg_i, timing in enumerate(scene_timings):
         sc = scene_map[timing.scene_id]
         ast = asset_map[timing.scene_id]
+        res_trans, res_anim = resolve_scene_sfx_cues(
+            scene_idx=seg_i,
+            total_scenes=total_segs,
+            scene=sc,
+            memory=memory,
+            force_transition=force_trans_sfx,
+            force_animation=force_anim_sfx,
+        )
+        final_trans_sfx = ast.sfx_path if (ast.sfx_path and Path(ast.sfx_path).exists()) else res_trans
+        final_anim_sfx = (
+            ast.animation_sfx_path
+            if (getattr(ast, "animation_sfx_path", None) and Path(str(ast.animation_sfx_path)).exists())
+            else res_anim
+        )
         default_off = (
             round(min(1.2, max(0.0, ast.duration_sec - timing.duration_sec - 0.5)), 2)
             if seg_i == 0 and ast.duration_sec > timing.duration_sec + 1.5
@@ -166,8 +198,9 @@ def build_render_plan(
                 narration=sc.narration,
                 overlay_badge=sc.overlay_badge,
                 mechanism=sc.mechanism,
-                sfx_path=ast.sfx_path,
-                sfx_gain_db=-10.5,
+                sfx_path=final_trans_sfx,
+                animation_sfx_path=final_anim_sfx,
+                sfx_gain_db=sfx_gain_db,
                 motion=sc.motion,
             )
         )
@@ -206,8 +239,8 @@ def build_render_plan(
         segments=segments,
         subtitles=subtitles,
         output_video_path=str(out_mp4),
-        subtitle_font_size_ratio=subtitle_font_size_ratio,
-        bgm_gain_db=bgm_gain_db,
+        subtitle_font_size_ratio=eff_sub_ratio,
+        bgm_gain_db=eff_bgm_gain_db,
     )
 
 
@@ -275,14 +308,20 @@ def run_agent_1_to_3(
     )
 
     # Agent 1: Batch Ideation
-    from src.tools.telegram_notify import get_active_owner_feedback_directives
+    from src.tools.telegram_notify import (
+        get_agent_specific_owner_directives,
+        get_owner_runtime_overrides,
+    )
     from src.tools.weekly_growth_auditor import load_latest_agent_directives
 
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
     weekly_dir = load_latest_agent_directives()
-    owner_fb = get_active_owner_feedback_directives()
+    owner_ro = get_owner_runtime_overrides()
+    owner_a1 = get_agent_specific_owner_directives("agent_1")
+    owner_a2 = get_agent_specific_owner_directives("agent_2")
+    owner_a3 = get_agent_specific_owner_directives("agent_3")
     karat_dir = weekly_dir.get("karat_weekend_directives", []) if is_karat else []
     slot_map_hint: list[str] = []
     if weekly_dir.get("next_week_topic_map"):
@@ -352,7 +391,7 @@ def run_agent_1_to_3(
             "requested_by": requested_by,
             "request_comment": request_source_comment,
             "avoid_titles": avoid_titles or [],
-            "weekly_growth_directives": owner_fb + weekly_dir.get("agent_1_directives", []) + karat_dir + slot_map_hint,
+            "weekly_growth_directives": owner_a1 + weekly_dir.get("agent_1_directives", []) + karat_dir + slot_map_hint,
         },
         response_model=Agent1Output,
         handoff_path=paths["handoffs"] / "agent1_ideas.json",
@@ -386,7 +425,7 @@ def run_agent_1_to_3(
             "candidates": [c.model_dump() for c in state.agent1.candidates],
             "requested_by": requested_by,
             "topic_hint": topic_hint,
-            "weekly_growth_directives": owner_fb + weekly_dir.get("agent_2_directives", []) + karat_dir,
+            "weekly_growth_directives": owner_a2 + weekly_dir.get("agent_2_directives", []) + karat_dir,
         },
         response_model=Agent2Output,
         handoff_path=paths["handoffs"] / "agent2_audit.json",
@@ -418,11 +457,17 @@ def run_agent_1_to_3(
         if is_kitchen
         else ""
     )
-    duration_rule = (
-        "~48-56s total spoken (~115-145 Indonesian words across 6 tight scenes, ~18-24 words per scene)"
-        if is_karat
-        else "~38-48s total spoken (~95-120 Indonesian words across 5-6 tight scenes, ~15-21 words per scene)"
-    )
+    custom_dur = owner_ro.get("target_duration_sec")
+    if isinstance(custom_dur, list) and len(custom_dur) == 2:
+        lo_d, hi_d = int(custom_dur[0]), int(custom_dur[1])
+        est_words_lo, est_words_hi = int(lo_d * 2.3), int(hi_d * 2.5)
+        duration_rule = f"~{lo_d}-{hi_d}s total spoken (~{est_words_lo}-{est_words_hi} Indonesian words across 5-6 tight scenes)"
+    else:
+        duration_rule = (
+            "~48-56s total spoken (~115-145 Indonesian words across 6 tight scenes, ~18-24 words per scene)"
+            if is_karat
+            else "~38-48s total spoken (~95-120 Indonesian words across 5-6 tight scenes, ~15-21 words per scene)"
+        )
     spoken_requester = requested_by.lstrip("@") if requested_by else ""
     req_a3_note = (
         f"THIS EPISODE FULFILLS A VIEWER REQUEST FROM '{requested_by}' (comment: '{request_source_comment or topic_hint}'): "
@@ -458,6 +503,8 @@ def run_agent_1_to_3(
             "so the renderer draws a REAL animated scientific diagram (NOT just text boxes!): choose `mechanism.kind` from "
             "'electron_transfer', 'polymer_crosslink', 'molecular_reaction', 'receptor_binding', 'force_wave', or 'math_geometry', and fill concise "
             "`title` (<=28 chars), `actor_a` & `actor_b` (<=14 chars, 1-2 crisp Indonesian words so cards NEVER truncate), `result` (<=20 chars), and `caption`. "
+            "COPYRIGHT-FREE SFX RULE (MANDATORY): Set `sfx_cue` on EVERY scene (NEVER `'none'`!) using ONLY internal synthesized royalty-free cues "
+            "(`riser` for hook/build-up, `whoosh` for footage transitions, `pop`/`spark` for animated diagrams/facts, `ding` for key reveal, `chime` for closing CTA). "
             "ALWAYS populate `references` with 1-3 real, accurate scientific references."
         ),
         user_payload={
@@ -466,7 +513,7 @@ def run_agent_1_to_3(
             "voice_style": brand["voice"],
             "requested_by": requested_by,
             "request_comment": request_source_comment,
-            "weekly_growth_directives": owner_fb + weekly_dir.get("agent_3_directives", []) + karat_dir,
+            "weekly_growth_directives": owner_a3 + weekly_dir.get("agent_3_directives", []) + karat_dir,
         },
         response_model=Agent3Output,
         handoff_path=paths["handoffs"] / "agent3_script.json",
@@ -584,7 +631,19 @@ def run_agent_4_proxy_and_gate0(
         subtitles = list(state.render_plan.subtitles)
         print(f"[tts] Memakai ulang audio voiceover dari v1 untuk revisi v{version} (hemat kuota ElevenLabs)")
     else:
-        voice_cfg = brand["voice"]
+        voice_cfg = dict(brand["voice"])
+        try:
+            import re as _re
+            from src.tools.telegram_notify import get_owner_runtime_overrides
+
+            spd_delta = int(get_owner_runtime_overrides().get("voice_speed_delta_pct") or 0)
+            if spd_delta != 0:
+                m_r = _re.search(r"([+-]?\d+)", str(voice_cfg.get("rate", "+0%")))
+                cur_r = int(m_r.group(1)) if m_r else 0
+                new_r = max(-20, min(25, cur_r + spd_delta))
+                voice_cfg["rate"] = f"{new_r:+d}%"
+        except Exception:
+            pass
         voice_path, scene_timings, subtitles, _ = generate_episode_voiceover(
             scenes=state.agent3.scenes,
             out_dir=paths["renders"] / f"audio_v{version}",
@@ -670,8 +729,8 @@ def run_agent_5_video_qa(
             "title": state.agent3.title,
             "references": state.render_plan.references,
             "weekly_growth_directives": (
-                __import__("src.tools.telegram_notify", fromlist=["get_active_owner_feedback_directives"])
-                .get_active_owner_feedback_directives()
+                __import__("src.tools.telegram_notify", fromlist=["get_agent_specific_owner_directives"])
+                .get_agent_specific_owner_directives("agent_5")
                 + __import__("src.tools.weekly_growth_auditor", fromlist=["load_latest_agent_directives"])
                 .load_latest_agent_directives()
                 .get("agent_5_directives", [])
@@ -836,13 +895,16 @@ def prepare_episode_thumbnail(episode_id: str) -> EpisodeState:
                 "Keep `pinned_comment` under 200 chars, warm, funny, and effortless to answer in 1 word."
             )
         )
+        from src.tools.telegram_notify import get_agent_specific_owner_directives
+
+        owner_a7 = get_agent_specific_owner_directives("agent_7")
         state.agent7 = call_structured_agent(
             provider=a7_cfg["provider"],
             model=a7_cfg.get("model", a7_cfg["recommended_prod_model"]),
             system_prompt=(
                 "You are Agent 7 (High-CTR Shorts Packaging & Social Media Publisher) for @kimiabill. "
                 "Create viral, non-spoiler thumbnail copy AND platform-tailored Indonesian title, punchy caption, "
-                "hashtags, and a conversation-starting `pinned_comment` for every platform.\n"
+                "hashtags, and a conversation-starting `pinned_comment` for every platform, strictly respecting any `owner_directives`.\n"
                 "PLATFORM TITLE RULE: `platform_copies[].title` MUST be **3 to 6 punchy words** (<=45 chars) with ZERO spoiler of the answer — "
                 "mirror top viral Indonesian Shorts like 'KUAT dan TAHAN LAMA', 'Sungai Ini Kasih Peringatan', 'Obat Ini Nemu Sendiri?!'.\n"
                 "COVER THUMBNAIL COPY RULE (RESEARCH TAB BENCHMARK): "
@@ -856,6 +918,7 @@ def prepare_episode_thumbnail(episode_id: str) -> EpisodeState:
                 "script": state.agent3.model_dump(),
                 "requested_by": state.requested_by,
                 "request_source_comment": state.request_source_comment,
+                "owner_directives": owner_a7,
                 "platforms": brand.get("publishing", {}).get(
                     "platforms", ["youtube_shorts", "tiktok", "instagram_reels"]
                 ),

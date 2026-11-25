@@ -7,5 +7,40 @@
       "target_episode_id": "",
       "text": "aku request ditambahkan sfx setiap ada animasi/ganti footage. masukan sfx yang cocok dan bebas copyright"
     }
-  ]
+  ],
+  "agent_directives": {
+    "agent_1": [
+      "[MASUKAN OWNER • 2026-11-25 17:15 WIB]: aku request ditambahkan sfx setiap ada animasi/ganti footage. masukan sfx yang cocok dan bebas copyright"
+    ],
+    "agent_2": [
+      "[MASUKAN OWNER • 2026-11-25 17:15 WIB]: aku request ditambahkan sfx setiap ada animasi/ganti footage. masukan sfx yang cocok dan bebas copyright"
+    ],
+    "agent_3": [
+      "WAJIB isi `sfx_cue` non-'none' (pilih whoosh/riser/pop/spark/ding/chime bebas copyright) di SETIAP scene, terutama setiap pergantian footage & kemunculan animasi.",
+      "[MASUKAN OWNER • 2026-11-25 17:15 WIB]: aku request ditambahkan sfx setiap ada animasi/ganti footage. masukan sfx yang cocok dan bebas copyright"
+    ],
+    "agent_5": [
+      "Pastikan seluruh pergantian footage & scene animasi memakai SFX bebas copyright yang pas dan seimbang.",
+      "[MASUKAN OWNER • 2026-11-25 17:15 WIB]: aku request ditambahkan sfx setiap ada animasi/ganti footage. masukan sfx yang cocok dan bebas copyright"
+    ],
+    "agent_6": [
+      "[ARAHAN OWNER]: aku request ditambahkan sfx setiap ada animasi/ganti footage. masukan sfx yang cocok dan bebas copyright"
+    ],
+    "agent_7": [
+      "[MASUKAN OWNER • 2026-11-25 17:15 WIB]: aku request ditambahkan sfx setiap ada animasi/ganti footage. masukan sfx yang cocok dan bebas copyright"
+    ],
+    "agent_8": [
+      "[MASUKAN OWNER • 2026-11-25 17:15 WIB]: aku request ditambahkan sfx setiap ada animasi/ganti footage. masukan sfx yang cocok dan bebas copyright"
+    ]
+  },
+  "runtime_overrides": {
+    "force_sfx_every_transition": true,
+    "force_sfx_every_animation": true,
+    "sfx_gain_db_delta": 0.0,
+    "bgm_gain_db_delta": 0.0,
+    "voice_speed_delta_pct": 0,
+    "subtitle_scale_delta": 0.0,
+    "visual_style_bias": "",
+    "target_duration_sec": null
+  }
 }
