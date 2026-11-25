@@ -1151,12 +1151,12 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             "Produce sharp, concrete next-week upgrade directives for Agents 1, 2, 3, 5, and 6 so the entire studio "
             "becomes higher quality, faster, and more token-efficient every single week. "
             "Also populate `recommended_weekend_hours_wib` with 2 optimal HH:MM WIB upload times (1 midday slot around 11:30-13:30 "
-            "and 1 evening slot around 18:30-20:30) and populate `karat_weekend_directives` with 2-3 specific research-paper "
-            "themes/angles derived from this week's highest-views/highest-retention topics & viewer comments for next Saturday/Sunday's 'KARAT — Kabar Riset Terkini'."
+            "and 1 evening slot around 18:30-20:30) and populate `karat_weekend_directives` with 2-3 EVERYDAY-RELATABLE research-paper "
+            "themes/angles (health, human body, food, sleep, habits, weather, everyday household materials) derived from this week's top topics for next Saturday/Sunday's 'KARAT — Kabar Riset Terkini'."
         ),
         user_payload={
             "week_ending": today_wib,
-            "studio_target_duration": "~1 menit (50-72 detik, 6-7 adegan per Shorts)",
+            "studio_target_duration": "38-48 detik (harian DAPUR/REGULER) & 48-56 detik (KARAT), 5-6 adegan padat + judul 3-6 kata non-spoiler",
             "channel_stats": webhook_stats.get("channel", {}),
             "ypp_targets": {"tier1_subs": 500, "tier1_shorts_views_90d": 3000000, "full_subs": 1000, "full_shorts_views_90d": 10000000},
             "recent_videos": enriched,
@@ -1191,12 +1191,14 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
                 "You are Agent 1 (Viral Pure-Science Trend Scout & Weekly Topic Strategist) for Kimiabill. "
                 "Using Agent 8's strategic audit findings (`agent8_strategy`), design `next_week_topic_map` with EXACTLY 14 slots "
                 "covering Senin through Minggu (two slots per day: `12:00` and `19:00` WIB):\n"
-                "- EVERY day `12:00` WIB MUST be `section: 'DAPUR'` (Kimia Dapur / Sains Sehari-hari di rumah/makanan/minuman, "
-                "prioritizing `kitchen_chemistry_candidates` or fresh filmable kitchen-science concepts).\n"
+                "- EVERY day `12:00` WIB MUST be `section: 'DAPUR'` (Kimia Dapur / Sains Sehari-hari di rumah/makanan/minuman/kebiasaan sehari-hari, "
+                "prioritizing `kitchen_chemistry_candidates` or fresh relatable moments like asap bakaran, ngantuk habis makan, es batu).\n"
                 "- Senin-Jumat `19:00` WIB MUST be `section: 'REGULER'`: prioritize `pending_audience_requests`, fill 0-video "
-                "discipline gaps (`fisika`, `matematika`, `biologi`), and double down on winning topic patterns from Agent 8.\n"
-                "- Sabtu & Minggu `19:00` WIB MUST be `section: 'KARAT'`: breaking research-paper angles aligned with Agent 8's `karat_weekend_directives`.\n"
-                "Apply Veritasium misconception-first hooks, concrete filmable visuals, and NEVER repeat any title in `avoid_titles`.\n\n"
+                "discipline gaps (`fisika`, `matematika`, `biologi`), and keep EVERY topic super relatable to daily life & body/habits.\n"
+                "- Sabtu & Minggu `19:00` WIB MUST be `section: 'KARAT'`: breaking research-paper angles aligned with Agent 8's `karat_weekend_directives` "
+                "that directly impact everyday health, sleep, food, mood, or daily environment.\n"
+                "Craft `planned_topic` as **3-6 word zero-spoiler curiosity titles** with personification or mystery gaps (NEVER spoil the answer!), "
+                "concrete filmable visuals, and NEVER repeat any title in `avoid_titles`.\n\n"
                 f"ALSO populate `flow_clip_prompts` with EXACTLY {flow_quota_n} HIGH-IMPACT B-roll clip prompts (NOT all 14!) "
                 "where custom Google AI Flow generation adds the most value (e.g., macro enzyme/cellular breakdown, kitchen reaction close-ups, "
                 "or KARAT research visualizations hard to find on free stock). Use lowercase underscore `.mp4` `suggested_filename` matching Indonesian+English keywords."

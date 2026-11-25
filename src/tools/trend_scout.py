@@ -29,31 +29,59 @@ USER_AGENT = "KimiabillStudio/1.0 (science-trend-scout)"
 
 DISCIPLINE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "kimia": (
-        "kimia", "reaksi", "molekul", "atom", "oksida", "asam", "basa", "korosi",
-        "chemistry", "chemical", "molecule", "catalyst", "battery", "element", "polymer", "material",
+        "kimia", "reaksi", "molekul", "atom", "oksida", "asam", "basa", "korosi", "minyak", "garam", "sabun", "asap",
+        "chemistry", "chemical", "molecule", "catalyst", "battery", "element", "polymer", "material", "cooking", "flavor",
     ),
     "fisika": (
-        "fisika", "kuantum", "gravitasi", "cahaya", "gerhana", "komet", "magnet", "plasma", "superkonduktor",
-        "physics", "quantum", "gravity", "black hole", "laser", "photon", "fusion", "astrophysics", "eclipse",
+        "fisika", "kuantum", "gravitasi", "cahaya", "gerhana", "komet", "magnet", "plasma", "superkonduktor", "panas", "suara",
+        "physics", "quantum", "gravity", "black hole", "laser", "photon", "fusion", "astrophysics", "eclipse", "heat", "sound",
     ),
     "matematika": (
-        "matematika", "bilangan prima", "fraktal", "probabilitas", "paradoks", "geometri", "algoritma",
-        "math", "mathematics", "prime number", "geometry", "theorem", "topology", "fibonacci", "pi ",
+        "matematika", "bilangan prima", "fraktal", "probabilitas", "paradoks", "geometri", "algoritma", "peluang", "pola",
+        "math", "mathematics", "prime number", "geometry", "theorem", "topology", "fibonacci", "probability", "paradox",
     ),
     "medisinal": (
-        "medis", "obat", "vaksin", "antibiotik", "kanker", "otak", "tidur", "kafein", "imun", "terapi",
-        "medicine", "drug", "clinical", "vaccine", "neuroscience", "immune", "cancer", "pharmacology", "antibiotic",
+        "medis", "obat", "vaksin", "antibiotik", "kanker", "otak", "tidur", "kafein", "imun", "terapi", "nyeri", "usus", "jantung",
+        "medicine", "drug", "clinical", "vaccine", "neuroscience", "immune", "cancer", "pharmacology", "antibiotic", "sleep", "pain", "gut",
     ),
     "biologi": (
-        "biologi", "dna", "genetik", "sel", "bakteri", "hewan", "spesies", "evolusi", "jamur", "laut dalam",
-        "biology", "species", "evolution", "genetics", "cell", "microbe", "deep sea", "organism", "ecosystem",
+        "biologi", "dna", "genetik", "sel", "bakteri", "hewan", "spesies", "evolusi", "jamur", "laut dalam", "kulit", "mata", "lidah",
+        "biology", "species", "evolution", "genetics", "cell", "microbe", "deep sea", "organism", "ecosystem", "aging", "skin",
     ),
 }
+
+EVERYDAY_RELATABILITY_KEYWORDS: tuple[str, ...] = (
+    "tidur", "sleep", "makan", "food", "diet", "kopi", "coffee", "caffeine", "kafein",
+    "otak", "brain", "nyeri", "pain", "usus", "gut", "jantung", "heart", "kulit", "skin",
+    "mata", "eye", "nanas", "bawang", "minyak", "panas", "heat", "dingin", "cold",
+    "plastik", "plastic", "microplastic", "mikroplastik", "air", "water", "udara", "air pollution",
+    "stres", "stress", "aging", "penuaan", "bakteri", "virus", "gula", "sugar", "obat", "drug",
+    "dapur", "kitchen", "rumah", "house", "handphone", "screen", "suhu", "weather", "cuaca",
+)
+
+ID_INSPIRATION_YT_CHANNELS: list[dict[str, str]] = [
+    {"name": "@KokBisa", "channel_id": "UCu0yQD7NFMyLu_-TmKa4Hqg"},
+    {"name": "@KacamataPenjelajah", "channel_id": "UCKUEP6DQfvqBdI3AzA04T0A"},
+    {"name": "@FajrulFx", "channel_id": "UCUYgCukQfUN2DImPYrBiV4g"},
+]
+
+VIRAL_STYLE_BENCHMARKS: list[str] = [
+    "@KokBisa (2.5M views, 196K likes): 'Kenapa Arah Asap Bakaran Ngikutin Kita Terus?!' -> momen keseharian semua orang + personifikasi 'ngejar'",
+    "@KacamataPenjelajah (11M views, 417K likes): 'KUAT dan TAHAN LAMA' + cover 2-3 kata kontras -> judul 4 kata tanpa spoiler, memicu bingung & penasaran",
+    "@KacamataPenjelajah (568K / 157K views): 'Beton Bakteri, Jago Regenerasi' | 'Terlihat Sehat padahal Sekarat' -> kontras aneh & ringkas",
+    "Marbel (4.56M views): 'GUNUNG ITU BERASAP! Apakah ia sakit?!' -> personifikasi fenomena alam dengan bahasa manusia sehari-hari",
+    "@NileRed / @veritasium (3.5M-10M views): tebakan eksperimen di awal video ('What happens if...') & metafora emosional ('Extracting the soul from coffee')",
+]
 
 FEEDS: list[dict[str, str]] = [
     {
         "name": "Google News ID - Sains Viral",
         "url": "https://news.google.com/rss/search?q=fenomena+sains+OR+penemuan+kimia+OR+fisika+OR+biologi+OR+medis+when:3d&hl=id&gl=ID&ceid=ID:id",
+        "lang": "id",
+    },
+    {
+        "name": "Google News ID - Kesehatan & Riset Sehari-hari",
+        "url": "https://news.google.com/rss/search?q=riset+kesehatan+OR+penelitian+tidur+OR+makanan+OR+otak+tubuh+when:4d&hl=id&gl=ID&ceid=ID:id",
         "lang": "id",
     },
     {
@@ -108,12 +136,32 @@ def _parse_pub_date(raw: str | None) -> datetime | None:
         return None
 
 
+def fetch_indonesian_science_inspiration(max_per_channel: int = 4) -> list[dict[str, str]]:
+    """Fetch recent titles from high-performing Indonesian science YT channels via 0-key public Atom RSS."""
+    out: list[dict[str, str]] = []
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    for ch in ID_INSPIRATION_YT_CHANNELS:
+        try:
+            url = f"https://www.youtube.com/feeds/videos.xml?channel_id={ch['channel_id']}"
+            resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=10)
+            if resp.status_code != 200:
+                continue
+            root = ET.fromstring(resp.content)
+            for entry in root.findall("atom:entry", ns)[:max_per_channel]:
+                t = (entry.findtext("atom:title", default="", namespaces=ns) or "").strip()
+                if t:
+                    out.append({"channel": ch["name"], "title": t})
+        except Exception:
+            continue
+    return out
+
+
 def fetch_viral_science_topics(
     lookback_hours: int = 96,
     max_items: int = 10,
     weekend_paper_mode: bool = False,
 ) -> list[dict[str, Any]]:
-    """Fetch fresh trending pure-science headlines & papers from live RSS feeds (0 LLM tokens)."""
+    """Fetch fresh trending pure-science headlines & papers from live RSS feeds (0 LLM tokens), prioritizing everyday relatability."""
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=lookback_hours)
     results: list[dict[str, Any]] = []
@@ -140,6 +188,7 @@ def fetch_viral_science_topics(
                     continue
 
                 combined = f"{title} {desc}"
+                low_comb = combined.lower()
                 disc, hits = _classify_discipline(combined)
                 if not disc or hits < 1:
                     continue
@@ -147,16 +196,19 @@ def fetch_viral_science_topics(
                 seen_titles.add(title.lower())
                 recency_bonus = 2.0 if (pub_dt and (now - pub_dt).total_seconds() < 36 * 3600) else 1.0
                 lang_bonus = 1.5 if feed["lang"] == "id" else 1.0
+                everyday_hits = sum(1 for kw in EVERYDAY_RELATABILITY_KEYWORDS if kw in low_comb)
+                everyday_bonus = min(6.0, everyday_hits * 2.0)
                 paper_bonus = 2.5 if (
                     weekend_paper_mode and any(k in feed["name"] for k in ("Nature", "Science", "Phys.org", "ScienceDaily"))
                 ) else 0.0
-                viral_score = round(hits * 2.0 + recency_bonus + lang_bonus + paper_bonus, 2)
+                viral_score = round(hits * 2.0 + recency_bonus + lang_bonus + everyday_bonus + paper_bonus, 2)
 
                 results.append(
                     {
                         "source": feed["name"],
                         "lang": feed["lang"],
                         "discipline": disc,
+                        "everyday_relatable": everyday_hits > 0,
                         "title": title,
                         "summary": desc[:320],
                         "url": link,
@@ -178,7 +230,7 @@ def build_agent1_brief(
     weekend_paper_mode: bool = False,
     kitchen_chemistry_mode: bool = False,
 ) -> dict[str, Any]:
-    """Build the viral-first brief for Agent 1, including daily Kitchen Chemistry & Weekend KARAT."""
+    """Build the viral-first brief for Agent 1, including daily Kitchen Chemistry, everyday KARAT, and YT viral benchmarks."""
     memory = StudioMemory(base_dir)
     past = memory.list_past_topics(limit=50)
     past_titles = {p["title"].lower() for p in past}
@@ -190,6 +242,7 @@ def build_agent1_brief(
         weekend_paper_mode=weekend_paper_mode,
     )
     viral_fresh = [v for v in viral_raw if v["title"].lower() not in past_titles]
+    id_inspo = fetch_indonesian_science_inspiration(max_per_channel=3)
 
     fallback_ideas = (
         memory.get_kitchen_chemistry_ideas(count=5)
@@ -210,7 +263,7 @@ def build_agent1_brief(
 
     section = "KARAT" if weekend_paper_mode else ("DAPUR" if kitchen_chemistry_mode else "REGULER")
     tagline = (
-        "KARAT — Kabar Riset Terkini • Dari Saintis untuk Masyarakat"
+        "KARAT — Kabar Riset Terkini • Riset Baru yang Dekat dengan Hidup Kita"
         if weekend_paper_mode
         else ("KIMIA DAPUR • Sains Sehari-hari di Rumah" if kitchen_chemistry_mode else "")
     )
@@ -221,6 +274,8 @@ def build_agent1_brief(
         "viral_count": len(viral_fresh),
         "viral_candidates": viral_fresh[:8],
         "idea_bank_fallback_candidates": fallback_ideas,
+        "indonesian_viral_style_benchmarks": VIRAL_STYLE_BENCHMARKS,
+        "inspiration_channel_titles": id_inspo[:9],
         "discipline_balance_so_far": memory.discipline_counts(),
         "past_topics_to_avoid": past[:15],
     }

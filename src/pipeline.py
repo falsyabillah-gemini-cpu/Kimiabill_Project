@@ -300,18 +300,20 @@ def run_agent_1_to_3(
     karat_a1_note = (
         "WEEKEND SPECIAL SECTION ACTIVE — 'KARAT (Kabar Riset Terkini)': Select and pitch 5 ideas centered on "
         "RECENT PEER-REVIEWED RESEARCH PAPERS or breaking scientific breakthroughs from the last 72 hours "
-        "(Nature, Science, Phys.org, ScienceDaily, national/international science news) that bring cutting-edge "
-        "discoveries from scientists directly to the Indonesian public ('Dari Saintis untuk Masyarakat'). "
-        "PRIORITIZE papers matching Agent 8's `karat_weekend_directives` (derived from this week's hottest/most-engaged topics). "
+        "(Nature, Science, Phys.org, ScienceDaily, national/international science news) that connect DIRECTLY to "
+        "INDONESIAN EVERYDAY LIFE (health, human body, sleep, food/drink, skin, stress, weather, household materials, "
+        "microplastics, or smartphone/daily habits — 'Riset Terbaru yang Nyambung dengan Hidup Sehari-hari'). "
+        "REJECT overly abstract cosmology/particle theory that has zero impact on daily life. "
+        "PRIORITIZE papers matching Agent 8's `karat_weekend_directives` and `trend_brief.indonesian_viral_style_benchmarks`. "
         if is_karat
         else ""
     )
     kitchen_a1_note = (
         "DAILY SPECIAL SECTION ACTIVE — 'KIMIA DAPUR (Kitchen Chemistry & Sains Sehari-hari)': "
-        "Select and pitch 5 hyper-relatable science ideas about COOKING, FOOD, DRINKS, or EVERYDAY KITCHEN/HOME HABITS "
-        "(e.g., bawang, gorengan, kopi, es batu, daging empuk nanas, pedas cabai vs susu, telur, nasi dingin, teh jeruk nipis, sabun & minyak) "
+        "Select and pitch 5 hyper-relatable science ideas about COOKING, FOOD, DRINKS, or EVERYDAY KITCHEN/HOME MOMENTS "
+        "(e.g., asap bakaran selalu ngejar kita, lidah gatal makan nanas, ngantuk habis makan nasi, gorengan meledak, bawang, kopi, es batu, sabun & minyak) "
         "backed by real chemistry/physics/food-science mechanisms! Pick unused topics from `idea_bank_fallback_candidates` "
-        "or create equally relatable fresh Indonesian kitchen-science phenomena with concrete filmable kitchen footage. "
+        "or create equally relatable fresh Indonesian everyday-science moments with concrete filmable footage. "
         if is_kitchen
         else ""
     )
@@ -329,12 +331,16 @@ def run_agent_1_to_3(
             "You are Agent 1 (Viral Pure-Science Trend Scout) for Kimiabill. "
             "Cover strictly pure science phenomena across: kimia, fisika, matematika, medisinal, biologi. "
             f"{req_a1_note}{karat_a1_note}{kitchen_a1_note}"
-            "PRIORITY 1: When in KARAT or REGULER mode and `viral_candidates` has fresh viral science topics/papers, turn them into "
-            "engaging Indonesian short-video ideas (`source_mode: 'viral_trend'`). "
-            "PRIORITY 2 (Daily Kitchen Chemistry / Fallback): When in KIMIA DAPUR mode or when no strong viral topic fits, select and enrich "
-            "ideas from `idea_bank_fallback_candidates` (`source_mode: 'idea_bank'`), avoiding repeats. "
-            "STORYTELLING RULE (Veritasium Principle): Angle every idea around a sharp COMMON MISCONCEPTION vs SURPRISING REALITY "
-            "or a counterintuitive curiosity question so viewers immediately feel a knowledge gap worth closing. "
+            "EVERYDAY RELATABILITY & BENCHMARK RULE (CRITICAL FOR HIGH VIEWS): "
+            "Every candidate (REGULER, DAPUR, AND KARAT) MUST connect to something ordinary Indonesians immediately recognize "
+            "in daily life (human body, sleep, pain, food/cooking, weather, everyday annoyances like smoke/sweat/ice/plastic). "
+            "Follow `trend_brief.indonesian_viral_style_benchmarks` (@KokBisa 2.5M, @KacamataPenjelajah 11M, Marbel 4.5M): "
+            "- ZERO-SPOILER PUNCHY TITLE: Title MUST be **3 to 6 Indonesian words**, punchy & colloquial, creating a mystery gap "
+            "(using mystery pronouns like 'Ini' or personification like 'Kok Asap Terus Ngejar?!', 'Buah Ini Memakan Dagingmu!') — "
+            "NEVER spoil the chemical/scientific answer inside the title or write long textbook titles!\n"
+            "PRIORITY 1: When in KARAT or REGULER mode and `viral_candidates` has fresh everyday-relatable science topics/papers, "
+            "turn them into gripping Indonesian short-video ideas (`source_mode: 'viral_trend'`). "
+            "PRIORITY 2 (Fallback): Select and enrich unused relatable ideas from `idea_bank_fallback_candidates` (`source_mode: 'idea_bank'`). "
             "Every idea must be visualizable with REAL, concrete, filmable science/nature/kitchen footage (never full animation), "
             "MUST NOT repeat any topic in `avoid_titles`, and MUST apply any `weekly_growth_directives` and `[MASUKAN OWNER]` feedback."
         ),
@@ -365,13 +371,16 @@ def run_agent_1_to_3(
         provider=a2_cfg["provider"],
         model=a2_cfg.get("model", a2_cfg["recommended_prod_model"]),
         system_prompt=(
-            "You are Agent 2 (Editorial & 70%+ Retention Hook Auditor) for Kimiabill. Score all candidates on: "
-            "(1) first-3-second hook strength — must open an instant curiosity loop or challenge a misconception (NO dictionary definitions, "
-            "NO slow greetings, NO 'pernahkah kamu berpikir' filler), "
-            "(2) anti-over-explaining pacing — after the hook, move the explanation forward immediately without rambling, and "
-            "(3) plain-language clarity + real-footage visual strength. "
-            "Pick the #1 winner and give max 4 concrete improvement notes (including exact rewrite advice for scene_1 hook & open-loop pacing), "
-            f"applying any `weekly_growth_directives` and `[MASUKAN OWNER]` feedback. {req_a2_note}"
+            "You are Agent 2 (Editorial & 90%+ Retention Hook Auditor) for Kimiabill. Score all candidates strictly on:\n"
+            "(1) EVERYDAY HUMAN RELATABILITY (Daily & KARAT): Will ordinary Indonesians immediately think 'Eh iya bener banget, "
+            "gua sering ngalamin ini!' or 'Ini nyambung sama badan/keseharian gua!'?\n"
+            "(2) ZERO-SPOILER 3-6 WORD TITLE & PERSONIFICATION 0-3s HOOK: Penalize titles that explain the answer upfront! "
+            "Reward short mystery titles and hooks that personify molecules/nature or open with a vivid bet/prediction "
+            "(ZERO slow greetings, ZERO 'pernahkah kamu berpikir' or dictionary definitions).\n"
+            "(3) TIGHT PACING & VISUAL CONTRAST: Fast momentum with concrete real-world visuals.\n"
+            "Pick the #1 winner and give max 4 sharp improvement notes (including rewriting the title to <=6 spoiler-free words if too long, "
+            "and sharpening scene_1 into an everyday relatable personification/bet hook), applying any `weekly_growth_directives` and `[MASUKAN OWNER]` feedback. "
+            f"{req_a2_note}"
         ),
         user_payload={
             "candidates": [c.model_dump() for c in state.agent1.candidates],
@@ -394,27 +403,31 @@ def run_agent_1_to_3(
     if winner.source_mode == "idea_bank":
         memory.mark_idea_used(winner.id, episode_id)
     karat_a3_note = (
-        "THIS IS A WEEKEND 'KARAT — Kabar Riset Terkini' EPISODE: "
-        "Open scene_1 narration with a crisp mention like 'Selamat datang di KARAT — Kabar Riset Terkini!' "
-        "and clearly break down 1 latest scientific research paper/discovery (who/which institution discovered it, "
-        "what mechanism they found, and why it matters to everyday society). In `references`, cite the exact "
-        "journal / research institution / year & title. "
+        "THIS IS A WEEKEND 'KARAT — Kabar Riset Terkini' EPISODE (TARGET ~48-56s TOTAL): "
+        "DO NOT start scene_1 with 'Selamat datang di KARAT'! Open scene_1 (0-3s) IMMEDIATELY with an everyday relatable hook "
+        "tied to viewers' daily lives (e.g. kebiasaan tidur, makan, pakai HP, cuaca panas), weave in 'Lewat riset terbaru di KARAT...' "
+        "naturally in scene 2-3 (naming who/which institution found it and what mechanism occurs), and end with the practical daily takeaway! "
+        "In `references`, cite the exact journal / research institution / year & title. "
         if is_karat
         else ""
     )
     kitchen_a3_note = (
-        "THIS IS A DAILY 'KIMIA DAPUR (Kitchen Chemistry)' EPISODE: "
-        "Keep the explanation super relatable to Indonesian kitchens, cooking, food, or drinks at home, "
-        "pair every step with appetizing/concrete real kitchen footage queries (e.g. 'chopping onion kitchen knife', "
-        "'hot frying oil pan', 'pouring black coffee cup'), and end the science payoff with a crisp practical kitchen tip! "
+        "THIS IS A DAILY 'KIMIA DAPUR (Kitchen Chemistry & Sains Sehari-hari)' EPISODE (TARGET ~38-48s TOTAL): "
+        "Keep every line hyper-relatable to everyday Indonesian homes, food, drinks, and shared experiences, "
+        "pair every step with concrete real kitchen/home footage queries, and end with 1 crisp 'oh pantes!' practical takeaway! "
         if is_kitchen
         else ""
+    )
+    duration_rule = (
+        "~48-56s total spoken (~115-145 Indonesian words across 6 tight scenes, ~18-24 words per scene)"
+        if is_karat
+        else "~38-48s total spoken (~95-120 Indonesian words across 5-6 tight scenes, ~15-21 words per scene)"
     )
     spoken_requester = requested_by.lstrip("@") if requested_by else ""
     req_a3_note = (
         f"THIS EPISODE FULFILLS A VIEWER REQUEST FROM '{requested_by}' (comment: '{request_source_comment or topic_hint}'): "
-        f"In scene_1's spoken narration, warmly mention the requester (e.g., 'Menjawab request dari {spoken_requester}!' or 'Halo {spoken_requester}, ini jawaban buat request kamu!'), "
-        f"and right before the closing CTA mention thanking {spoken_requester} and inviting viewers to drop their own topic requests in the comments! "
+        f"In scene_1's spoken narration, warmly mention the requester right alongside the hook (e.g., 'Menjawab request {spoken_requester}!'), "
+        f"and right before the closing CTA thank {spoken_requester} and invite viewers to drop more requests! "
         if requested_by
         else ""
     )
@@ -423,31 +436,29 @@ def run_agent_1_to_3(
         model=a3_cfg.get("model", a3_cfg["recommended_prod_model"]),
         system_prompt=(
             "You are Agent 3 (Script, Shot-List & Mechanistic Storyboard Reviser) for Kimiabill. "
-            "Write a cheerful, clear, moderate-pace Indonesian short script (~55-65s total spoken, 6-7 scenes, "
-            "~18-24 words narration per scene so the viewer gets rich, deep scientific insight) applying Agent 2's notes "
-            "and Agent 8's `weekly_growth_directives`. "
+            f"Write an energetic, crystal-clear, tight-paced Indonesian short script ({duration_rule}) "
+            "applying Agent 2's notes, `[MASUKAN OWNER]`, and `weekly_growth_directives`. "
+            "TITLE RULE: `title` MUST be 3 to 6 punchy Indonesian words WITHOUT spoiling the scientific answer! "
             f"{req_a3_note}{karat_a3_note}{kitchen_a3_note}"
-            "PROVEN RETENTION & STORYTELLING STRUCTURE (Veritasium + Creator Insider 70%+ Retention):\n"
-            "- Scene 1 (0-3s Hook): NO generic greeting or slow textbook definition! Start immediately with a punchy misconception-breaker "
-            "or counterintuitive question that opens an irresistible curiosity loop.\n"
-            "- Middle scenes (A-Plot ↔ B-Plot alternation & Zero Over-Explaining): Do NOT dump dry background jargon after the hook! "
-            "Immediately advance the story by alternating between tangible real-world stakes/phenomena (A-plot) and how the hidden "
-            "molecular/physical mechanism actually works (B-plot). End scene 2 or 3 with a crisp micro re-hook/open loop "
-            "(e.g., 'Tapi bagian paling mengejutkannya justru terjadi saat...', 'Nah, di sinilah logika biasa mulai salah...') so viewers stay past detik ke-20.\n"
-            "- Final scene: Close the main open loop with a satisfying 'Aha!' payoff, then include ONE brief casual comment CTA "
-            "answerable in 1-3 words (e.g. 'Kamu tim baru tahu atau udah pernah dengar? Tulis di komentar atau request topik lain ya!'), "
-            "and end cleanly with the exact closing CTA: 'Jangan lupa follow Kimiabill untuk info sains berikutnya!' \n"
+            "PROVEN RETENTION & VIRAL STORYTELLING STRUCTURE:\n"
+            "- Scene 1 (0-3s Hook — NO GREETING, ZERO SPOILER): Start directly with PERSONIFICATION (e.g. molecules/objects acting like cheeky humans), "
+            "a shared everyday annoyance ('Kenapa asap bakaran selalu ngejar ke arah kita?'), or a 1-second PREDICTION BET ('Coba tebak apa yang terjadi kalau...'). "
+            "NEVER open with 'Selamat datang', 'Halo teman-teman', or textbook definitions.\n"
+            "- Middle scenes (Fast Prediction -> Reveal -> Everyday Impact): Zero dry lecturing! Build curiosity with 1 twist/re-hook "
+            "('Tapi anehnya justru...', 'Nah, bagian ini yang sering bikin kita ketipu...') and explain the hidden mechanism in plain conversational language.\n"
+            "- Final scene (Payoff + 1-WORD DEBATE COMMENT CTA): Close the opening mystery cleanly, ask ONE super specific, playful 1-word "
+            "either/or poll or everyday confession tailored to THIS episode so viewers reply immediately "
+            "(e.g. 'Lidah kamu langsung gatel makan nanas nggak? Ketik GATEL atau AMAN!', NOT generic 'tulis pendapatmu'), "
+            "and end cleanly with: 'Jangan lupa follow Kimiabill untuk info sains berikutnya!'\n"
             "VISUAL QUERY RULES: Each scene MUST specify an English real-footage visual_query (no cartoons/animations) that names a "
-            "CONCRETE, FAMILY-SAFE, filmable object or lab process (e.g. 'gel cube compressed by hand in laboratory', "
-            "'rust on iron chain close up'). NEVER use words about human bodies, skin, stretching people, clothing, "
+            "CONCRETE, FAMILY-SAFE, filmable object or kitchen/lab process (e.g. 'charcoal barbecue smoke rising outdoor', "
+            "'gel cube compressed by hand in laboratory'). NEVER use words about human bodies, skin, stretching people, clothing, "
             "dance, music, or vague single words; provide 2-3 equally concrete fallback_queries. "
             "For ALL middle explanation scenes (scenes 2 through second-to-last), ALWAYS provide BOTH `overlay_badge` AND `mechanism` "
             "so the renderer draws a REAL animated scientific diagram (NOT just text boxes!): choose `mechanism.kind` from "
-            "'electron_transfer' (redox/electron flow arrows), 'polymer_crosslink' (chains bending & crosslinking into rigid lattice), "
-            "'molecular_reaction' (bonds breaking/forming with curved arrows), 'receptor_binding' (enzyme/drug lock-and-key docking), "
-            "'force_wave' (physics wave/force vectors), or 'math_geometry' (live mathematical curve/growth), and fill concise "
-            "`title` (<=30 chars), `actor_a` & `actor_b` (<=14 chars, 1-2 crisp Indonesian words so cards NEVER truncate with '...'), `result` (<=20 chars), and `caption` matching the scene's exact mechanism. "
-            "ALWAYS populate `references` with 1-3 real, accurate scientific references (journal, textbook, university, or source article)."
+            "'electron_transfer', 'polymer_crosslink', 'molecular_reaction', 'receptor_binding', 'force_wave', or 'math_geometry', and fill concise "
+            "`title` (<=28 chars), `actor_a` & `actor_b` (<=14 chars, 1-2 crisp Indonesian words so cards NEVER truncate), `result` (<=20 chars), and `caption`. "
+            "ALWAYS populate `references` with 1-3 real, accurate scientific references."
         ),
         user_payload={
             "winner_idea": winner.model_dump(),
@@ -815,27 +826,29 @@ def prepare_episode_thumbnail(episode_id: str) -> EpisodeState:
         req_a7_note = (
             f"IMPORTANT — VIEWER REQUEST SHOUTOUT: This episode fulfills a comment request from '{state.requested_by}' "
             f"(comment: '{state.request_source_comment or ''}'). Mention '{state.requested_by}' clearly inside BOTH `caption` AND `pinned_comment` "
-            f"thanking them, then ask a quick 1-3 word engagement question tied to the topic plus invite others to drop future science requests!"
+            f"thanking them, then ask a super easy 1-word binary poll tied to this topic so viewers immediately comment!"
             if state.requested_by
             else (
-                "ENGAGEMENT CTA & PINNED COMMENT RULE: Both `caption` (ending) and especially `pinned_comment` MUST start with a casual, "
-                "low-friction Indonesian question that casual viewers can answer in just 1-3 words (e.g., "
-                "'Kamu tim yang baru tahu fakta ini atau udah pernah dengar? 👇' or 'Pilih A atau B, atau kasih skor 1-10 buat fenomena ini! 🤔'), "
-                "tailored specifically to THIS video's science twist, then immediately add: "
-                "'Atau mau bahas fenomena sains apa lagi minggu depan? Tulis singkat di komentar ya!' "
-                "Keep `pinned_comment` warm, non-intimidating, and under 240 characters so viewers aren't shy to reply."
+                "COMMENT-BOOSTER PINNED COMMENT RULE (FIX 0-COMMENT BOTTLENECK): NEVER write generic 'Kamu tim baru tahu atau udah pernah dengar?'. "
+                "Instead, BOTH `caption` (closing line) AND `pinned_comment` MUST pose ONE playful, specific 1-word debate, vote, or everyday confession "
+                "tied directly to THIS video's phenomenon (e.g. 'Tim yang lidahnya langsung gatel ketik GATEL, yang kebal ketik AMAN! 🍍👇' or "
+                "'Kamu pas bakar-bakaran selalu diincer asapnya juga nggak? 🤣🔥'), followed briefly by: 'Mau bahas keanehan sehari-hari apa lagi? Tulis singkat di bawah!' "
+                "Keep `pinned_comment` under 200 chars, warm, funny, and effortless to answer in 1 word."
             )
         )
         state.agent7 = call_structured_agent(
             provider=a7_cfg["provider"],
             model=a7_cfg.get("model", a7_cfg["recommended_prod_model"]),
             system_prompt=(
-                "You are Agent 7 (Packaging & Social Media Publisher) for @kimiabill. "
-                "Create high-CTR thumbnail copy AND platform-tailored Indonesian title, high-engagement caption (with a quick 1-3 word poll/question CTA), "
-                "hashtags, and a non-empty `pinned_comment` for every platform. "
-                "THUMBNAIL COPY RULE: keep `thumbnail_badge` to 1-3 uppercase words (<=18 chars, e.g. 'RISET TERKINI' or 'SAINS MEDISINAL'), "
-                "`thumbnail_headline_top` to 2-3 punchy words (<=18 chars, e.g. 'TEMBAKAU JADI'), and `thumbnail_headline_main` to 2-3 explosive trigger words "
-                "(<=16 chars, e.g. 'OBAT KANKER?!') creating a curiosity gap instead of repeating the full video title. "
+                "You are Agent 7 (High-CTR Shorts Packaging & Social Media Publisher) for @kimiabill. "
+                "Create viral, non-spoiler thumbnail copy AND platform-tailored Indonesian title, punchy caption, "
+                "hashtags, and a conversation-starting `pinned_comment` for every platform.\n"
+                "PLATFORM TITLE RULE: `platform_copies[].title` MUST be **3 to 6 punchy words** (<=45 chars) with ZERO spoiler of the answer — "
+                "mirror top viral Indonesian Shorts like 'KUAT dan TAHAN LAMA', 'Sungai Ini Kasih Peringatan', 'Obat Ini Nemu Sendiri?!'.\n"
+                "COVER THUMBNAIL COPY RULE (RESEARCH TAB BENCHMARK): "
+                "Keep `thumbnail_badge` to 1-2 uppercase words (<=16 chars, e.g. 'KIMIA DAPUR', 'RISET KARAT', 'FAKTA TUBUH'), "
+                "`thumbnail_headline_top` to 1-3 short words (<=15 chars, e.g. 'ASAP BAKARAN'), and `thumbnail_headline_main` to **2-3 explosive curiosity words** "
+                "(<=14 chars, e.g. 'NGEJAR TERUS?!', 'DIMAKAN BUAH?!', 'KOK BISA TAHU?!') that create instant confusion/intrigue without spoiling! "
                 f"{req_a7_note}"
             ),
             user_payload={
