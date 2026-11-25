@@ -2,8 +2,9 @@
 
 Sources real-world video clips (strictly avoiding animations/cartoons/lectures):
 1. Pexels Video API (automatically enabled if PEXELS_API_KEY env var is set)
-2. Wikimedia Commons API (free, no API key needed; CC0/CC-BY real science videos)
-3. Internet Archive API (free fallback for real science & nature footage)
+2. Pixabay Video API (automatically enabled if PIXABAY_API_KEY env var is set; free & active)
+3. Wikimedia Commons API (free, no API key needed; CC0/CC-BY real science & kitchen videos)
+4. NASA Images & Video API (free, no API key needed; Public Domain physics/earth/science HD clips)
 
 Reuses local SFX cache via StudioMemory so basic SFX are never re-fetched.
 """
@@ -200,6 +201,139 @@ def search_pexels(query: str, per_page: int = 8, orientation: Optional[str] = "p
                 width=int(best.get("width") or 720),
                 height=int(best.get("height") or 1280),
                 thumb_url=v.get("image"),
+            )
+        )
+    return out
+
+
+def search_pixabay(query: str, per_page: int = 8) -> list[VideoCandidate]:
+    """Search Pixabay Video API when PIXABAY_API_KEY is configured."""
+    api_key = os.environ.get("PIXABAY_API_KEY")
+    if not api_key:
+        return []
+    try:
+        resp = requests.get(
+            "https://pixabay.com/api/videos/",
+            headers={"User-Agent": USER_AGENT},
+            params={
+                "key": api_key,
+                "q": query,
+                "per_page": per_page,
+                "safesearch": "true",
+                "video_type": "film",
+            },
+            timeout=20,
+        )
+    except requests.RequestException:
+        return []
+    if resp.status_code != 200:
+        return []
+    out: list[VideoCandidate] = []
+    for v in resp.json().get("hits", []):
+        dur = float(v.get("duration") or 0)
+        if dur < 3.0:
+            continue
+        tags = str(v.get("tags") or "")
+        if not _is_real_video_title(tags) or not _is_family_safe_text(tags):
+            continue
+        videos = v.get("videos") or {}
+        best = None
+        for tier in ("medium", "large", "small"):
+            cand_stream = videos.get(tier) or {}
+            if cand_stream.get("url") and int(cand_stream.get("height") or 0) >= 480:
+                best = cand_stream
+                break
+        if best is None:
+            for tier in ("medium", "large", "small", "tiny"):
+                cand_stream = videos.get(tier) or {}
+                if cand_stream.get("url"):
+                    best = cand_stream
+                    break
+        if not best:
+            continue
+        out.append(
+            VideoCandidate(
+                source="pixabay",
+                title=f"Pixabay #{v.get('id')} - {tags or query}"[:120],
+                download_url=best["url"],
+                page_url=v.get("pageURL") or best["url"],
+                license="Pixabay Content License (Free)",
+                duration_sec=dur,
+                width=int(best.get("width") or 1280),
+                height=int(best.get("height") or 720),
+                thumb_url=None,
+            )
+        )
+    return out
+
+
+def search_nasa_videos(query: str, limit: int = 5) -> list[VideoCandidate]:
+    """Search NASA Images & Video API (0 API key, Public Domain) for physics/earth/science HD clips."""
+    try:
+        resp = requests.get(
+            "https://images-api.nasa.gov/search",
+            headers={"User-Agent": USER_AGENT},
+            params={"q": query, "media_type": "video"},
+            timeout=20,
+        )
+    except requests.RequestException:
+        return []
+    if resp.status_code != 200:
+        return []
+    items = resp.json().get("collection", {}).get("items", [])
+    out: list[VideoCandidate] = []
+    for item in items[: limit * 2]:
+        if len(out) >= limit:
+            break
+        data_list = item.get("data") or []
+        if not data_list:
+            continue
+        data = data_list[0]
+        title = str(data.get("title") or "").strip()
+        desc = str(data.get("description") or "")
+        nasa_id = str(data.get("nasa_id") or "").strip()
+        if not title or not _is_real_video_title(title) or not _is_family_safe_text(title, desc):
+            continue
+        collection_url = item.get("href")
+        if not collection_url:
+            continue
+        try:
+            col_resp = requests.get(collection_url, headers={"User-Agent": USER_AGENT}, timeout=15)
+        except requests.RequestException:
+            continue
+        if col_resp.status_code != 200:
+            continue
+        try:
+            asset_urls = col_resp.json()
+        except ValueError:
+            continue
+        mp4_urls = [u for u in asset_urls if isinstance(u, str) and u.lower().endswith(".mp4")]
+        if not mp4_urls:
+            continue
+        mp4_url = None
+        for suffix in ("~medium.mp4", "~small.mp4", "~orig.mp4", "~mobile.mp4"):
+            matched = [u for u in mp4_urls if u.lower().endswith(suffix)]
+            if matched:
+                mp4_url = matched[0]
+                break
+        if mp4_url is None:
+            mp4_url = mp4_urls[0]
+        thumb_url = None
+        for lnk in item.get("links") or []:
+            if isinstance(lnk, dict) and lnk.get("rel") == "preview" and lnk.get("href"):
+                thumb_url = lnk["href"]
+                break
+        out.append(
+            VideoCandidate(
+                source="nasa",
+                title=f"NASA - {title}"[:120],
+                download_url=mp4_url,
+                page_url=f"https://images.nasa.gov/details/{nasa_id}" if nasa_id else mp4_url,
+                license="NASA Public Domain (No Copyright)",
+                duration_sec=10.0,
+                width=1280,
+                height=720,
+                thumb_url=thumb_url,
             )
         )
     return out
@@ -512,38 +646,67 @@ def scout_assets_for_scenes(
             stop_words = {
                 "the", "and", "with", "from", "into", "that", "this", "for", "are", "was",
                 "in", "on", "of", "to", "a", "an", "at", "by", "or", "as", "is", "be",
-                "video", "clip", "footage", "close", "closeup", "shot", "view", "real",
-                "screen", "monitor", "computer", "dark", "background", "human", "person", "hand",
+                "has", "had", "can", "not", "but", "out", "off", "all", "its", "one", "two",
+                "big", "low", "use", "video", "clip", "footage", "close", "closeup", "shot",
+                "view", "real", "screen", "monitor", "computer", "dark", "background",
+                "human", "person", "hand",
             }
             broadened: list[str] = []
+            single_nouns: list[str] = []
             for q in raw_queries:
-                words = [w for w in re.findall(r"[A-Za-z]+", q.lower()) if len(w) > 3 and w not in stop_words]
+                words = [w for w in re.findall(r"[A-Za-z]+", q.lower()) if len(w) >= 3 and w not in stop_words]
                 if len(words) >= 2:
                     broadened.append(" ".join(words[:2]))
                     broadened.append(" ".join(words[-2:]))
-            generic_science_fallbacks = [
-                "chemistry laboratory experiment",
-                "chemical reaction beaker",
-                "optical microscope cells",
-                "physics laboratory experiment",
-                "crystal growth microscope",
-                "science laboratory glassware",
-            ]
+                for w in words[:2] + words[-1:]:
+                    if len(w) >= 4 or w in {"ice", "oil", "egg", "tea", "pan", "hot"}:
+                        single_nouns.append(w)
+
+            scene_text_blob = " ".join([scene.visual_query, *scene.fallback_queries, scene.narration or ""]).lower()
+            is_kitchen = bool(
+                re.search(
+                    r"\b(?:pineapple|meat|beef|steak|chicken|pork|fish|onion|garlic|oil|frying|fry|"
+                    r"coffee|tea|ice|egg|bread|rice|milk|salt|sugar|vinegar|lemon|banana|kitchen|"
+                    r"cooking|cook|fruit|food|dish|plate|bowl|pan|knife|chopping|slicing|marinat\w*|"
+                    r"tenderiz\w*|nanas|daging|goreng|kopi|teh|telur|roti|nasi|susu|garam|gula|"
+                    r"dapur|masak|buah|bawang|minyak|panci|wajan)\b",
+                    scene_text_blob,
+                )
+            )
+            if is_kitchen:
+                generic_fallbacks = [
+                    "cooking frying pan",
+                    "chopping food kitchen",
+                    "fresh fruit slicing",
+                    "pouring water glass",
+                    "boiling water kitchen",
+                ]
+            else:
+                generic_fallbacks = [
+                    "chemistry laboratory experiment",
+                    "chemical reaction beaker",
+                    "optical microscope cells",
+                    "physics laboratory experiment",
+                    "crystal growth microscope",
+                    "science laboratory glassware",
+                ]
+
             seen_q: set[str] = set()
             queries: list[str] = []
-            for q in [*raw_queries, *broadened, *generic_science_fallbacks]:
+            for q in [*raw_queries, *broadened, *single_nouns, *generic_fallbacks]:
                 q_norm = q.strip()
                 if q_norm and q_norm.lower() not in seen_q:
                     seen_q.add(q_norm.lower())
                     queries.append(q_norm)
 
+            source_rank = {"pexels": 0, "pixabay": 1, "wikimedia": 2, "nasa": 3}
             for q in queries:
-                pexels_cands = search_pexels(q, orientation="portrait")
-                if len(pexels_cands) < 3:
-                    pexels_cands += search_pexels(q, orientation="landscape")
-                is_generic_q = q in generic_science_fallbacks
-                wiki_cands = search_wikimedia_videos(q) if (len(pexels_cands) < 2 or is_generic_q) else []
-                q_terms = [w for w in re.findall(r"[a-z]+", q.lower()) if len(w) > 3 and w not in stop_words]
+                stock_cands = search_pexels(q, orientation="portrait") + search_pixabay(q)
+                if len(stock_cands) < 3:
+                    stock_cands += search_pexels(q, orientation="landscape")
+                is_generic_q = q in generic_fallbacks
+                wiki_cands = search_wikimedia_videos(q) if (len(stock_cands) < 2 or is_generic_q) else []
+                q_terms = [w for w in re.findall(r"[a-z]+", q.lower()) if len(w) >= 3 and w not in stop_words]
                 if wiki_cands and not is_generic_q and q_terms:
                     matched_wiki = [
                         wc for wc in wiki_cands
@@ -554,9 +717,14 @@ def scout_assets_for_scenes(
                     wiki_cands.sort(
                         key=lambda c: (-sum(1 for t in q_terms if t in c.title.lower()), 0 if c.width >= 720 else 1, -min(c.width, 1920))
                     )
-                cands = pexels_cands + wiki_cands
+                nasa_cands = (
+                    search_nasa_videos(q, limit=3)
+                    if (not is_kitchen and len(stock_cands) < 2 and len(wiki_cands) < 2)
+                    else []
+                )
+                cands = stock_cands + wiki_cands + nasa_cands
                 if not wiki_cands or is_generic_q:
-                    cands.sort(key=lambda c: (0 if c.source == "pexels" else 1, 0 if c.width >= 720 else 1, -min(c.width, 1920)))
+                    cands.sort(key=lambda c: (source_rank.get(c.source, 9), 0 if c.width >= 720 else 1, -min(c.width, 1920)))
                 per_query_screens = 0
                 for cand in cands:
                     stem = cand.title.lower()[:32]
