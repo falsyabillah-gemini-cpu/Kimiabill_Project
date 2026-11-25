@@ -946,6 +946,41 @@ def _deliver_audit_to_drive_and_email(
         pass
     email_body = ("\n\n".join(header_links) + "\n\n" if header_links else "") + report_md
 
+    tg_sent = False
+    notify_email_also = os.environ.get("NOTIFY_EMAIL_ALSO", "false").strip().lower() == "true"
+    try:
+        from src.tools.telegram_notify import (
+            send_telegram_document,
+            send_telegram_message,
+            telegram_enabled,
+        )
+
+        if telegram_enabled():
+            ch = channel_stats or {}
+            tg_head = "\n".join(
+                [
+                    f"📊 LAPORAN AUDIT MINGGUAN KIMIABILL ({audit.week_ending})",
+                    f"Subs: {ch.get('subscribers', '-')} | Total Views: {ch.get('total_views', '-')}",
+                    f"Ringkasan: {audit.summary}",
+                    "",
+                    *header_links[:6],
+                    "",
+                    "💬 Balas chat ini jika ada arahan/revisi untuk episode minggu depan!",
+                ]
+            )
+            tg_sent = send_telegram_message(tg_head)
+            if pdf_path and pdf_path.exists():
+                send_telegram_document(pdf_path, caption=f"📄 Laporan Audit Visual PDF ({audit.week_ending})")
+            if FLOW_PROMPTS_LATEST_PATH.exists() and getattr(audit, "flow_clip_prompts", None):
+                send_telegram_document(FLOW_PROMPTS_LATEST_PATH, caption="📝 Daftar Prompt Google AI Flow Minggu Depan")
+            print(f"[telegram] Laporan audit mingguan terkirim ke Telegram (ok={tg_sent})")
+    except Exception as exc:
+        print(f"[telegram] Peringatan gagal kirim audit ke Telegram (fallback email): {exc}")
+
+    if tg_sent and not notify_email_also:
+        print("[agent8] Email audit dilewati karena sudah terkirim lengkap ke Telegram.")
+        return
+
     # Email full report via send_custom_email (new Apps Script) or fallback to notify_email
     subject = f"[Kimiabill] Laporan Audit Mingguan Visual PDF ({audit.week_ending})"
     try:
@@ -1450,40 +1485,61 @@ def send_flow_prompts_and_guide_email(
 
         guide_body = local_prompt_file.read_text(encoding="utf-8")
         subject = f"[Kimiabill] Link Google AI Flow, Folder Drive & {len(prompts)} Prompt Pilihan ({today})"
+
+        tg_sent = False
+        notify_email_also = os.environ.get("NOTIFY_EMAIL_ALSO", "false").strip().lower() == "true"
         try:
-            r1 = requests.post(
-                webhook_url,
-                json={
-                    "action": "send_custom_email",
-                    "token": token,
-                    "to": notify_to,
-                    "subject": subject,
-                    "body": guide_body,
-                },
-                timeout=45,
-            ).json()
-            emailed = bool(r1.get("ok"))
-        except Exception:
-            emailed = False
-        if not emailed:
+            from src.tools.telegram_notify import (
+                send_telegram_document,
+                send_telegram_message,
+                telegram_enabled,
+            )
+
+            if telegram_enabled():
+                tg_sent = send_telegram_message(guide_body)
+                if local_prompt_file.exists():
+                    send_telegram_document(local_prompt_file, caption=f"📝 Prompt Google AI Flow ({today})")
+                print(f"[telegram] Prompt Google AI Flow terkirim ke Telegram (ok={tg_sent})")
+        except Exception as exc:
+            print(f"[telegram] Peringatan kirim prompt Flow ke Telegram: {exc}")
+
+        if not (tg_sent and not notify_email_also):
             try:
-                r2 = requests.post(
+                r1 = requests.post(
                     webhook_url,
                     json={
-                        "action": "notify_email",
+                        "action": "send_custom_email",
                         "token": token,
                         "to": notify_to,
-                        "episode_name": f"flow_prompts_{today}",
-                        "title": subject,
-                        "folder_url": flow_folder_url,
-                        "video_url": drive_prompt_url or GOOGLE_FLOW_URL,
-                        "captions_preview": guide_body,
+                        "subject": subject,
+                        "body": guide_body,
                     },
                     timeout=45,
                 ).json()
-                emailed = bool(r2.get("ok"))
+                emailed = bool(r1.get("ok"))
             except Exception:
                 emailed = False
+            if not emailed:
+                try:
+                    r2 = requests.post(
+                        webhook_url,
+                        json={
+                            "action": "notify_email",
+                            "token": token,
+                            "to": notify_to,
+                            "episode_name": f"flow_prompts_{today}",
+                            "title": subject,
+                            "folder_url": flow_folder_url,
+                            "video_url": drive_prompt_url or GOOGLE_FLOW_URL,
+                            "captions_preview": guide_body,
+                        },
+                        timeout=45,
+                    ).json()
+                    emailed = bool(r2.get("ok"))
+                except Exception:
+                    emailed = False
+        else:
+            emailed = False
 
     print(f"[flow_planner] Prompt Flow tersimpan: {local_prompt_file} | Drive: {drive_prompt_url or flow_folder_url} | Email terkirim: {emailed}")
     return {
@@ -1494,5 +1550,6 @@ def send_flow_prompts_and_guide_email(
         "drive_prompt_url": drive_prompt_url,
         "google_flow_url": GOOGLE_FLOW_URL,
         "emailed_to": notify_to if emailed else None,
+        "telegram_sent": tg_sent if raw_url else False,
         "credit_note": credit_note,
     }

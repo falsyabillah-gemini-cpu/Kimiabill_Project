@@ -35,9 +35,92 @@ function _getOrCreateFolder(name, parentFolder) {
   return parentFolder ? parentFolder.createFolder(name) : DriveApp.createFolder(name);
 }
 
+function _handleTelegramWebhook(payload) {
+  const props = PropertiesService.getScriptProperties();
+  const botToken = String(props.getProperty("TELEGRAM_BOT_TOKEN") || "").trim();
+  const allowedChatId = String(props.getProperty("TELEGRAM_CHAT_ID") || "").trim();
+  const githubPat = String(props.getProperty("GITHUB_PAT") || "").trim();
+  const githubRepo = String(props.getProperty("GITHUB_REPO") || "falsyabillah-gemini-cpu/Kimiabill_Project").trim();
+
+  const msg = payload.message || payload.edited_message || {};
+  const chatId = msg.chat && msg.chat.id !== undefined ? String(msg.chat.id) : "";
+  const text = String(msg.text || msg.caption || "").trim();
+  if (!botToken || !allowedChatId || chatId !== allowedChatId || !text) {
+    return _jsonResponse({ ok: true, ignored: true });
+  }
+
+  function _replyTg(replyText) {
+    try {
+      UrlFetchApp.fetch("https://api.telegram.org/bot" + botToken + "/sendMessage", {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify({ chat_id: allowedChatId, text: replyText }),
+        muteHttpExceptions: true,
+      });
+    } catch (e) {}
+  }
+
+  const low = text.toLowerCase();
+  if (low === "/start" || low === "/help") {
+    _replyTg(
+      "🤖 Kimiabill Bot Aktif (Pola B).\n" +
+      "• Kirim pesan apa saja = masukan otomatis untuk VIDEO BERIKUTNYA.\n" +
+      "• Kirim `/rerender <catatan>` = langsung produksi & render ulang video pengganti sekarang!"
+    );
+    return _jsonResponse({ ok: true });
+  }
+
+  if (!githubPat) {
+    _replyTg("⚠️ Feedback terbaca, tetapi GITHUB_PAT belum diisi di Apps Script Properties. Tanpa GITHUB_PAT, feedback tetap otomatis ditarik saat jadwal produksi berikutnya jika webhook dimatikan.");
+    return _jsonResponse({ ok: true, warning: "GITHUB_PAT missing" });
+  }
+
+  const isRerender = low.indexOf("/rerender") === 0;
+  const cleanNote = isRerender
+    ? text.slice(9).trim()
+    : (low.indexOf("/feedback") === 0 ? text.slice(9).trim() : text);
+
+  const eventType = isRerender ? "telegram_rerender" : "telegram_feedback";
+  const dispatchResp = UrlFetchApp.fetch(
+    "https://api.github.com/repos/" + githubRepo + "/dispatches",
+    {
+      method: "post",
+      contentType: "application/json",
+      headers: {
+        Authorization: "Bearer " + githubPat,
+        Accept: "application/vnd.github+json",
+      },
+      payload: JSON.stringify({
+        event_type: eventType,
+        client_payload: {
+          text: cleanNote,
+          feedback: cleanNote,
+          mode: isRerender ? "rerender" : "next_video",
+        },
+      }),
+      muteHttpExceptions: true,
+    }
+  );
+  const code = dispatchResp.getResponseCode();
+  if (code >= 200 && code < 300) {
+    _replyTg(
+      isRerender
+        ? "🔄 Siap! Mulai produksi & render ulang video baru dengan catatan:\n" + (cleanNote || "(tanpa catatan tambahan)")
+        : "✅ Masukan dicatat untuk VIDEO BERIKUTNYA:\n\"" + cleanNote + "\""
+    );
+  } else {
+    _replyTg("⚠️ Gagal menghubungi GitHub Actions (HTTP " + code + ").");
+  }
+  return _jsonResponse({ ok: code >= 200 && code < 300, status: code });
+}
+
 function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents || "{}");
+
+    if (payload.update_id && (payload.message || payload.edited_message)) {
+      return _handleTelegramWebhook(payload);
+    }
 
     if (OPTIONAL_SECRET_TOKEN && payload.token !== OPTIONAL_SECRET_TOKEN) {
       return _jsonResponse({ ok: false, error: "Unauthorized token" });
@@ -265,11 +348,13 @@ function doPost(e) {
       bodyLines.push("");
       bodyLines.push("-- Dikirim otomatis oleh Kimiabill Studio");
 
-      MailApp.sendEmail({
-        to: to,
-        subject: subject,
-        body: bodyLines.join("\n"),
-      });
+      if (!payload.skip_email) {
+        MailApp.sendEmail({
+          to: to,
+          subject: subject,
+          body: bodyLines.join("\n"),
+        });
+      }
 
       let sheetUpdated = false;
       const sheetId = payload.sheet_id || "1HltIwSA5VK5ehVg_WLhNf_oFCah2A2aJed6VahKYlHc";
@@ -293,7 +378,7 @@ function doPost(e) {
         }
       }
 
-      return _jsonResponse({ ok: true, emailed_to: to, sheet_updated: sheetUpdated });
+      return _jsonResponse({ ok: true, emailed_to: payload.skip_email ? null : to, email_skipped: !!payload.skip_email, sheet_updated: sheetUpdated });
     }
 
     if (action === "sync_audit_sheet") {

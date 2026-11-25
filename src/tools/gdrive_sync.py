@@ -269,6 +269,7 @@ def _upload_via_webhook(
 
     video_file_id: Optional[str] = None
     video_url: Optional[str] = None
+    preview_mp4_path: Optional[Path] = None
     thumbnail_file_id: Optional[str] = None
     thumbnail_url: Optional[str] = None
 
@@ -305,6 +306,7 @@ def _upload_via_webhook(
             if f.name.startswith("FINAL_") and f.suffix == ".mp4":
                 video_file_id = res.get("file_id")
                 video_url = res.get("file_url")
+                preview_mp4_path = upload_file
             elif f.name.startswith("THUMBNAIL_"):
                 thumbnail_file_id = res.get("file_id")
                 thumbnail_url = res.get("file_url")
@@ -541,6 +543,41 @@ def _upload_via_webhook(
         "-",
     ] if sheet_id else []
 
+    tg_sent = False
+    notify_email_also = os.environ.get("NOTIFY_EMAIL_ALSO", "false").strip().lower() == "true"
+    try:
+        from src.tools.telegram_notify import send_telegram_message, send_telegram_video, telegram_enabled
+
+        if telegram_enabled():
+            yt_line = f"▶️ YouTube ({youtube_privacy or 'public'}): {youtube_url}" if youtube_url else f"⏳ YouTube: {youtube_note or '-'}"
+            tg_caption = "\n".join(
+                [
+                    f"🎬 KIMIABILL VIDEO BARU SIAP ({ep_sec_tag})",
+                    f"Judul: {title}",
+                    f"Episode: {episode_name} | Disiplin: {ep_disc} | QA: {ep_qa}/10",
+                    yt_line,
+                    f"📁 Drive: {folder_url}",
+                    *( [f"📊 Sheet: {sheet_url}"] if sheet_url else [] ),
+                    "",
+                    "💬 Masukan untuk VIDEO BERIKUTNYA? Balas chat ini langsung.",
+                    "🔄 Video ini kacau & perlu dibuat ulang? Balas: /rerender <catatan>",
+                ]
+            )
+            if preview_mp4_path and preview_mp4_path.exists():
+                tg_sent = send_telegram_video(preview_mp4_path, caption=tg_caption)
+            else:
+                tg_sent = send_telegram_message(tg_caption)
+            if tg_sent and captions_text:
+                send_telegram_message(f"📝 Caption & Hashtag ({episode_name}):\n\n{captions_text[:3200]}")
+            print(f"[telegram] Preview video & status episode terkirim ke Telegram (ok={tg_sent})")
+    except Exception as tg_exc:
+        print(f"[telegram] Peringatan gagal kirim ke Telegram (fallback email): {tg_exc}")
+
+    skip_email = bool(tg_sent and not notify_email_also)
+    notif_status = "Telegram ke owner" if skip_email else (f"Telegram + Email ke {notify_to}" if tg_sent else f"Email ke {notify_to}")
+    if sheet_row:
+        sheet_row[-2] = notif_status
+
     sections = []
     if sheet_url:
         sections.append(f"📊 Google Sheet Tracker: {sheet_url}")
@@ -556,6 +593,7 @@ def _upload_via_webhook(
     notify_payload: dict[str, Any] = {
         "action": "notify_email",
         "to": notify_to,
+        "skip_email": skip_email,
         "episode_name": episode_name,
         "title": title,
         "folder_url": folder_url,
@@ -575,9 +613,12 @@ def _upload_via_webhook(
             notify_payload,
             timeout=60,
         )
-        print(f"[gdrive] Notifikasi email{' & update Tracker Sheet' if sheet_id else ''} terkirim ke {notify_to}")
+        if skip_email:
+            print(f"[gdrive] Google Sheet Tracker diperbarui (email dilewati karena sudah masuk Telegram)")
+        else:
+            print(f"[gdrive] Notifikasi email{' & update Tracker Sheet' if sheet_id else ''} terkirim ke {notify_to}")
     except Exception as exc:
-        print(f"[gdrive] Peringatan: upload Drive sukses, namun gagal kirim email ({exc})")
+        print(f"[gdrive] Peringatan: upload Drive sukses, namun gagal sinkron webhook ({exc})")
 
     return folder_url
 

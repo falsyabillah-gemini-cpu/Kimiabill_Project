@@ -43,11 +43,14 @@ jobs:
           GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
           GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
           NOTIFY_EMAIL_TO: ${{ vars.NOTIFY_EMAIL_TO || 'researchfalsyabillah@gmail.com' }}
+          NOTIFY_EMAIL_ALSO: ${{ vars.NOTIFY_EMAIL_ALSO || 'false' }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           FLOW_CREDITS_REMAINING: ${{ vars.FLOW_CREDITS_REMAINING || '' }}
           AUDIT_DISPATCH_MODE: ${{ github.event.inputs.mode || 'full_weekly_audit' }}
         run: |
           if [ "$AUDIT_DISPATCH_MODE" = "send_flow_prompts_email" ]; then
-            python -c "from src.tools.weekly_growth_auditor import send_flow_prompts_and_guide_email; res = send_flow_prompts_and_guide_email(); assert res.get('emailed_to'), f'Email gagal terkirim: {res}'"
+            python -c "from src.tools.weekly_growth_auditor import send_flow_prompts_and_guide_email; res = send_flow_prompts_and_guide_email(); assert res.get('emailed_to') or res.get('telegram_sent'), f'Notifikasi gagal terkirim: {res}'"
           else
             python -c "from src.tools.weekly_growth_auditor import run_agent_8_weekly_audit; run_agent_8_weekly_audit()"
           fi

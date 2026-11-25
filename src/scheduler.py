@@ -54,6 +54,15 @@ def _extract_affected_scenes(audit, valid_scene_ids: list[str]) -> list[str]:
 
 def run_one_automated_episode() -> None:
     load_dotenv()
+    try:
+        from src.tools.telegram_notify import sync_telegram_feedback_updates
+
+        sync_res = sync_telegram_feedback_updates()
+        if sync_res.get("saved_count"):
+            print(f"[telegram] Menyerap {sync_res['saved_count']} masukan baru dari Telegram untuk video ini & berikutnya!")
+    except Exception as exc:
+        print(f"[telegram] Peringatan cek feedback Telegram: {exc}")
+
     brand_cfg, agents_cfg = load_configs()
     if agents_cfg.get("runtime_mode") == "antigravity_local":
         print(

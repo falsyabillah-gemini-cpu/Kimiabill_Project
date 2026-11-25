@@ -275,12 +275,14 @@ def run_agent_1_to_3(
     )
 
     # Agent 1: Batch Ideation
+    from src.tools.telegram_notify import get_active_owner_feedback_directives
     from src.tools.weekly_growth_auditor import load_latest_agent_directives
 
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
     weekly_dir = load_latest_agent_directives()
+    owner_fb = get_active_owner_feedback_directives()
     karat_dir = weekly_dir.get("karat_weekend_directives", []) if is_karat else []
     slot_map_hint: list[str] = []
     if weekly_dir.get("next_week_topic_map"):
@@ -334,7 +336,7 @@ def run_agent_1_to_3(
             "STORYTELLING RULE (Veritasium Principle): Angle every idea around a sharp COMMON MISCONCEPTION vs SURPRISING REALITY "
             "or a counterintuitive curiosity question so viewers immediately feel a knowledge gap worth closing. "
             "Every idea must be visualizable with REAL, concrete, filmable science/nature/kitchen footage (never full animation), "
-            "MUST NOT repeat any topic in `avoid_titles`, and MUST apply any `weekly_growth_directives` from Agent 8."
+            "MUST NOT repeat any topic in `avoid_titles`, and MUST apply any `weekly_growth_directives` and `[MASUKAN OWNER]` feedback."
         ),
         user_payload={
             "brand": brand["brand"],
@@ -344,7 +346,7 @@ def run_agent_1_to_3(
             "requested_by": requested_by,
             "request_comment": request_source_comment,
             "avoid_titles": avoid_titles or [],
-            "weekly_growth_directives": weekly_dir.get("agent_1_directives", []) + karat_dir + slot_map_hint,
+            "weekly_growth_directives": owner_fb + weekly_dir.get("agent_1_directives", []) + karat_dir + slot_map_hint,
         },
         response_model=Agent1Output,
         handoff_path=paths["handoffs"] / "agent1_ideas.json",
@@ -369,13 +371,13 @@ def run_agent_1_to_3(
             "(2) anti-over-explaining pacing — after the hook, move the explanation forward immediately without rambling, and "
             "(3) plain-language clarity + real-footage visual strength. "
             "Pick the #1 winner and give max 4 concrete improvement notes (including exact rewrite advice for scene_1 hook & open-loop pacing), "
-            f"applying any `weekly_growth_directives` from Agent 8. {req_a2_note}"
+            f"applying any `weekly_growth_directives` and `[MASUKAN OWNER]` feedback. {req_a2_note}"
         ),
         user_payload={
             "candidates": [c.model_dump() for c in state.agent1.candidates],
             "requested_by": requested_by,
             "topic_hint": topic_hint,
-            "weekly_growth_directives": weekly_dir.get("agent_2_directives", []) + karat_dir,
+            "weekly_growth_directives": owner_fb + weekly_dir.get("agent_2_directives", []) + karat_dir,
         },
         response_model=Agent2Output,
         handoff_path=paths["handoffs"] / "agent2_audit.json",
@@ -453,7 +455,7 @@ def run_agent_1_to_3(
             "voice_style": brand["voice"],
             "requested_by": requested_by,
             "request_comment": request_source_comment,
-            "weekly_growth_directives": weekly_dir.get("agent_3_directives", []) + karat_dir,
+            "weekly_growth_directives": owner_fb + weekly_dir.get("agent_3_directives", []) + karat_dir,
         },
         response_model=Agent3Output,
         handoff_path=paths["handoffs"] / "agent3_script.json",
@@ -657,7 +659,9 @@ def run_agent_5_video_qa(
             "title": state.agent3.title,
             "references": state.render_plan.references,
             "weekly_growth_directives": (
-                __import__("src.tools.weekly_growth_auditor", fromlist=["load_latest_agent_directives"])
+                __import__("src.tools.telegram_notify", fromlist=["get_active_owner_feedback_directives"])
+                .get_active_owner_feedback_directives()
+                + __import__("src.tools.weekly_growth_auditor", fromlist=["load_latest_agent_directives"])
                 .load_latest_agent_directives()
                 .get("agent_5_directives", [])
             ),

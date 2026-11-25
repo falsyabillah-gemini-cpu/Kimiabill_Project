@@ -9,6 +9,8 @@ on:
     # Slot 2 (19:00 WIB): primary 17:11 WIB (10:11 UTC) + watchdog cadangan 18:37 WIB (11:37 UTC)
     - cron: "11 10 * * *"
     - cron: "37 11 * * *"
+  repository_dispatch:
+    types: [telegram_feedback, telegram_rerender]
   workflow_dispatch:
     inputs:
       publish_mode:
@@ -27,6 +29,11 @@ on:
         type: string
       resume_artifact_run_id:
         description: "Opsional: isi GitHub Run ID sebelumnya untuk langsung upload ulang artifact video yang gagal ke YouTube (<1 menit)"
+        required: false
+        default: ""
+        type: string
+      owner_feedback:
+        description: "Opsional: masukan khusus owner untuk episode kali ini (Pola B / render ulang)"
         required: false
         default: ""
         type: string
@@ -59,21 +66,44 @@ jobs:
       - uses: actions/checkout@v4
         if: ${{ steps.guard.outputs.skip != 'true' }}
 
+      - name: Save Telegram Feedback Only (Next Video Mode)
+        if: ${{ steps.guard.outputs.skip != 'true' && github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback' }}
+        env:
+          FB_TEXT: ${{ github.event.client_payload.text || github.event.client_payload.feedback || '' }}
+        run: |
+          python - <<'PY'
+          import os
+          from src.tools.telegram_notify import record_owner_feedback
+
+          txt = os.environ.get("FB_TEXT", "").strip()
+          if txt:
+              record_owner_feedback(txt, mode="next_video")
+              print(f"[telegram] Masukan owner tersimpan untuk video berikutnya: {txt}")
+          PY
+          git config user.name "Kimiabill Studio Bot"
+          git config user.email "bot@kimiabill.local"
+          git add data/owner_feedback.json 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: save owner Telegram feedback for next video [skip ci]"
+            git pull --rebase origin main || true
+            git push
+          fi
+
       - name: Setup Python 3.12
-        if: ${{ steps.guard.outputs.skip != 'true' }}
+        if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install FFmpeg & Dependencies
-        if: ${{ steps.guard.outputs.skip != 'true' }}
+        if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-liberation
           pip install -r requirements.txt
 
       - name: Rescue Upload from Existing Artifact (Optional)
-        if: ${{ steps.guard.outputs.skip != 'true' && inputs.resume_artifact_run_id != '' }}
+        if: ${{ steps.guard.outputs.skip != 'true' && inputs.resume_artifact_run_id != '' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
         env:
           PYTHONUNBUFFERED: "1"
           GH_TOKEN: ${{ github.token }}
@@ -132,7 +162,7 @@ jobs:
           PY
 
       - name: Run Automated Episode Pipeline
-        if: ${{ steps.guard.outputs.skip != 'true' && inputs.resume_artifact_run_id == '' }}
+        if: ${{ steps.guard.outputs.skip != 'true' && inputs.resume_artifact_run_id == '' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
         env:
           PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -158,16 +188,23 @@ jobs:
           GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
           GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
           NOTIFY_EMAIL_TO: ${{ vars.NOTIFY_EMAIL_TO || 'researchfalsyabillah@gmail.com' }}
+          NOTIFY_EMAIL_ALSO: ${{ vars.NOTIFY_EMAIL_ALSO || 'false' }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          OWNER_FEEDBACK_OVERRIDE: ${{ github.event.inputs.owner_feedback || github.event.client_payload.feedback || '' }}
           AUTO_UPLOAD_GDRIVE: "true"
         run: |
+          if [ -n "$OWNER_FEEDBACK_OVERRIDE" ]; then
+            python -c "import os; from src.tools.telegram_notify import record_owner_feedback; record_owner_feedback(os.environ['OWNER_FEEDBACK_OVERRIDE'], mode='rerender')"
+          fi
           python -c "from src.scheduler import run_one_automated_episode; run_one_automated_episode()"
 
       - name: Save Published Episode History for Weekly Audit
-        if: ${{ steps.guard.outputs.skip != 'true' }}
+        if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
         run: |
           git config user.name "Kimiabill Studio Bot"
           git config user.email "bot@kimiabill.local"
-          git add data/published_history.json data/audience_requests.json data/memory.db 2>/dev/null || true
+          git add data/published_history.json data/audience_requests.json data/memory.db data/owner_feedback.json 2>/dev/null || true
           if ! git diff --cached --quiet; then
             git commit -m "chore: record published episode for weekly growth audit [skip ci]"
             git pull --rebase origin main || true
@@ -175,7 +212,7 @@ jobs:
           fi
 
       - name: Upload Rendered Video Artifact
-        if: ${{ steps.guard.outputs.skip != 'true' }}
+        if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
         uses: actions/upload-artifact@v4
         with:
           name: kimiabill-episode-${{ github.run_number }}
