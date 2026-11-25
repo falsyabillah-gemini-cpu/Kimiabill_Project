@@ -45,19 +45,39 @@ function _handleTelegramWebhook(payload) {
   const msg = payload.message || payload.edited_message || {};
   const chatId = msg.chat && msg.chat.id !== undefined ? String(msg.chat.id) : "";
   const text = String(msg.text || msg.caption || "").trim();
-  if (!botToken || !allowedChatId || chatId !== allowedChatId || !text) {
-    return _jsonResponse({ ok: true, ignored: true });
+
+  if (!botToken || !allowedChatId) {
+    console.log("[tg_webhook] ignored: Script Properties belum lengkap (botTokenSet=" + Boolean(botToken) + ", allowedChatIdSet=" + Boolean(allowedChatId) + ")");
+    return _jsonResponse({ ok: true, ignored: true, reason: "missing_script_properties" });
+  }
+  if (chatId !== allowedChatId || !text) {
+    console.log("[tg_webhook] ignored: chatId mismatch or empty text (incoming=" + chatId + ", expected=" + allowedChatId + ")");
+    return _jsonResponse({ ok: true, ignored: true, reason: "chat_mismatch_or_empty" });
+  }
+
+  // Deduplicate Telegram retry attempts (Google Apps Script ContentService returns 302 redirect)
+  if (payload.update_id && typeof CacheService !== "undefined") {
+    const cache = CacheService.getScriptCache();
+    const dedupeKey = "tg_upd_" + String(payload.update_id);
+    if (cache.get(dedupeKey)) {
+      console.log("[tg_webhook] duplicate update_id skipped: " + payload.update_id);
+      return _jsonResponse({ ok: true, duplicate: true });
+    }
+    cache.put(dedupeKey, "1", 600);
   }
 
   function _replyTg(replyText) {
     try {
-      UrlFetchApp.fetch("https://api.telegram.org/bot" + botToken + "/sendMessage", {
+      const tgResp = UrlFetchApp.fetch("https://api.telegram.org/bot" + botToken + "/sendMessage", {
         method: "post",
         contentType: "application/json",
         payload: JSON.stringify({ chat_id: allowedChatId, text: replyText }),
         muteHttpExceptions: true,
       });
-    } catch (e) {}
+      console.log("[tg_webhook] sendMessage HTTP " + tgResp.getResponseCode() + ": " + tgResp.getContentText().slice(0, 160));
+    } catch (e) {
+      console.log("[tg_webhook] sendMessage exception: " + String(e));
+    }
   }
 
   const low = text.toLowerCase();
@@ -102,6 +122,7 @@ function _handleTelegramWebhook(payload) {
     }
   );
   const code = dispatchResp.getResponseCode();
+  console.log("[tg_webhook] GitHub dispatch HTTP " + code);
   if (code >= 200 && code < 300) {
     _replyTg(
       isRerender
