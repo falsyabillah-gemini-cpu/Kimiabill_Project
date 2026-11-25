@@ -213,6 +213,28 @@ function testTelegramBot() {
   console.log("sendMessage result -> " + JSON.stringify(sendRes));
 }
 
+/**
+ * Jalankan 1x dari editor Apps Script (Run -> authorizeAllPermissions) agar Google meminta
+ * seluruh izin yang dibutuhkan sekaligus: Drive, Sheets (read_spreadsheet), UrlFetchApp (Telegram),
+ * dan YouTube force-ssl (untuk auto pinned-comment YouTube Shorts).
+ */
+function authorizeAllPermissions() {
+  DriveApp.getRootFolder().getName();
+  console.log("Drive OK");
+  if (typeof YouTube !== "undefined") {
+    const chResp = YouTube.Channels.list("id,snippet", { mine: true });
+    const ch = (chResp.items && chResp.items[0]) || null;
+    console.log("YouTube Channel OK: " + (ch ? ch.snippet.title : "none"));
+    if (ch && ch.id) {
+      YouTube.CommentThreads.list("snippet", { allThreadsRelatedToChannelId: ch.id, maxResults: 1 });
+      console.log("YouTube CommentThreads (force-ssl) OK");
+    }
+  }
+  const dummy = SpreadsheetApp.getActiveSpreadsheet();
+  console.log("SpreadsheetApp scope OK (active=" + Boolean(dummy) + ")");
+  testTelegramBot();
+}
+
 function pollTelegram() {
   const props = PropertiesService.getScriptProperties();
   const botToken = String(props.getProperty("TELEGRAM_BOT_TOKEN") || "").trim();

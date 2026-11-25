@@ -448,6 +448,45 @@ def call_structured_agent(
                         _MODEL_COOLDOWN_UNTIL[discovered] = time.monotonic() + 35.0
                     elif resp.status_code in (402, 403, 404):
                         _EXHAUSTED_MODELS_THIS_RUN.add(discovered)
+            # Final recovery wave: brief cooldown wait for 1-minute Gemini RPM reset, then secondary provider failover
+            if resp is None or resp.status_code in TRANSIENT_STATUS_CODES:
+                retry_m = next((m for m in candidates if m not in _EXHAUSTED_MODELS_THIS_RUN), model)
+                print(f"[providers] Seluruh model Gemini sedang limit/sibuk; tunggu 28s untuk reset RPM lalu coba ulang '{retry_m}'...")
+                time.sleep(28)
+                try:
+                    resp = _post_with_retry(
+                        f"https://generativelanguage.googleapis.com/v1beta/models/{retry_m}:generateContent?key={api_key}",
+                        json_body=body,
+                        max_attempts=2,
+                        timeout=32,
+                        fail_fast_429=False,
+                    )
+                    if resp.status_code == 200:
+                        active_model = retry_m
+                except requests.RequestException:
+                    pass
+            if (resp is None or resp.status_code != 200) and os.environ.get("OPENROUTER_API_KEY"):
+                print("[providers] Gemini gagal/limit -> failover otomatis ke OPENROUTER_API_KEY...")
+                return call_structured_agent(
+                    provider="openrouter",
+                    model=DEFAULT_MODELS["openrouter"],
+                    system_prompt=system_prompt,
+                    user_payload=user_payload,
+                    response_model=response_model,
+                    handoff_path=handoff_path,
+                    image_paths=image_paths,
+                )
+            if (resp is None or resp.status_code != 200) and os.environ.get("ANTHROPIC_API_KEY") and not image_paths:
+                print("[providers] Gemini gagal/limit -> failover otomatis ke ANTHROPIC_API_KEY...")
+                return call_structured_agent(
+                    provider="anthropic_api",
+                    model=DEFAULT_MODELS["anthropic_api"],
+                    system_prompt=system_prompt,
+                    user_payload=user_payload,
+                    response_model=response_model,
+                    handoff_path=handoff_path,
+                    image_paths=None,
+                )
             assert resp is not None
             resp.raise_for_status()
             text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
