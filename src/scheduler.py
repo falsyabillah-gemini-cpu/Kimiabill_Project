@@ -148,6 +148,24 @@ def run_one_automated_episode() -> None:
         print(
             f"[scheduler] Memulai produksi otomatis (percobaan topik {topic_attempt}/{max_topic_attempts}): {episode_id}"
         )
+        if topic_attempt == 1:
+            try:
+                from src.pipeline import _is_kitchen_chemistry_slot, _is_weekend_karat_mode
+                from src.tools.telegram_notify import notify_production_started
+
+                sec_lbl = (
+                    "KARAT — Riset Terkini"
+                    if _is_weekend_karat_mode()
+                    else ("KIMIA DAPUR" if _is_kitchen_chemistry_slot() else "REGULER")
+                )
+                sent_start = notify_production_started(
+                    episode_id=episode_id,
+                    section_label=sec_lbl,
+                    pending_request=pending_req,
+                )
+                print(f"[telegram] Notifikasi #1 (Mulai Produksi) terkirim (ok={sent_start})")
+            except Exception as exc:
+                print(f"[telegram] Peringatan gagal kirim notif mulai produksi: {exc}")
 
         try:
             use_req = pending_req if topic_attempt == 1 else None
@@ -325,6 +343,16 @@ def run_one_automated_episode() -> None:
                 print("[scheduler] Melewati upload Google Drive (GDRIVE_WEBHOOK_URL belum diisi dan CLI 'gdrive' tidak terpasang).")
         return
 
+    try:
+        from src.tools.telegram_notify import send_telegram_message, telegram_enabled
+
+        if telegram_enabled():
+            send_telegram_message(
+                f"⚠️ PRODUKSI VIDEO DIHENTIKAN: Semua {max_topic_attempts} percobaan topik gagal lolos QA Agent 5, "
+                "sehingga tidak ada video yang di-upload ke YouTube/Drive kali ini."
+            )
+    except Exception:
+        pass
     raise RuntimeError(
         f"Semua {max_topic_attempts} percobaan topik harian gagal lolos Agent 5 QA. "
         f"Tidak ada video yang di-upload ke Google Drive maupun YouTube."

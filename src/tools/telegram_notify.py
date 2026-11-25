@@ -588,3 +588,62 @@ def sync_telegram_feedback_updates() -> dict[str, Any]:
         st_latest["last_update_id"] = max_uid
         save_owner_feedback_state(st_latest)
     return {"ok": True, "saved_count": saved_count, "last_update_id": max_uid}
+
+
+def notify_production_started(
+    episode_id: str,
+    section_label: str = "REGULER",
+    pending_request: Optional[dict[str, Any]] = None,
+) -> bool:
+    """Send Notification #1 to owner Telegram right when GitHub Actions starts Agent 1 production."""
+    if not telegram_enabled():
+        return False
+
+    now_wib = datetime.now(WIB).strftime("%Y-%m-%d %H:%M WIB")
+    ev_name = os.environ.get("GITHUB_EVENT_NAME", "").strip().lower()
+    if ev_name == "schedule":
+        trigger_label = "Jadwal Otomatis (Cron)"
+    elif ev_name == "repository_dispatch":
+        trigger_label = "Perintah Telegram (/rerender)"
+    elif ev_name == "workflow_dispatch":
+        trigger_label = "Trigger Manual GitHub"
+    else:
+        trigger_label = "Scheduler Lokal"
+
+    target_pub = os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
+    target_line = f"⏰ Target Tayang: {target_pub} WIB" if target_pub else "⚡ Publish segera setelah lolos QA"
+
+    req_line = ""
+    if pending_request and pending_request.get("topic_title"):
+        req_line = f"🙋 Request Penonton: {pending_request.get('requester_name', '')} → {pending_request.get('topic_title')}"
+
+    st = load_owner_feedback_state()
+    owner_items = st.get("items") or []
+    override_txt = os.environ.get("OWNER_FEEDBACK_OVERRIDE", "").strip()
+    fb_notes_count = len(owner_items) + (1 if override_txt else 0)
+    fb_line = (
+        f"🧠 Aturan/Masukan Owner Aktif: {fb_notes_count} catatan diterapkan di Agent 1-8"
+        if fb_notes_count
+        else "🎛️ Setelan Standar Studio + SFX Transisi & Animasi Aktif"
+    )
+
+    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com").rstrip("/")
+    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
+    run_url = f"{server}/{repo}/actions/runs/{run_id}" if (repo and run_id) else ""
+
+    lines = [
+        f"🚀 MULAI PRODUKSI VIDEO ({section_label})",
+        f"• Episode: {episode_id}",
+        f"• Mulai: {now_wib} | Pemicu: {trigger_label}",
+        f"• {target_line}",
+        f"• {fb_line}",
+    ]
+    if req_line:
+        lines.append(f"• {req_line}")
+    if run_url:
+        lines.append(f"• Log GitHub: {run_url}")
+    lines.append("")
+    lines.append("⏳ Sedang memproses Agent 1 (Ideasi) → Skrip → Footage → Render & QA. Info ke-2 akan dikirim otomatis saat video siap & terupload!")
+    return send_telegram_message("\n".join(lines))
+
