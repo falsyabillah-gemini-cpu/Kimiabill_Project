@@ -35,7 +35,29 @@ function _getOrCreateFolder(name, parentFolder) {
   return parentFolder ? parentFolder.createFolder(name) : DriveApp.createFolder(name);
 }
 
-function _handleTelegramWebhook(payload) {
+function _tgHtmlOk() {
+  return HtmlService.createHtmlOutput("OK");
+}
+
+function _replyTg(botToken, chatId, replyText) {
+  try {
+    const tgResp = UrlFetchApp.fetch("https://api.telegram.org/bot" + botToken + "/sendMessage", {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({ chat_id: String(chatId), text: replyText }),
+      muteHttpExceptions: true,
+    });
+    const code = tgResp.getResponseCode();
+    const body = tgResp.getContentText().slice(0, 200);
+    console.log("[tg_webhook] sendMessage HTTP " + code + ": " + body);
+    return { ok: code >= 200 && code < 300, code: code, body: body };
+  } catch (e) {
+    console.log("[tg_webhook] sendMessage exception: " + String(e));
+    return { ok: false, code: 0, body: String(e) };
+  }
+}
+
+function _processTelegramUpdate(payload) {
   const props = PropertiesService.getScriptProperties();
   const botToken = String(props.getProperty("TELEGRAM_BOT_TOKEN") || "").trim();
   const allowedChatId = String(props.getProperty("TELEGRAM_CHAT_ID") || "").trim();
@@ -48,51 +70,43 @@ function _handleTelegramWebhook(payload) {
 
   if (!botToken || !allowedChatId) {
     console.log("[tg_webhook] ignored: Script Properties belum lengkap (botTokenSet=" + Boolean(botToken) + ", allowedChatIdSet=" + Boolean(allowedChatId) + ")");
-    return _jsonResponse({ ok: true, ignored: true, reason: "missing_script_properties" });
+    return { ok: true, ignored: true, reason: "missing_script_properties" };
   }
   if (chatId !== allowedChatId || !text) {
     console.log("[tg_webhook] ignored: chatId mismatch or empty text (incoming=" + chatId + ", expected=" + allowedChatId + ")");
-    return _jsonResponse({ ok: true, ignored: true, reason: "chat_mismatch_or_empty" });
+    return { ok: true, ignored: true, reason: "chat_mismatch_or_empty" };
   }
 
-  // Deduplicate Telegram retry attempts (Google Apps Script ContentService returns 302 redirect)
+  // Deduplicate update_id across retries / webhook+poll overlap
   if (payload.update_id && typeof CacheService !== "undefined") {
     const cache = CacheService.getScriptCache();
     const dedupeKey = "tg_upd_" + String(payload.update_id);
     if (cache.get(dedupeKey)) {
       console.log("[tg_webhook] duplicate update_id skipped: " + payload.update_id);
-      return _jsonResponse({ ok: true, duplicate: true });
+      return { ok: true, duplicate: true };
     }
     cache.put(dedupeKey, "1", 600);
-  }
-
-  function _replyTg(replyText) {
-    try {
-      const tgResp = UrlFetchApp.fetch("https://api.telegram.org/bot" + botToken + "/sendMessage", {
-        method: "post",
-        contentType: "application/json",
-        payload: JSON.stringify({ chat_id: allowedChatId, text: replyText }),
-        muteHttpExceptions: true,
-      });
-      console.log("[tg_webhook] sendMessage HTTP " + tgResp.getResponseCode() + ": " + tgResp.getContentText().slice(0, 160));
-    } catch (e) {
-      console.log("[tg_webhook] sendMessage exception: " + String(e));
-    }
   }
 
   const low = text.toLowerCase();
   if (low === "/start" || low === "/help") {
     _replyTg(
+      botToken,
+      allowedChatId,
       "🤖 Kimiabill Bot Aktif (Pola B).\n" +
       "• Kirim pesan apa saja = masukan otomatis untuk VIDEO BERIKUTNYA.\n" +
       "• Kirim `/rerender <catatan>` = langsung produksi & render ulang video pengganti sekarang!"
     );
-    return _jsonResponse({ ok: true });
+    return { ok: true };
   }
 
   if (!githubPat) {
-    _replyTg("⚠️ Feedback terbaca, tetapi GITHUB_PAT belum diisi di Apps Script Properties. Tanpa GITHUB_PAT, feedback tetap otomatis ditarik saat jadwal produksi berikutnya jika webhook dimatikan.");
-    return _jsonResponse({ ok: true, warning: "GITHUB_PAT missing" });
+    _replyTg(
+      botToken,
+      allowedChatId,
+      "⚠️ Feedback terbaca, tetapi GITHUB_PAT belum diisi di Apps Script Properties. Tanpa GITHUB_PAT, feedback tetap otomatis ditarik saat jadwal produksi berikutnya jika webhook dimatikan."
+    );
+    return { ok: true, warning: "GITHUB_PAT missing" };
   }
 
   const isRerender = low.indexOf("/rerender") === 0;
@@ -125,14 +139,124 @@ function _handleTelegramWebhook(payload) {
   console.log("[tg_webhook] GitHub dispatch HTTP " + code);
   if (code >= 200 && code < 300) {
     _replyTg(
+      botToken,
+      allowedChatId,
       isRerender
         ? "🔄 Siap! Mulai produksi & render ulang video baru dengan catatan:\n" + (cleanNote || "(tanpa catatan tambahan)")
         : "✅ Masukan dicatat untuk VIDEO BERIKUTNYA:\n\"" + cleanNote + "\""
     );
   } else {
-    _replyTg("⚠️ Gagal menghubungi GitHub Actions (HTTP " + code + ").");
+    _replyTg(botToken, allowedChatId, "⚠️ Gagal menghubungi GitHub Actions (HTTP " + code + ").");
   }
-  return _jsonResponse({ ok: code >= 200 && code < 300, status: code });
+  return { ok: code >= 200 && code < 300, status: code };
+}
+
+function _handleTelegramWebhook(payload) {
+  _processTelegramUpdate(payload);
+  // HtmlService menghindari HTTP 302 redirect milik ContentService yang sering ditolak webhook Telegram
+  return _tgHtmlOk();
+}
+
+/**
+ * Jalankan manual dari editor Apps Script (Run -> testTelegramBot) untuk:
+ * 1) Memicu izin UrlFetchApp (akses jaringan eksternal),
+ * 2) Mengecek status webhook Telegram (last_error_message / pending_update_count),
+ * 3) Mengirim pesan tes langsung ke Telegram Anda.
+ */
+function testTelegramBot() {
+  const props = PropertiesService.getScriptProperties();
+  const botToken = String(props.getProperty("TELEGRAM_BOT_TOKEN") || "").trim();
+  const allowedChatId = String(props.getProperty("TELEGRAM_CHAT_ID") || "").trim();
+  const githubPat = String(props.getProperty("GITHUB_PAT") || "").trim();
+  console.log("Script Properties -> botTokenLen=" + botToken.length + ", chatId=" + allowedChatId + ", githubPatSet=" + Boolean(githubPat));
+  if (!botToken || !allowedChatId) {
+    throw new Error("TELEGRAM_BOT_TOKEN atau TELEGRAM_CHAT_ID belum lengkap di Script Properties.");
+  }
+
+  const infoResp = UrlFetchApp.fetch("https://api.telegram.org/bot" + botToken + "/getWebhookInfo", { muteHttpExceptions: true });
+  const infoText = infoResp.getContentText();
+  console.log("getWebhookInfo -> " + infoText);
+
+  let webhookSummary = "";
+  try {
+    const parsed = JSON.parse(infoText);
+    const res = parsed.result || {};
+    webhookSummary =
+      "\n• Webhook URL: " + (res.url || "(kosong / mode polling)") +
+      "\n• Pending updates: " + (res.pending_update_count || 0) +
+      "\n• Last error: " + (res.last_error_message || "(tidak ada error)");
+  } catch (e) {
+    webhookSummary = "\n• Info webhook: " + infoText.slice(0, 150);
+  }
+
+  const sendRes = _replyTg(
+    botToken,
+    allowedChatId,
+    "🧪 Tes langsung dari Google Apps Script berhasil!" +
+      webhookSummary +
+      "\n\nJika Last error masih menyebut '302', jalankan fungsi enableTelegramPollingMode di editor Apps Script agar bot kebal 302."
+  );
+  console.log("sendMessage result -> " + JSON.stringify(sendRes));
+}
+
+function pollTelegram() {
+  const props = PropertiesService.getScriptProperties();
+  const botToken = String(props.getProperty("TELEGRAM_BOT_TOKEN") || "").trim();
+  if (!botToken) return;
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return;
+  try {
+    let offset = Number(props.getProperty("TG_OFFSET") || "0");
+    const resp = UrlFetchApp.fetch(
+      "https://api.telegram.org/bot" + botToken + "/getUpdates?offset=" + offset + "&timeout=0&allowed_updates=%5B%22message%22%2C%22edited_message%22%5D",
+      { method: "get", muteHttpExceptions: true }
+    );
+    const data = JSON.parse(resp.getContentText() || "{}");
+    if (!data.ok || !Array.isArray(data.result) || data.result.length === 0) {
+      return;
+    }
+    data.result.forEach(function (upd) {
+      try {
+        _processTelegramUpdate(upd);
+      } catch (innerErr) {
+        console.log("[pollTelegram] error on update " + upd.update_id + ": " + String(innerErr));
+      }
+      if (upd.update_id && upd.update_id + 1 > offset) {
+        offset = upd.update_id + 1;
+      }
+    });
+    props.setProperty("TG_OFFSET", String(offset));
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Alternatif 100% bebas error 302: hapus webhook dan cek Telegram tiap 1 menit lewat Apps Script trigger.
+ */
+function enableTelegramPollingMode() {
+  const props = PropertiesService.getScriptProperties();
+  const botToken = String(props.getProperty("TELEGRAM_BOT_TOKEN") || "").trim();
+  const allowedChatId = String(props.getProperty("TELEGRAM_CHAT_ID") || "").trim();
+  if (!botToken || !allowedChatId) {
+    throw new Error("TELEGRAM_BOT_TOKEN atau TELEGRAM_CHAT_ID belum lengkap di Script Properties.");
+  }
+
+  const delResp = UrlFetchApp.fetch(
+    "https://api.telegram.org/bot" + botToken + "/deleteWebhook?drop_pending_updates=false",
+    { method: "get", muteHttpExceptions: true }
+  );
+  console.log("deleteWebhook -> " + delResp.getContentText());
+
+  ScriptApp.getProjectTriggers().forEach(function (tr) {
+    if (tr.getHandlerFunction() === "pollTelegram") {
+      ScriptApp.deleteTrigger(tr);
+    }
+  });
+  ScriptApp.newTrigger("pollTelegram").timeBased().everyMinutes(1).create();
+  pollTelegram();
+  _replyTg(botToken, allowedChatId, "✅ Mode Polling 1-menit Apps Script aktif! Bot sekarang bebas error 302 — silakan kirim /start atau masukan kapan saja (dibalas maksimal dalam 1 menit).");
 }
 
 function doPost(e) {
