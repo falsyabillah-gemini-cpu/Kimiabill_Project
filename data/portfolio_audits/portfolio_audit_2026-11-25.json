@@ -1,0 +1,359 @@
+{
+  "generated_at_wib": "2026-11-25 23:51 WIB",
+  "date": "2026-11-25",
+  "report_title": "KIMIABILL ECOSYSTEM — PORTFOLIO CEO REPORT",
+  "active_units_count": 3,
+  "standby_units": [
+    "Kantor Produk Digital"
+  ],
+  "kpis": {
+    "active_units": 3,
+    "overall_reliability_pct": 85.7,
+    "runs_ok": 30,
+    "runs_total": 35,
+    "total_yt_views": 8411,
+    "total_yt_subs": 55
+  },
+  "units": [
+    {
+      "id": "yt_id",
+      "name": "Kimiabill (YouTube ID)",
+      "handle": "@kimiabill",
+      "type": "youtube",
+      "repo": "falsyabillah-gemini-cpu/Kimiabill_Project",
+      "health": "SEHAT",
+      "subscribers": 55,
+      "total_views": 8404,
+      "avg_recent_views": 1250,
+      "video_count": 9,
+      "history_count": 7,
+      "avg_qa": 9.29,
+      "top_videos": [
+        {
+          "title": "Obat Tinggalkan Sidik Jari di Usus!",
+          "views": 1335,
+          "likes": 27
+        },
+        {
+          "title": "Tanaman Tembakau Jadi Pabrik Obat Kank",
+          "views": 1332,
+          "likes": 21
+        },
+        {
+          "title": "Tabir Surya Alami DNA Sejak Bumi Purba",
+          "views": 1329,
+          "likes": 10
+        },
+        {
+          "title": "Logam Perak Meniru Zat Radioaktif Berb",
+          "views": 1326,
+          "likes": 20
+        },
+        {
+          "title": "Bahan Unik Ini Makin Kuat Kalau Diteku",
+          "views": 1268,
+          "likes": 12
+        }
+      ],
+      "runs": {
+        "total": 18,
+        "success": 17,
+        "failure": 1,
+        "success_rate_pct": 94.4,
+        "failed_workflows": [
+          "Kimiabill Ecosystem — Portfolio CEO Visual Audit (failure, 2026-11-25 16:49Z)"
+        ],
+        "recent_runs": [
+          {
+            "name": "Kimiabill Ecosystem — Portfolio CEO Visual Audit",
+            "conclusion": "failure",
+            "created_at": "2026-11-25T16:49:39Z"
+          },
+          {
+            "name": "pages build and deployment",
+            "conclusion": "success",
+            "created_at": "2026-11-25T16:49:38Z"
+          },
+          {
+            "name": "Kimiabill Daily Auto-Video",
+            "conclusion": "success",
+            "created_at": "2026-11-25T12:33:59Z"
+          },
+          {
+            "name": "pages build and deployment",
+            "conclusion": "success",
+            "created_at": "2026-11-25T12:00:03Z"
+          },
+          {
+            "name": "Kimiabill Daily Auto-Video",
+            "conclusion": "success",
+            "created_at": "2026-11-25T10:59:17Z"
+          },
+          {
+            "name": "pages build and deployment",
+            "conclusion": "success",
+            "created_at": "2026-11-25T10:38:46Z"
+          },
+          {
+            "name": "pages build and deployment",
+            "conclusion": "success",
+            "created_at": "2026-11-25T10:23:28Z"
+          },
+          {
+            "name": "pages build and deployment",
+            "conclusion": "success",
+            "created_at": "2026-11-25T10:15:55Z"
+          }
+        ]
+      },
+      "milestone_label": "YPP Tier 1 (Subscribers)",
+      "milestone_current": 55,
+      "milestone_target": 500,
+      "milestone_pct": 11.0,
+      "strengths": [
+        "55 subs & 8,404 total views (1,250 avg views 8 video baru)",
+        "Skor QA video tinggi (9.29/10, 7 ep tercatat)",
+        "Bot Telegram 2-arah + SFX transisi/animasi & notif 2x aktif"
+      ],
+      "issues": [
+        "Apps Script YT ID belum punya izin youtube.force-ssl (pinned comment gagal)",
+        "Beberapa episode butuh 4x revisi footage (~22 menit)"
+      ],
+      "source_mode": "youtube_api_live"
+    },
+    {
+      "id": "yt_eng",
+      "name": "Bill Explains (YouTube ENG)",
+      "handle": "@bill_explains",
+      "type": "youtube",
+      "repo": "falsyabillah-gemini-cpu/Kimiabill_Project_Eng",
+      "health": "PERHATIAN",
+      "subscribers": 0,
+      "total_views": 7,
+      "avg_recent_views": 4,
+      "video_count": 2,
+      "history_count": 1,
+      "avg_qa": 9.5,
+      "top_videos": [],
+      "runs": {
+        "total": 9,
+        "success": 6,
+        "failure": 3,
+        "success_rate_pct": 66.7,
+        "failed_workflows": [
+          "Weekly Social Media Audit (Agent 8) (failure, 2026-11-25 16:33Z)",
+          "Daily Auto-Video (Everyday Sci-Tech) (failure, 2026-11-25 13:44Z)",
+          "Daily Auto-Video (Everyday Sci-Tech) (failure, 2026-11-25 12:18Z)"
+        ],
+        "recent_runs": [
+          {
+            "name": "Weekly Social Media Audit (Agent 8)",
+            "conclusion": "success",
+            "created_at": "2026-11-25T16:37:16Z"
+          },
+          {
+            "name": "Weekly Social Media Audit (Agent 8)",
+            "conclusion": "failure",
+            "created_at": "2026-11-25T16:33:05Z"
+          },
+          {
+            "name": "Daily Auto-Video (Everyday Sci-Tech)",
+            "conclusion": "success",
+            "created_at": "2026-11-25T15:26:58Z"
+          },
+          {
+            "name": "Daily Auto-Video (Everyday Sci-Tech)",
+            "conclusion": "failure",
+            "created_at": "2026-11-25T13:44:32Z"
+          },
+          {
+            "name": "Daily Auto-Video (Everyday Sci-Tech)",
+            "conclusion": "success",
+            "created_at": "2026-11-25T12:27:25Z"
+          },
+          {
+            "name": "Daily Auto-Video (Everyday Sci-Tech)",
+            "conclusion": "failure",
+            "created_at": "2026-11-25T12:18:15Z"
+          },
+          {
+            "name": "Daily Auto-Video (Everyday Sci-Tech)",
+            "conclusion": "success",
+            "created_at": "2026-11-25T12:14:41Z"
+          },
+          {
+            "name": "Check Google Apps Script Deploy",
+            "conclusion": "success",
+            "created_at": "2026-11-25T12:09:58Z"
+          }
+        ]
+      },
+      "milestone_label": "YPP Global Tier 1 (Subscribers)",
+      "milestone_current": 0,
+      "milestone_target": 500,
+      "milestone_pct": 1.0,
+      "strengths": [
+        "Channel baru rilis 2 Shorts perdana (total 7 views awal)",
+        "Skor QA video tinggi (9.5/10, 1 ep tercatat)",
+        "Auto-thumbnail, auto-comment YT & Telegram berjalan di hari ke-1"
+      ],
+      "issues": [
+        "3 run gagal hari ini (kuota 429 + 3 percobaan topik)",
+        "Secret ENG_YOUTUBE_WEBHOOK_URL belum dihubungkan untuk stats API live"
+      ],
+      "source_mode": "github_and_public_probe"
+    },
+    {
+      "id": "threads_affiliate",
+      "name": "Kantor Affiliate (Threads + Shopee)",
+      "handle": "Threads Affiliate",
+      "type": "threads_affiliate",
+      "repo": "falsyabillah-gemini-cpu/Kimiabill_Foundation",
+      "health": "PERHATIAN",
+      "pending_queue": 50,
+      "published_count": 1,
+      "draft_only_count": 3,
+      "log_count": 4,
+      "comments_count": 0,
+      "threads_api": {
+        "connected": false,
+        "reason": "THREADS_ACCESS_TOKEN / THREADS_USER_ID belum dipasang di GitHub Secrets repo ini"
+      },
+      "runs": {
+        "total": 8,
+        "success": 7,
+        "failure": 1,
+        "success_rate_pct": 87.5,
+        "failed_workflows": [
+          "Kantor Agent 6 - Riset & Audit Threads (Tiap 3 Hari) (failure, 2026-11-25 16:27Z)"
+        ],
+        "recent_runs": [
+          {
+            "name": "Kantor Agent 6 - Riset & Audit Threads (Tiap 3 Hari)",
+            "conclusion": "success",
+            "created_at": "2026-11-25T16:29:51Z"
+          },
+          {
+            "name": "Kantor Agent 6 - Riset & Audit Threads (Tiap 3 Hari)",
+            "conclusion": "failure",
+            "created_at": "2026-11-25T16:27:24Z"
+          },
+          {
+            "name": "Kantor Agent - Admin Komentar & Cek Stok (21.00 WIB)",
+            "conclusion": "success",
+            "created_at": "2026-11-25T14:59:45Z"
+          },
+          {
+            "name": "Kantor Agent - Publish Konten (3x Sehari)",
+            "conclusion": "success",
+            "created_at": "2026-11-25T14:20:35Z"
+          },
+          {
+            "name": "Kantor Agent - Publish Konten (3x Sehari)",
+            "conclusion": "success",
+            "created_at": "2026-11-25T10:56:33Z"
+          },
+          {
+            "name": "Kantor Agent - Publish Konten (3x Sehari)",
+            "conclusion": "success",
+            "created_at": "2026-11-25T05:54:40Z"
+          },
+          {
+            "name": "Kantor Agent - Admin Komentar & Cek Stok (21.00 WIB)",
+            "conclusion": "success",
+            "created_at": "2026-11-24T14:56:22Z"
+          },
+          {
+            "name": "Kantor Agent - Publish Konten (3x Sehari)",
+            "conclusion": "success",
+            "created_at": "2026-11-24T14:18:19Z"
+          }
+        ]
+      },
+      "milestone_label": "Target Produk Live Mingguan (3x/hari)",
+      "milestone_current": 1,
+      "milestone_target": 21,
+      "milestone_pct": 5.0,
+      "strengths": [
+        "Baru resmi LIVE di Threads (1 post + reply link, 50 PENDING stok ~16 hari)",
+        "Publish 3x/hari & Admin 21.00 WIB sukses beruntun"
+      ],
+      "issues": [
+        "Agent 6 Riset & Audit Threads gagal (semua model Gemini 429/404)",
+        "Sheet Min_Rating_Shopee jadi serial tanggal (set Plain Text '4.7)",
+        "Sheet Tanggal_Token_Threads jadi serial (set Plain Text '2026-11-25)"
+      ],
+      "live_logs": [
+        {
+          "tanggal_wib": "2026-11-24 21:20:28 WIB",
+          "produk": "Hilya Furnitur",
+          "mode": "TELEGRAM_ONLY",
+          "status": "SKIPPED_NO_TOKEN"
+        },
+        {
+          "tanggal_wib": "2026-11-25 12:56:01 WIB",
+          "produk": "TNW Lampu Foto Lampu LED Video Light Fill light Tripod Ring Light Lampu Fotografi Live Vlogging",
+          "mode": "TELEGRAM_ONLY",
+          "status": "SKIPPED_NO_TOKEN"
+        },
+        {
+          "tanggal_wib": "2026-11-25 17:57:25 WIB",
+          "produk": "BASIKE Kepala Charger iPhone Fast Charging PD 40W Dual Port Type-C USB Fast Charging Soket Eropa Aman Mini Praktis Kompatibel iPhone Android HP Tablet Headset Rumah Kantor",
+          "mode": "TELEGRAM_ONLY",
+          "status": "SKIPPED_NO_TOKEN"
+        },
+        {
+          "tanggal_wib": "2026-11-25 21:21:47 WIB",
+          "produk": "Mipanda Watch Charger Kabel Pengisi Daya Magnet USB untuk Pengisian 1 / 2 / 3 / 4 / 5 / 6 / 7 / SE",
+          "mode": "LIVE",
+          "status": "PUBLISHED"
+        }
+      ],
+      "source_mode": "sheets+github_runs"
+    }
+  ],
+  "priority_fixes": [
+    {
+      "unit": "Kimiabill (YT ID)",
+      "severity": "PERHATIAN",
+      "title": "Izin youtube.force-ssl Belum Aktif",
+      "action": "Jalankan YouTube.CommentThreads 1x di Apps Script YT ID agar pinned comment CTA 1-kata otomatis masuk."
+    },
+    {
+      "unit": "Bill Explains (YT ENG)",
+      "severity": "PERHATIAN",
+      "title": "History JSON Masih 0 + 2 Run 429",
+      "action": "Cek commit published_history.json di Kimiabill_Project_Eng agar 2 video hari ini tercatat untuk Agent 8."
+    },
+    {
+      "unit": "Threads Affiliate",
+      "severity": "KRITIS",
+      "title": "Agent 6 Error 429 & Format Tanggal Sheet",
+      "action": "Set sel 4.7 & 2026-11-25 di Sheet ke Plain Text, buang model 2.5 (404), dan pasang Token Insights besok."
+    }
+  ],
+  "synergy_flows": [
+    "1. YT ID (Kimia Dapur 1.2K+ views)  -->  Adaptasi visual & hook ke YT ENG (@bill_explains RPM global)",
+    "2. Topik Dapur/Gadget Viral di YT  -->  Cocokkan antrean produk kos/meja di Threads Affiliate",
+    "3. Komentar & Insights API Threads  -->  Validasi produk klik tertinggi sebelum skala Shopee Ads",
+    "4. [Slot Siap] Kantor Produk Digital  -->  CTA Ebook/Template di deskripsi YT + bio Threads Affiliate"
+  ],
+  "roadmap": [
+    [
+      "Minggu 1 (Stabilisasi)",
+      "Bereskan bug force-ssl YT ID, history YT ENG, Plain Text Sheet Threads + pasang API Insights Threads."
+    ],
+    [
+      "Minggu 2 (Engagement)",
+      "Target YT ID tembus 100+ subs, aktifkan pinned comment 1-kata, validasi 14 Shorts ENG & 21 post Threads."
+    ],
+    [
+      "Minggu 3 (Seleksi Topik)",
+      "Pangkas kategori lemah; fokuskan kredit Google AI Flow hanya pada topik retensi tertinggi di YT ID & ENG."
+    ],
+    [
+      "Minggu 4 (Monetisasi & Ekspansi)",
+      "Evaluasi komisi Shopee vs laju RPM YT ENG; siapkan integrasi Kantor Produk Digital ke Unit #4 report."
+    ]
+  ]
+}
