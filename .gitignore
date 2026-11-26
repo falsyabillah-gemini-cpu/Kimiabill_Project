@@ -9,3 +9,4 @@ episodes/*/_qa_frames/
 episodes/*/*.mp4
 .DS_Store
 references/
+data/pixabay_cache.json

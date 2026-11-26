@@ -241,11 +241,24 @@ def send_audit_review_message(
 
     collage_path = build_4_keyframe_collage(video_path, ep_dir / f"COLLAGE_4KF_{state.episode_id}.jpg")
 
+    t1 = t2 = t3 = 0
+    if state.agent6 and state.agent6.assets:
+        for a in state.agent6.assets:
+            src = (a.source or "").lower()
+            if src in ("ai_scene", "tier3_ambient"):
+                t3 += 1
+            elif src.endswith("_photo"):
+                t2 += 1
+            else:
+                t1 += 1
+    tier_line = f"🎞️ Sumber Visual: {t1} Tier-1 Video | {t2} Tier-2 Foto | {t3} Tier-3 AI"
+
     refs_txt = "\n".join(f"• {r[:90]}" for r in refs[:2]) if refs else "• Editorial Sains Kimiabill"
     caption = "\n".join([
         f"🧪 AUDIT VIDEO KIMIABILL ({rec.section})",
         f"Judul: {title}",
         f"Durasi: {dur_sec:.1f} dtk | Skor Agent 5: {score}/10 | Revisi: {rec.revision_count}x",
+        tier_line,
         f"Target Tayang: {pub_hhmm} (Status saat ini: Unlisted Draft)",
         f"▶️ YouTube Unlisted: {yt_url or '-'}",
         f"📁 Google Drive: {drive_url or '-'}",

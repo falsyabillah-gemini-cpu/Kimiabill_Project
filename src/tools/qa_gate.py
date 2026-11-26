@@ -93,6 +93,10 @@ def run_pre_render_gate0_checks(state: EpisodeState) -> tuple[bool, list[str]]:
                     issues.append(
                         f"{sc.scene_id}: mechanism.kind='{m.kind}' invalid without real redox/electron transfer (use process_flow / concept_comparison)."
                     )
+            if idx > 0 and state.agent3.scenes[idx - 1].mechanism is not None and state.agent3.scenes[idx - 1].mechanism.kind == m.kind:
+                issues.append(
+                    f"{sc.scene_id}: mechanism.kind='{m.kind}' repeats previous scene (consecutive scenes must vary diagram type)."
+                )
         elif 0 < idx < len(state.agent3.scenes) - 1:
             # Middle scenes with no mechanism object still OK if clean footage + badge, never forced placeholder
             pass

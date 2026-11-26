@@ -137,6 +137,7 @@ class VideoCandidate:
     width: int
     height: int
     thumb_url: Optional[str] = None
+    ping_url: Optional[str] = None
 
 
 def probe_video(path: Path) -> Optional[dict]:
@@ -418,11 +419,23 @@ def search_wikimedia_photos(query: str, limit: int = 6) -> list[VideoCandidate]:
 
 
 def _render_photo_ken_burns_mp4(candidate: VideoCandidate, dest_mp4: Path, duration_sec: float = 7.0) -> Optional[dict]:
-    """Convert a real photograph into a smooth 30fps 9:16 subtle zoom-in MP4 clip."""
+    """Convert a real photograph into a smooth 30fps 9:16 subtle zoom-in MP4 clip (anti-jitter upscale before zoompan)."""
     raw_img = dest_mp4.with_suffix(".jpg")
     dest_mp4.parent.mkdir(parents=True, exist_ok=True)
     try:
         from PIL import Image
+
+        if candidate.ping_url:
+            unsplash_key = (os.environ.get("UNSPLASH_ACCESS_KEY") or "").strip()
+            if unsplash_key:
+                try:
+                    requests.get(
+                        candidate.ping_url,
+                        headers={"Authorization": f"Client-ID {unsplash_key}", "User-Agent": USER_AGENT},
+                        timeout=8,
+                    )
+                except Exception:
+                    pass
 
         r = requests.get(candidate.download_url, headers={"User-Agent": USER_AGENT}, timeout=25)
         r.raise_for_status()
@@ -433,7 +446,7 @@ def _render_photo_ken_burns_mp4(candidate: VideoCandidate, dest_mp4: Path, durat
         vf = (
             "scale=1280:2276:force_original_aspect_ratio=increase,"
             "crop=1280:2276,"
-            f"zoompan=z='min(zoom+0.0008,1.12)':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps=30"
+            f"zoompan=z='min(zoom+0.0008,1.10)':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps=30"
         )
         subprocess.run(
             [
@@ -458,6 +471,51 @@ def _render_photo_ken_burns_mp4(candidate: VideoCandidate, dest_mp4: Path, durat
 
 
 _PIXABAY_KEY_RE = re.compile(r"^\d+-[0-9a-fA-F]{12,}$")
+_BASE_DIR = Path(__file__).resolve().parent.parent.parent
+PIXABAY_CACHE_PATH = _BASE_DIR / "data" / "pixabay_cache.json"
+PIXABAY_CACHE_TTL_SEC = 24 * 3600
+
+
+def _pixabay_cache_get(cache_key: str) -> Optional[list[dict[str, Any]]]:
+    import time
+
+    if not PIXABAY_CACHE_PATH.exists():
+        return None
+    try:
+        store = json.loads(PIXABAY_CACHE_PATH.read_text(encoding="utf-8"))
+        entry = store.get(cache_key)
+        if isinstance(entry, dict) and (time.time() - float(entry.get("ts", 0))) <= PIXABAY_CACHE_TTL_SEC:
+            hits = entry.get("hits")
+            if isinstance(hits, list):
+                return hits
+    except Exception:
+        pass
+    return None
+
+
+def _pixabay_cache_set(cache_key: str, hits: list[dict[str, Any]]) -> None:
+    import time
+
+    try:
+        store: dict[str, Any] = {}
+        if PIXABAY_CACHE_PATH.exists():
+            raw = json.loads(PIXABAY_CACHE_PATH.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                now_t = time.time()
+                store = {
+                    k: v for k, v in raw.items()
+                    if isinstance(v, dict) and (now_t - float(v.get("ts", 0))) <= PIXABAY_CACHE_TTL_SEC
+                }
+        store[cache_key] = {"ts": time.time(), "hits": hits}
+        # Keep cache compact
+        if len(store) > 120:
+            oldest = sorted(store.items(), key=lambda kv: float(kv[1].get("ts", 0)))[:-120]
+            for k, _ in oldest:
+                store.pop(k, None)
+        PIXABAY_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PIXABAY_CACHE_PATH.write_text(json.dumps(store, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def _resolve_pexels_api_key() -> str:
@@ -477,9 +535,9 @@ def _resolve_pixabay_api_key() -> str:
     return ""
 
 
-def search_pixabay(query: str, per_page: int = 8) -> list[VideoCandidate]:
-    """Search Pixabay Video API when PIXABAY_API_KEY (or Pixabay-formatted key) is configured."""
-    api_key = _resolve_pixabay_api_key()
+def search_coverr_videos(query: str, limit: int = 6) -> list[VideoCandidate]:
+    """Search Coverr Video API when COVERR_API_KEY is configured (skips silently when empty)."""
+    api_key = (os.environ.get("COVERR_API_KEY") or "").strip()
     if not api_key:
         return []
     q_clean = _clean_stock_query(query)
@@ -487,23 +545,121 @@ def search_pixabay(query: str, per_page: int = 8) -> list[VideoCandidate]:
         return []
     try:
         resp = requests.get(
-            "https://pixabay.com/api/videos/",
-            headers={"User-Agent": USER_AGENT},
-            params={
-                "key": api_key,
-                "q": q_clean,
-                "per_page": per_page,
-                "safesearch": "true",
-                "video_type": "all",
-            },
-            timeout=20,
+            "https://api.coverr.co/videos",
+            headers={"Authorization": f"Bearer {api_key}", "User-Agent": USER_AGENT},
+            params={"query": q_clean, "page_size": limit},
+            timeout=15,
         )
     except requests.RequestException:
         return []
     if resp.status_code != 200:
         return []
     out: list[VideoCandidate] = []
-    for v in resp.json().get("hits", []):
+    for v in resp.json().get("hits", resp.json().get("videos", [])):
+        title = str(v.get("title") or v.get("description") or q_clean).strip()
+        if not _is_real_video_title(title) or not _is_family_safe_text(title):
+            continue
+        urls = v.get("urls") or {}
+        dl_url = urls.get("mp4_download") or urls.get("mp4") or v.get("url") or ""
+        if not str(dl_url).startswith("http"):
+            continue
+        dur = float(v.get("duration") or 10.0)
+        if dur < 3.0:
+            continue
+        out.append(
+            VideoCandidate(
+                source="coverr",
+                title=f"Coverr - {title}"[:120],
+                download_url=str(dl_url),
+                page_url=str(v.get("page_url") or v.get("url") or dl_url),
+                license="Coverr Free Commercial License",
+                duration_sec=dur,
+                width=int(v.get("width") or 1080),
+                height=int(v.get("height") or 1920),
+                thumb_url=v.get("poster") or v.get("thumbnail"),
+            )
+        )
+    return out
+
+
+def search_unsplash_photos(query: str, per_page: int = 6) -> list[VideoCandidate]:
+    """Search Unsplash Portrait Photography (pings download_location per Unsplash ToS; skips if key empty)."""
+    api_key = (os.environ.get("UNSPLASH_ACCESS_KEY") or "").strip()
+    if not api_key:
+        return []
+    q_clean = _clean_stock_query(query)
+    if not q_clean:
+        return []
+    try:
+        resp = requests.get(
+            "https://api.unsplash.com/search/photos",
+            headers={"Authorization": f"Client-ID {api_key}", "User-Agent": USER_AGENT},
+            params={"query": q_clean, "orientation": "portrait", "per_page": per_page},
+            timeout=15,
+        )
+    except requests.RequestException:
+        return []
+    if resp.status_code != 200:
+        return []
+    out: list[VideoCandidate] = []
+    for p in resp.json().get("results", []):
+        urls = p.get("urls") or {}
+        img_url = str(urls.get("regular") or urls.get("full") or "").strip()
+        if not img_url:
+            continue
+        desc = str(p.get("alt_description") or p.get("description") or q_clean).strip()
+        if not _is_real_video_title(desc) or not _is_family_safe_text(desc):
+            continue
+        links = p.get("links") or {}
+        out.append(
+            VideoCandidate(
+                source="unsplash_photo",
+                title=f"Unsplash - {desc}"[:120],
+                download_url=img_url,
+                page_url=str(links.get("html") or img_url),
+                license="Unsplash License (Free Commercial)",
+                duration_sec=7.0,
+                width=int(p.get("width") or 1080),
+                height=int(p.get("height") or 1920),
+                thumb_url=urls.get("thumb"),
+                ping_url=links.get("download_location"),
+            )
+        )
+    return out
+
+
+def search_pixabay(query: str, per_page: int = 8) -> list[VideoCandidate]:
+    """Search Pixabay Video API with 24h query caching when PIXABAY_API_KEY is configured."""
+    api_key = _resolve_pixabay_api_key()
+    if not api_key:
+        return []
+    q_clean = _clean_stock_query(query)
+    if not q_clean:
+        return []
+    cache_key = f"video:{q_clean.lower()}"
+    hits = _pixabay_cache_get(cache_key)
+    if hits is None:
+        try:
+            resp = requests.get(
+                "https://pixabay.com/api/videos/",
+                headers={"User-Agent": USER_AGENT},
+                params={
+                    "key": api_key,
+                    "q": q_clean,
+                    "per_page": per_page,
+                    "safesearch": "true",
+                    "video_type": "all",
+                },
+                timeout=20,
+            )
+        except requests.RequestException:
+            return []
+        if resp.status_code != 200:
+            return []
+        hits = resp.json().get("hits", [])
+        _pixabay_cache_set(cache_key, hits)
+    out: list[VideoCandidate] = []
+    for v in hits:
         dur = float(v.get("duration") or 0)
         if dur < 3.0:
             continue
@@ -542,41 +698,47 @@ def search_pixabay(query: str, per_page: int = 8) -> list[VideoCandidate]:
 
 
 def search_pixabay_photos(query: str, per_page: int = 6) -> list[VideoCandidate]:
-    """Search Pixabay Photo API (100% real camera photography & commercial monetization safe)."""
+    """Search Pixabay Photo API (vertical preferred, 24h cached, 100% monetization safe)."""
     api_key = _resolve_pixabay_api_key()
     if not api_key:
         return []
     q_clean = _clean_stock_query(query)
     if not q_clean:
         return []
-    try:
-        resp = requests.get(
-            "https://pixabay.com/api/",
-            headers={"User-Agent": USER_AGENT},
-            params={
-                "key": api_key,
-                "q": q_clean,
-                "image_type": "photo",
-                "per_page": per_page,
-                "safesearch": "true",
-            },
-            timeout=20,
-        )
-    except requests.RequestException:
-        return []
-    if resp.status_code != 200:
-        return []
+    cache_key = f"photo:{q_clean.lower()}"
+    hits = _pixabay_cache_get(cache_key)
+    if hits is None:
+        try:
+            resp = requests.get(
+                "https://pixabay.com/api/",
+                headers={"User-Agent": USER_AGENT},
+                params={
+                    "key": api_key,
+                    "q": q_clean,
+                    "image_type": "photo",
+                    "orientation": "vertical",
+                    "per_page": per_page,
+                    "safesearch": "true",
+                },
+                timeout=20,
+            )
+        except requests.RequestException:
+            return []
+        if resp.status_code != 200:
+            return []
+        hits = resp.json().get("hits", [])
+        _pixabay_cache_set(cache_key, hits)
     out: list[VideoCandidate] = []
-    for p in resp.json().get("hits", []):
+    for p in hits:
         img_url = str(p.get("largeImageURL") or p.get("webformatURL") or "").strip()
         if not img_url:
             continue
         tags = str(p.get("tags") or "")
         if not _is_real_video_title(tags) or not _is_family_safe_text(tags):
             continue
-        w = int(p.get("imageWidth") or p.get("webformatWidth") or 1280)
-        h = int(p.get("imageHeight") or p.get("webformatHeight") or 720)
-        if w < 640 or h < 480:
+        w = int(p.get("imageWidth") or p.get("webformatWidth") or 1080)
+        h = int(p.get("imageHeight") or p.get("webformatHeight") or 1920)
+        if w < 480 or h < 480:
             continue
         out.append(
             VideoCandidate(
@@ -592,6 +754,150 @@ def search_pixabay_photos(query: str, per_page: int = 6) -> list[VideoCandidate]
             )
         )
     return out
+
+
+def _generate_tier3_ai_scene_mp4(scene: SceneSpec, dest_mp4: Path, duration_sec: float = 7.0) -> Optional[tuple[VideoCandidate, dict]]:
+    """Tier 3: Generate a clean text-free 9:16 microscopic/abstract science image via Gemini/Cloudflare + Ken Burns."""
+    img_bytes: Optional[bytes] = None
+    prompt = (
+        f"Photorealistic macro/microscopic science photography depicting: {scene.visual_query}. "
+        f"Clean vertical 9:16 composition, moody cinematic studio lighting, strictly NO text, NO words, NO labels, NO watermarks."
+    )
+    gemini_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+    if gemini_key:
+        # Try Gemini native image generation / Imagen REST endpoint
+        for url, payload in (
+            (
+                f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key={gemini_key}",
+                {"instances": [{"prompt": prompt}], "parameters": {"sampleCount": 1, "aspectRatio": "9:16"}},
+            ),
+            (
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key={gemini_key}",
+                {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]},
+                },
+            ),
+        ):
+            try:
+                r = requests.post(url, json=payload, timeout=35)
+                if r.status_code != 200:
+                    continue
+                j = r.json()
+                preds = j.get("predictions") or []
+                if preds and preds[0].get("bytesBase64Encoded"):
+                    img_bytes = base64.b64decode(preds[0]["bytesBase64Encoded"])
+                    break
+                for cand in j.get("candidates", []):
+                    for part in (cand.get("content") or {}).get("parts", []):
+                        inline = part.get("inlineData") or {}
+                        if inline.get("data") and str(inline.get("mimeType", "")).startswith("image/"):
+                            img_bytes = base64.b64decode(inline["data"])
+                            break
+                    if img_bytes:
+                        break
+                if img_bytes:
+                    break
+            except Exception:
+                continue
+
+    if not img_bytes:
+        cf_acc = (os.environ.get("CF_ACCOUNT_ID") or "").strip()
+        cf_tok = (os.environ.get("CF_API_TOKEN") or "").strip()
+        if cf_acc and cf_tok:
+            try:
+                cf_resp = requests.post(
+                    f"https://api.cloudflare.com/client/v4/accounts/{cf_acc}/ai/run/@cf/black-forest-labs/flux-1-schnell",
+                    headers={"Authorization": f"Bearer {cf_tok}"},
+                    json={"prompt": prompt, "num_steps": 4},
+                    timeout=35,
+                )
+                if cf_resp.status_code == 200:
+                    if cf_resp.headers.get("content-type", "").startswith("image/"):
+                        img_bytes = cf_resp.content
+                    else:
+                        b64 = (cf_resp.json().get("result") or {}).get("image")
+                        if b64:
+                            img_bytes = base64.b64decode(b64)
+            except Exception:
+                pass
+
+    if not img_bytes:
+        return None
+
+    raw_img = dest_mp4.with_suffix(".png")
+    dest_mp4.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        from PIL import Image
+
+        raw_img.write_bytes(img_bytes)
+        with Image.open(raw_img) as im:
+            im.verify()
+        frames = max(60, int(round(duration_sec * 30)))
+        vf = (
+            "scale=1280:2276:force_original_aspect_ratio=increase,"
+            "crop=1280:2276,"
+            f"zoompan=z='min(zoom+0.0008,1.08)':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps=30"
+        )
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", str(raw_img), "-vf", vf,
+                "-t", f"{duration_sec:.2f}", "-an",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart", str(dest_mp4),
+            ],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        info = probe_video(dest_mp4)
+        if not info:
+            return None
+        cand = VideoCandidate(
+            source="ai_scene",
+            title=f"Tier 3 AI Scene - {scene.visual_query}"[:120],
+            download_url="tier3://ai_scene",
+            page_url="tier3://ai_scene",
+            license="AI Generated (Tier 3 Microscopic Fallback)",
+            duration_sec=float(info["duration"]),
+            width=int(info["width"]),
+            height=int(info["height"]),
+        )
+        return cand, info
+    except Exception:
+        return None
+    finally:
+        raw_img.unlink(missing_ok=True)
+
+
+def _render_tier3_ambient_mp4(scene: SceneSpec, dest_mp4: Path, duration_sec: float = 7.0) -> Optional[tuple[VideoCandidate, dict]]:
+    """Zero Hard-Crash final ambient backdrop plate so mechanistic overlays render cleanly even if all APIs are offline."""
+    dest_mp4.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-f", "lavfi", "-i", f"color=c=#132238:s=1080x1920:d={duration_sec:.2f}:r=30",
+                "-vf", "drawbox=x=0:y=0:w=1080:h=960:color=#1a3052@0.55:t=fill",
+                "-an", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                str(dest_mp4),
+            ],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        info = probe_video(dest_mp4)
+        if not info:
+            return None
+        cand = VideoCandidate(
+            source="tier3_ambient",
+            title=f"Ambient Science Plate - {scene.visual_query}"[:120],
+            download_url="tier3://ambient_plate",
+            page_url="tier3://ambient_plate",
+            license="Kimiabill Internal Plate (Zero Hard-Crash)",
+            duration_sec=float(info["duration"]),
+            width=1080,
+            height=1920,
+        )
+        return cand, info
+    except Exception:
+        return None
 
 
 _NASA_NOISE_TOKENS: tuple[str, ...] = (
@@ -1141,6 +1447,156 @@ def vision_screen_clip(clip: Path, scene: SceneSpec) -> tuple[bool, bool, str]:
     )
 
 
+def batch_audit_broll_contact_sheet(
+    shots: list[tuple[int, SceneSpec, Path]],
+    out_jpg: Path,
+) -> dict[int, tuple[bool, bool, float, str]]:
+    """Audit all candidate B-roll clips in ONE Gemini Vision contact-sheet call.
+
+    Returns dict mapping shot_index (1-based) -> (accepted, clean, score, reason).
+    Calibrated thresholds:
+      - shot_index == 1 (Hook): relevance >= 7.5
+      - shot_index >= 2 (Body): relevance >= 6.0
+    Never raises: falls back cleanly if Vision API or GEMINI_API_KEY is unavailable.
+    """
+    hook_min = float(os.environ.get("ASSET_HOOK_MIN_RELEVANCE", "7.5"))
+    body_min = float(os.environ.get("ASSET_BODY_MIN_RELEVANCE", "6.0"))
+    if not shots:
+        return {}
+    default_pass = {
+        idx: (True, True, hook_min if idx == 1 else body_min, "vision batch skipped")
+        for idx, _sc, _p in shots
+    }
+    if os.environ.get("ASSET_VISION_SCREEN", "true").lower() != "true":
+        return default_pass
+    if not os.environ.get("GEMINI_API_KEY"):
+        return default_pass
+
+    try:
+        from PIL import Image, ImageDraw
+    except Exception:
+        return default_pass
+
+    cell_w, cell_h = 300, 400
+    thumbs: list[tuple[int, SceneSpec, Image.Image]] = []
+    for idx, sc, clip in shots:
+        info = probe_video(clip)
+        if not info:
+            continue
+        dur = max(0.5, float(info.get("duration") or 1.0))
+        fp = out_jpg.with_name(f"{out_jpg.stem}_s{idx}.jpg")
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                f"{dur * 0.50:.2f}",
+                "-i",
+                str(clip),
+                "-frames:v",
+                "1",
+                "-vf",
+                f"scale={cell_w}:{cell_h}:force_original_aspect_ratio=increase,crop={cell_w}:{cell_h}",
+                "-q:v",
+                "4",
+                str(fp),
+            ],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if fp.exists():
+            try:
+                im = Image.open(fp).convert("RGB")
+                draw = ImageDraw.Draw(im)
+                draw.rectangle((0, 0, cell_w, 34), fill=(15, 23, 42))
+                draw.text((10, 9), f"SHOT {idx} ({sc.scene_id})", fill=(255, 255, 255))
+                thumbs.append((idx, sc, im))
+            finally:
+                fp.unlink(missing_ok=True)
+
+    if not thumbs:
+        return default_pass
+
+    cols = min(3, len(thumbs))
+    rows = (len(thumbs) + cols - 1) // cols
+    sheet = Image.new("RGB", (cols * cell_w, rows * cell_h), (10, 12, 18))
+    for pos, (_idx, _sc, im) in enumerate(thumbs):
+        r, c = divmod(pos, cols)
+        sheet.paste(im, (c * cell_w, r * cell_h))
+    out_jpg.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(out_jpg, quality=85)
+
+    try:
+        from pydantic import BaseModel, Field
+
+        from src.providers import call_structured_agent
+
+        class ShotAuditItem(BaseModel):
+            shot_index: int
+            family_safe: bool = Field(default=True)
+            has_watermark_or_bumper: bool = Field(
+                default=False,
+                description="True if shot has watermark, presentation slide, channel logo, or university bumper",
+            )
+            relevance_score: float = Field(ge=0, le=10)
+            reason: str = ""
+
+        class BatchBrollAudit(BaseModel):
+            shots: list[ShotAuditItem]
+
+        scene_manifest = [
+            {
+                "shot_index": idx,
+                "scene_id": sc.scene_id,
+                "visual_query": sc.visual_query,
+                "narration": sc.narration,
+                "min_required_score": hook_min if idx == 1 else body_min,
+            }
+            for idx, sc, _im in thumbs
+        ]
+        verdict = call_structured_agent(
+            provider="auto",
+            model=os.environ.get("GEMINI_SCREEN_MODEL", "gemini-3.5-flash-lite"),
+            system_prompt=(
+                "You audit all B-roll shots for one Indonesian pure-science Shorts episode in ONE batch. "
+                "The image grid labels each frame SHOT 1, SHOT 2, ... Score each shot 0-10 on real camera relevance "
+                "to its visual_query + narration. Flag `has_watermark_or_bumper=true` ONLY for obvious watermarks, "
+                "presentation slides, or foreign channel bumpers. Be fair and calibrated."
+            ),
+            user_payload={"shots": scene_manifest},
+            response_model=BatchBrollAudit,
+            handoff_path=None,
+            image_paths=[out_jpg],
+        )
+        out: dict[int, tuple[bool, bool, float, str]] = {}
+        by_idx = {item.shot_index: item for item in verdict.shots}
+        for idx, _sc, _p in shots:
+            item = by_idx.get(idx)
+            if item is None:
+                thresh = hook_min if idx == 1 else body_min
+                out[idx] = (True, True, thresh, "not listed by batch model; accepted")
+                continue
+            thresh = hook_min if idx == 1 else body_min
+            clean = bool(item.family_safe and not item.has_watermark_or_bumper)
+            ok = bool(clean and float(item.relevance_score) >= thresh)
+            out[idx] = (
+                ok,
+                clean,
+                float(item.relevance_score),
+                f"batch safe={item.family_safe} wm={item.has_watermark_or_bumper} rel={item.relevance_score:.1f}/{thresh} {item.reason}",
+            )
+        return out
+    except Exception as exc:  # noqa: BLE001
+        err = str(exc)[:100]
+        return {
+            idx: (True, True, hook_min if idx == 1 else body_min, f"batch vision fallback ({err})")
+            for idx, _sc, _p in shots
+        }
+    finally:
+        out_jpg.unlink(missing_ok=True)
+
+
 def _next_free_path(assets_dir: Path, scene_id: str) -> Path:
     """Versioned filenames so re-scouting never overwrites footage used by earlier render versions."""
     base = assets_dir / f"{scene_id}.mp4"
@@ -1279,17 +1735,79 @@ def _extract_scene_topic_terms(scene: SceneSpec) -> set[str]:
 
 def _metadata_relevance_score(cand: VideoCandidate, scene: SceneSpec, topic_terms: set[str]) -> int:
     title_low = cand.title.lower()
-    meta_clean = re.sub(r"^(?:pixabay|pexels)\s*#\d+\s*-\s*", "", title_low)
+    meta_clean = re.sub(r"^(?:pixabay|pexels|coverr|unsplash|openverse)\s*#\d+\s*-\s*", "", title_low)
     meta_tokens = set(re.findall(r"[a-z]{3,}", meta_clean))
     scene_raw_low = " ".join([scene.visual_query, *scene.fallback_queries, scene.narration or ""]).lower()
     for noise_tok in _IRRELEVANT_STOCK_NOISE:
         if noise_tok in meta_tokens and noise_tok not in scene_raw_low:
+            return -10
+    for nk in getattr(scene, "negative_keywords", ()) or ():
+        nk_low = str(nk).strip().lower()
+        if nk_low and nk_low not in scene_raw_low and re.search(rf"\b{re.escape(nk_low)}\b", meta_clean):
             return -10
     if not topic_terms:
         return 1
     meta_stems = meta_tokens | {t.rstrip("s") for t in meta_tokens if len(t) > 4}
     topic_stems = topic_terms | {t.rstrip("s") for t in topic_terms if len(t) > 4}
     return len(meta_stems & topic_stems)
+
+
+def _build_scene_search_plan(
+    scene: SceneSpec,
+    owner_visual_bias: str = "",
+) -> tuple[list[str], list[str], set[str], str, bool]:
+    raw_queries = [scene.visual_query] + list(scene.fallback_queries)
+    if owner_visual_bias:
+        raw_queries = [f"{scene.visual_query} {owner_visual_bias}".strip()] + raw_queries
+    broadened: list[str] = []
+    noun_anchors: list[str] = []
+    for q in raw_queries:
+        words = [w for w in re.findall(r"[A-Za-z]+", q.lower()) if len(w) >= 3 and w not in _FILLER_AND_ADJECTIVES]
+        if len(words) >= 2:
+            broadened.append(" ".join(words[:2]))
+            broadened.append(" ".join(words[-2:]))
+        for w in words:
+            if w in _DOMAIN_SYNONYMS and w not in noun_anchors:
+                noun_anchors.append(w)
+
+    scene_text_blob = " ".join([scene.visual_query, *scene.fallback_queries, scene.narration or ""]).lower()
+    is_kitchen = bool(
+        re.search(
+            r"\b(?:pineapple|meat|beef|steak|chicken|pork|fish|onion|garlic|oil|frying|fry|"
+            r"coffee|tea|ice|egg|bread|rice|milk|salt|sugar|vinegar|lemon|banana|kitchen|"
+            r"cooking|cook|fruit|food|dish|plate|bowl|pan|knife|chopping|slicing|marinat\w*|"
+            r"tenderiz\w*|nanas|daging|goreng|kopi|teh|telur|roti|nasi|susu|garam|gula|"
+            r"dapur|masak|buah|bawang|minyak|panci|wajan)\b",
+            scene_text_blob,
+        )
+    )
+    if is_kitchen:
+        generic_fallbacks = [
+            "cooking frying pan",
+            "chopping food kitchen",
+            "fresh fruit slicing",
+            "pouring water glass",
+            "boiling water kitchen",
+        ]
+    else:
+        generic_fallbacks = [
+            "chemistry laboratory experiment",
+            "chemical reaction beaker",
+            "optical microscope cells",
+            "physics laboratory experiment",
+            "crystal growth microscope",
+            "science laboratory glassware",
+        ]
+
+    seen_q: set[str] = set()
+    queries: list[str] = []
+    for q in [*raw_queries, *broadened, *noun_anchors[:2], *generic_fallbacks]:
+        q_norm = _clean_stock_query(q)
+        if q_norm and q_norm.lower() not in seen_q:
+            seen_q.add(q_norm.lower())
+            queries.append(q_norm)
+
+    return queries, generic_fallbacks, {g.lower() for g in generic_fallbacks}, scene_text_blob, is_kitchen
 
 
 def scout_assets_for_scenes(
@@ -1302,13 +1820,13 @@ def scout_assets_for_scenes(
     target_scene_ids: Optional[set[str]] = None,
     tried_urls_out: Optional[set[str]] = None,
 ) -> Agent6Output:
-    """Scout real video footage + cached SFX for each scene (supports targeted re-scouting)."""
+    """Scout visual footage via 3-Tier Waterfall + 1-call batch contact-sheet audit + zero hard-crash."""
     assets_dir.mkdir(parents=True, exist_ok=True)
-    results: list[SceneAsset] = []
     used_urls: set[str] = set(exclude_urls or ())
     used_stems: set[str] = set()
     max_screens = int(os.environ.get("ASSET_MAX_SCREENS_PER_SCENE", "4"))
     non_generic_cap = max(2, max_screens - 2)
+    batch_audit_enabled = os.environ.get("ASSET_BATCH_CONTACT_AUDIT", "true").lower() == "true"
     flow_bank_clips = list_flow_clip_bank()
     used_flow_ids: set[str] = set()
     try:
@@ -1328,7 +1846,13 @@ def scout_assets_for_scenes(
         pass
     episode_id = assets_dir.parent.name if assets_dir.parent else ""
 
+    source_rank = {"pixabay": 0, "coverr": 1, "pexels": 2, "nasa": 3, "wikimedia_commons": 4}
+    photo_rank = {"unsplash_photo": 0, "pixabay_photo": 1, "openverse_photo": 2, "pexels_photo": 3, "wikimedia_photo": 4}
+
+    entries: list[dict] = []
     total_scenes = len(scenes)
+
+    # Phase 1: Resolve overrides / Flow Bank, or collect 1 best Tier-1 raw clip per scene
     for scene_idx, scene in enumerate(scenes):
         trans_sfx_path, anim_sfx_path = resolve_scene_sfx_cues(
             scene_idx=scene_idx,
@@ -1339,18 +1863,13 @@ def scout_assets_for_scenes(
             force_animation=force_anim_sfx,
         )
         if target_scene_ids is not None and scene.scene_id not in target_scene_ids and existing_assets and scene.scene_id in existing_assets:
-            results.append(existing_assets[scene.scene_id])
             used_urls.add(existing_assets[scene.scene_id].source_url)
+            entries.append({"scene_idx": scene_idx, "scene": scene, "prebuilt_asset": existing_assets[scene.scene_id]})
             continue
 
         dest_mp4 = _next_free_path(assets_dir, scene.scene_id)
         chosen_cand: Optional[VideoCandidate] = None
         chosen_info: Optional[dict] = None
-        fallback_cand: Optional[VideoCandidate] = None
-        fallback_info: Optional[dict] = None
-        fallback_raw: Optional[Path] = None
-        fallback_meta_score = 0
-        screens_done = 0
         topic_terms = _extract_scene_topic_terms(scene)
 
         if manual_overrides and scene.scene_id in manual_overrides:
@@ -1372,71 +1891,28 @@ def scout_assets_for_scenes(
             if flow_hit:
                 chosen_cand, chosen_info = flow_hit
 
+        queries, generic_fallbacks, generic_set, scene_text_blob, is_kitchen = _build_scene_search_plan(
+            scene, owner_visual_bias=owner_visual_bias
+        )
+        init_cand: Optional[VideoCandidate] = None
+        init_info: Optional[dict] = None
+        init_raw: Optional[Path] = None
+        init_mscore = 0
+        extra_tier1: list[tuple[int, VideoCandidate, bool]] = []
+
         if chosen_cand is None:
-            raw_queries = [scene.visual_query] + list(scene.fallback_queries)
-            if owner_visual_bias:
-                raw_queries = [f"{scene.visual_query} {owner_visual_bias}".strip()] + raw_queries
-            broadened: list[str] = []
-            noun_anchors: list[str] = []
-            for q in raw_queries:
-                words = [w for w in re.findall(r"[A-Za-z]+", q.lower()) if len(w) >= 3 and w not in _FILLER_AND_ADJECTIVES]
-                if len(words) >= 2:
-                    broadened.append(" ".join(words[:2]))
-                    broadened.append(" ".join(words[-2:]))
-                for w in words:
-                    if w in _DOMAIN_SYNONYMS and w not in noun_anchors:
-                        noun_anchors.append(w)
-
-            scene_text_blob = " ".join([scene.visual_query, *scene.fallback_queries, scene.narration or ""]).lower()
-            is_kitchen = bool(
-                re.search(
-                    r"\b(?:pineapple|meat|beef|steak|chicken|pork|fish|onion|garlic|oil|frying|fry|"
-                    r"coffee|tea|ice|egg|bread|rice|milk|salt|sugar|vinegar|lemon|banana|kitchen|"
-                    r"cooking|cook|fruit|food|dish|plate|bowl|pan|knife|chopping|slicing|marinat\w*|"
-                    r"tenderiz\w*|nanas|daging|goreng|kopi|teh|telur|roti|nasi|susu|garam|gula|"
-                    r"dapur|masak|buah|bawang|minyak|panci|wajan)\b",
-                    scene_text_blob,
-                )
-            )
-            if is_kitchen:
-                generic_fallbacks = [
-                    "cooking frying pan",
-                    "chopping food kitchen",
-                    "fresh fruit slicing",
-                    "pouring water glass",
-                    "boiling water kitchen",
-                ]
-            else:
-                generic_fallbacks = [
-                    "chemistry laboratory experiment",
-                    "chemical reaction beaker",
-                    "optical microscope cells",
-                    "physics laboratory experiment",
-                    "crystal growth microscope",
-                    "science laboratory glassware",
-                ]
-
-            seen_q: set[str] = set()
-            queries: list[str] = []
-            for q in [*raw_queries, *broadened, *noun_anchors[:2], *generic_fallbacks]:
-                q_norm = _clean_stock_query(q)
-                if q_norm and q_norm.lower() not in seen_q:
-                    seen_q.add(q_norm.lower())
-                    queries.append(q_norm)
-
-            generic_set = {g.lower() for g in generic_fallbacks}
-            source_rank = {"pexels": 0, "pixabay": 1, "nasa": 2, "wikimedia_commons": 3}
-            for q in queries:
+            for q_idx, q in enumerate(queries):
                 is_generic_q = q.lower() in generic_set
-                if (not is_generic_q) and screens_done >= non_generic_cap:
+                if not is_generic_q and q_idx >= max(non_generic_cap + 2, 4):
                     continue
-                if screens_done >= max_screens:
+                if init_cand is not None and len(extra_tier1) >= 2:
                     break
-                # Priority 1: Pexels Portrait (native 9:16)
-                stock_cands = search_pexels(q, orientation="portrait")
-                # Priority 2: Pixabay + Pexels Landscape (center-cropped cleanly 9:16)
+                # Tier 1 Waterfall: Pixabay -> Coverr -> Pexels (if working) -> NASA -> Wikimedia
+                stock_cands = search_pixabay(q)
                 if len(stock_cands) < 4:
-                    stock_cands += search_pixabay(q)
+                    stock_cands += search_coverr_videos(q)
+                if len(stock_cands) < 4:
+                    stock_cands += search_pexels(q, orientation="portrait")
                 if len(stock_cands) < 4:
                     stock_cands += search_pexels(q, orientation="landscape")
                 nasa_cands = (
@@ -1444,19 +1920,15 @@ def scout_assets_for_scenes(
                     if (_is_space_or_earth_topic(scene_text_blob) and not is_kitchen and len(stock_cands) < 3)
                     else []
                 )
-                # Priority 4: Wikimedia Commons (strictly filtered & 2s head/tail trimmed)
                 wiki_cands: list[VideoCandidate] = []
                 if len(stock_cands) == 0:
                     wiki_cands = search_wikimedia_videos(q)
                     q_terms = [w for w in re.findall(r"[a-z]+", q.lower()) if len(w) >= 3 and w not in _FILLER_AND_ADJECTIVES]
                     if wiki_cands and not is_generic_q and q_terms:
-                        wiki_cands = [
-                            wc for wc in wiki_cands
-                            if any(t in wc.title.lower() for t in q_terms)
-                        ]
-                cands = stock_cands + nasa_cands + wiki_cands
+                        wiki_cands = [wc for wc in wiki_cands if any(t in wc.title.lower() for t in q_terms)]
+
                 scored_cands: list[tuple[int, VideoCandidate]] = []
-                for cand in cands:
+                for cand in (stock_cands + nasa_cands + wiki_cands):
                     m_score = _metadata_relevance_score(cand, scene, topic_terms)
                     if m_score < 0:
                         continue
@@ -1472,122 +1944,246 @@ def scout_assets_for_scenes(
                     )
                 )
 
-                per_query_cap = 2 if is_generic_q else 1
-                per_query_screens = 0
                 for m_score, cand in scored_cands:
                     stem = cand.title.lower()[:32]
                     if cand.download_url in used_urls or cand.page_url in used_urls or stem in used_stems:
                         continue
-                    if screens_done >= max_screens or per_query_screens >= per_query_cap:
-                        break
-                    if (not is_generic_q) and screens_done >= non_generic_cap:
-                        break
-                    raw_path = dest_mp4.with_suffix(".raw_dl")
-                    raw_info = _download_raw_clip(cand, raw_path)
-                    used_urls.add(cand.download_url)
-                    used_urls.add(cand.page_url)
-                    used_stems.add(stem)
-                    if not raw_info:
-                        continue
-                    screens_done += 1
-                    per_query_screens += 1
-                    ok, clean, reason = vision_screen_clip(raw_path, scene)
-                    is_rate_limit = "rate-limit" in reason.lower()
-                    print(f"[asset_scout] {scene.scene_id} screen (meta={m_score}) '{cand.title[:56]}': ok={ok} ({reason[:145]})")
-                    if not ok and is_rate_limit and m_score >= 1:
-                        ok = True
-                        print(f"[asset_scout] {scene.scene_id}: menerima kecocokan leksikal kuat (meta={m_score}) saat Vision limit")
-                    if ok:
-                        chosen_info = _transcode_to_mp4(raw_path, raw_info, dest_mp4, source=cand.source)
-                        if chosen_info:
-                            chosen_cand = cand
-                            if fallback_raw is not None:
-                                fallback_raw.unlink(missing_ok=True)
-                                fallback_raw = None
-                            break
-                        continue
-                    eligible_fb = clean and (m_score >= 1 or is_generic_q or cand.source in ("pexels", "wikimedia_commons"))
-                    if eligible_fb and (fallback_cand is None or m_score > fallback_meta_score):
-                        if fallback_raw is not None:
-                            fallback_raw.unlink(missing_ok=True)
-                        fb_raw = dest_mp4.with_name(f"{dest_mp4.stem}_fb.raw")
-                        raw_path.replace(fb_raw)
-                        fallback_cand, fallback_info, fallback_raw, fallback_meta_score = cand, raw_info, fb_raw, m_score
-                    else:
-                        raw_path.unlink(missing_ok=True)
-                if chosen_cand or screens_done >= max_screens:
+                    if init_cand is None:
+                        raw_path = dest_mp4.with_suffix(".raw_dl")
+                        raw_info = _download_raw_clip(cand, raw_path)
+                        used_urls.add(cand.download_url)
+                        used_urls.add(cand.page_url)
+                        used_stems.add(stem)
+                        if not raw_info:
+                            continue
+                        init_cand, init_info, init_raw, init_mscore = cand, raw_info, raw_path, m_score
+                    elif len(extra_tier1) < 2:
+                        extra_tier1.append((m_score, cand, is_generic_q))
+                if init_cand is not None and not batch_audit_enabled:
                     break
 
-            if chosen_cand is None and fallback_cand is not None and fallback_raw is not None:
-                norm_info = _transcode_to_mp4(fallback_raw, fallback_info or {}, dest_mp4, source=fallback_cand.source)
-                if norm_info:
-                    chosen_cand, chosen_info = fallback_cand, norm_info
-                    print(f"[asset_scout] {scene.scene_id}: memakai fallback aman (meta={fallback_meta_score})")
+        entries.append(
+            {
+                "scene_idx": scene_idx,
+                "scene": scene,
+                "dest_mp4": dest_mp4,
+                "trans_sfx_path": trans_sfx_path,
+                "anim_sfx_path": anim_sfx_path,
+                "topic_terms": topic_terms,
+                "queries": queries,
+                "generic_fallbacks": generic_fallbacks,
+                "chosen_cand": chosen_cand,
+                "chosen_info": chosen_info,
+                "init_cand": init_cand,
+                "init_info": init_info,
+                "init_raw": init_raw,
+                "init_mscore": init_mscore,
+                "extra_tier1": extra_tier1,
+                "fallback_cand": None,
+                "fallback_info": None,
+                "fallback_raw": None,
+                "fallback_meta_score": 0,
+            }
+        )
 
-            # Final 100% real-camera monetization-safe fallback: Real Photography (Pexels Image API / Wikimedia / Openverse) + Ken Burns motion
-            if chosen_cand is None:
-                photo_screens = 0
-                photo_fb_cand: Optional[VideoCandidate] = None
-                photo_fb_info: Optional[dict] = None
-                photo_fb_path: Optional[Path] = None
-                for pq in (queries[:3] + generic_fallbacks[:2]):
+    # Phase 2: 1-call Batch Contact-Sheet Vision Audit across all initial Tier-1 clips
+    batch_shots: list[tuple[int, SceneSpec, Path]] = [
+        (ent["scene_idx"] + 1, ent["scene"], ent["init_raw"])
+        for ent in entries
+        if "prebuilt_asset" not in ent and ent["chosen_cand"] is None and ent["init_raw"] is not None
+    ]
+    batch_verdicts: dict[int, tuple[bool, bool, float, str]] = {}
+    if batch_shots and batch_audit_enabled:
+        batch_verdicts = batch_audit_broll_contact_sheet(batch_shots, assets_dir / "_broll_contact_sheet.jpg")
+
+    for ent in entries:
+        if "prebuilt_asset" in ent or ent["chosen_cand"] is not None or ent["init_raw"] is None:
+            continue
+        shot_idx = ent["scene_idx"] + 1
+        scene = ent["scene"]
+        cand = ent["init_cand"]
+        raw_path = ent["init_raw"]
+        raw_info = ent["init_info"]
+        m_score = ent["init_mscore"]
+        dest_mp4 = ent["dest_mp4"]
+
+        if batch_audit_enabled and shot_idx in batch_verdicts:
+            ok, clean, _sc_score, reason = batch_verdicts[shot_idx]
+        else:
+            ok, clean, reason = vision_screen_clip(raw_path, scene)
+            if not ok and "rate-limit" in reason.lower() and m_score >= 1:
+                ok = True
+        print(f"[asset_scout] {scene.scene_id} audit (shot={shot_idx}, meta={m_score}, src={cand.source}) '{cand.title[:48]}': ok={ok} ({reason[:125]})")
+
+        if ok:
+            norm = _transcode_to_mp4(raw_path, raw_info, dest_mp4, source=cand.source)
+            if norm:
+                ent["chosen_cand"], ent["chosen_info"] = cand, norm
+                ent["init_raw"] = None
+                continue
+        eligible_fb = clean and (m_score >= 1 or cand.source in ("pixabay", "coverr", "pexels", "wikimedia_commons"))
+        if eligible_fb:
+            fb_raw = dest_mp4.with_name(f"{dest_mp4.stem}_fb.raw")
+            raw_path.replace(fb_raw)
+            ent["fallback_cand"], ent["fallback_info"], ent["fallback_raw"], ent["fallback_meta_score"] = (
+                cand, raw_info, fb_raw, m_score
+            )
+        else:
+            raw_path.unlink(missing_ok=True)
+        ent["init_raw"] = None
+
+    # Phase 3: Only failed or Tier-1-empty scenes escalate cleanly (Alt Tier 1 -> Tier 2 Photo KB -> Tier 3 AI -> Ambient)
+    results: list[SceneAsset] = []
+    for ent in entries:
+        if "prebuilt_asset" in ent:
+            results.append(ent["prebuilt_asset"])
+            continue
+
+        scene: SceneSpec = ent["scene"]
+        dest_mp4: Path = ent["dest_mp4"]
+        chosen_cand: Optional[VideoCandidate] = ent["chosen_cand"]
+        chosen_info: Optional[dict] = ent["chosen_info"]
+        fallback_cand: Optional[VideoCandidate] = ent["fallback_cand"]
+        fallback_info: Optional[dict] = ent["fallback_info"]
+        fallback_raw: Optional[Path] = ent["fallback_raw"]
+        fallback_meta_score: int = ent["fallback_meta_score"]
+        topic_terms: set[str] = ent["topic_terms"]
+        queries: list[str] = ent["queries"]
+        generic_fallbacks: list[str] = ent["generic_fallbacks"]
+        raw_scene_dur = getattr(scene, "duration_sec", None) or getattr(scene, "target_duration_sec", None) or getattr(scene, "duration", None) or 7.0
+        clip_dur = max(5.5, min(10.0, float(raw_scene_dur)))
+
+        # 3A: Try at most 1 alternate Tier-1 candidate if Phase 2 failed
+        if chosen_cand is None and ent["extra_tier1"]:
+            for m_score, cand, is_generic_q in ent["extra_tier1"][:1]:
+                stem = cand.title.lower()[:32]
+                if cand.download_url in used_urls or cand.page_url in used_urls or stem in used_stems:
+                    continue
+                raw_path = dest_mp4.with_suffix(".raw_dl")
+                raw_info = _download_raw_clip(cand, raw_path)
+                used_urls.add(cand.download_url)
+                used_urls.add(cand.page_url)
+                used_stems.add(stem)
+                if not raw_info:
+                    continue
+                ok, clean, reason = vision_screen_clip(raw_path, scene)
+                print(f"[asset_scout] {scene.scene_id} alt-T1 '{cand.title[:48]}': ok={ok} ({reason[:120]})")
+                if not ok and "rate-limit" in reason.lower() and m_score >= 1:
+                    ok = True
+                if ok:
+                    norm = _transcode_to_mp4(raw_path, raw_info, dest_mp4, source=cand.source)
+                    if norm:
+                        chosen_cand, chosen_info = cand, norm
+                        break
+                elif clean and (fallback_cand is None or m_score > fallback_meta_score):
+                    if fallback_raw is not None:
+                        fallback_raw.unlink(missing_ok=True)
+                    fb_raw = dest_mp4.with_name(f"{dest_mp4.stem}_fb.raw")
+                    raw_path.replace(fb_raw)
+                    fallback_cand, fallback_info, fallback_raw, fallback_meta_score = cand, raw_info, fb_raw, m_score
+                else:
+                    raw_path.unlink(missing_ok=True)
+
+        # 3B: Tier 2 Real Photography (Unsplash -> Pixabay Photo -> Openverse -> Pexels Photo -> Wikimedia Photo) + Ken Burns
+        photo_fb_cand: Optional[VideoCandidate] = None
+        photo_fb_info: Optional[dict] = None
+        photo_fb_path: Optional[Path] = None
+        if chosen_cand is None:
+            photo_screens = 0
+            for pq in (queries[:3] + generic_fallbacks[:2]):
+                if photo_screens >= 2:
+                    break
+                p_cands = (
+                    search_unsplash_photos(pq, per_page=4)
+                    + search_pixabay_photos(pq, per_page=4)
+                    + search_openverse_photos(pq, limit=4)
+                    + search_pexels_photos(pq, per_page=4)
+                )
+                if not p_cands:
+                    p_cands = search_wikimedia_photos(pq, limit=4)
+                p_cands.sort(
+                    key=lambda pc: (
+                        -_metadata_relevance_score(pc, scene, topic_terms),
+                        photo_rank.get(pc.source, 9),
+                    )
+                )
+                for pc in p_cands[:2]:
                     if photo_screens >= 2:
                         break
-                    p_cands = search_pexels_photos(pq, per_page=4) + search_pixabay_photos(pq, per_page=4)
-                    if not p_cands:
-                        p_cands = search_wikimedia_photos(pq, limit=4) + search_openverse_photos(pq, limit=4)
-                    p_cands.sort(
-                        key=lambda pc: (
-                            -_metadata_relevance_score(pc, scene, topic_terms),
-                            0 if pc.source in ("pexels_photo", "pixabay_photo") else (1 if pc.source == "wikimedia_photo" else 2),
-                        )
-                    )
-                    for pc in p_cands[:2]:
-                        if photo_screens >= 2:
-                            break
-                        if pc.download_url in used_urls or pc.page_url in used_urls:
-                            continue
-                        if _metadata_relevance_score(pc, scene, topic_terms) < 0:
-                            continue
-                        cand_mp4 = dest_mp4.with_name(f"{dest_mp4.stem}_kb{photo_screens}.mp4")
-                        kb_info = _render_photo_ken_burns_mp4(pc, cand_mp4, duration_sec=max(5.5, min(10.0, float(scene.duration_sec or 7.0))))
-                        used_urls.add(pc.download_url)
-                        used_urls.add(pc.page_url)
-                        if not kb_info:
-                            cand_mp4.unlink(missing_ok=True)
-                            continue
-                        photo_screens += 1
-                        ok, clean, reason = vision_screen_clip(cand_mp4, scene)
-                        print(f"[asset_scout] {scene.scene_id} photo-KB ({pc.source}) '{pc.title[:45]}': ok={ok} ({reason[:120]})")
-                        if ok:
-                            cand_mp4.replace(dest_mp4)
-                            chosen_cand, chosen_info = pc, kb_info
-                            if photo_fb_path and photo_fb_path.exists():
-                                photo_fb_path.unlink(missing_ok=True)
-                            break
-                        if clean and photo_fb_cand is None:
-                            photo_fb_cand, photo_fb_info, photo_fb_path = pc, kb_info, cand_mp4
-                        else:
-                            cand_mp4.unlink(missing_ok=True)
-                    if chosen_cand:
+                    if pc.download_url in used_urls or pc.page_url in used_urls:
+                        continue
+                    if _metadata_relevance_score(pc, scene, topic_terms) < 0:
+                        continue
+                    cand_mp4 = dest_mp4.with_name(f"{dest_mp4.stem}_kb{photo_screens}.mp4")
+                    kb_info = _render_photo_ken_burns_mp4(pc, cand_mp4, duration_sec=clip_dur)
+                    used_urls.add(pc.download_url)
+                    used_urls.add(pc.page_url)
+                    if not kb_info:
+                        cand_mp4.unlink(missing_ok=True)
+                        continue
+                    photo_screens += 1
+                    ok, clean, reason = vision_screen_clip(cand_mp4, scene)
+                    print(f"[asset_scout] {scene.scene_id} Tier-2 photo-KB ({pc.source}) '{pc.title[:45]}': ok={ok} ({reason[:110]})")
+                    if ok:
+                        cand_mp4.replace(dest_mp4)
+                        chosen_cand, chosen_info = pc, kb_info
+                        if photo_fb_path and photo_fb_path.exists():
+                            photo_fb_path.unlink(missing_ok=True)
                         break
-                if chosen_cand is None and photo_fb_cand is not None and photo_fb_path and photo_fb_path.exists():
-                    photo_fb_path.replace(dest_mp4)
-                    chosen_cand, chosen_info = photo_fb_cand, photo_fb_info
-                    print(f"[asset_scout] {scene.scene_id}: memakai fallback aman Real Photo Ken Burns ('{chosen_cand.title[:45]}')")
+                    if clean and photo_fb_cand is None:
+                        photo_fb_cand, photo_fb_info, photo_fb_path = pc, kb_info, cand_mp4
+                    else:
+                        cand_mp4.unlink(missing_ok=True)
+                if chosen_cand:
+                    break
+
+        # Reclaim clean Tier-1 fallback if meta score >= 1, else clean Tier-2 Photo Ken Burns fallback
+        if chosen_cand is None and fallback_cand is not None and fallback_raw is not None and fallback_meta_score >= 1:
+            norm_info = _transcode_to_mp4(fallback_raw, fallback_info or {}, dest_mp4, source=fallback_cand.source)
+            if norm_info:
+                chosen_cand, chosen_info = fallback_cand, norm_info
+                fallback_raw = None
+                print(f"[asset_scout] {scene.scene_id}: memakai Tier-1 video fallback aman (meta={fallback_meta_score})")
+
+        if chosen_cand is None and photo_fb_cand is not None and photo_fb_path and photo_fb_path.exists():
+            photo_fb_path.replace(dest_mp4)
+            chosen_cand, chosen_info = photo_fb_cand, photo_fb_info
+            print(f"[asset_scout] {scene.scene_id}: memakai Tier-2 Real Photo Ken Burns fallback ('{chosen_cand.title[:45]}')")
+
+        if chosen_cand is None and fallback_cand is not None and fallback_raw is not None and fallback_raw.exists():
+            norm_info = _transcode_to_mp4(fallback_raw, fallback_info or {}, dest_mp4, source=fallback_cand.source)
+            if norm_info:
+                chosen_cand, chosen_info = fallback_cand, norm_info
+                fallback_raw = None
+                print(f"[asset_scout] {scene.scene_id}: memakai Tier-1 fallback bersih")
 
         if fallback_raw is not None and fallback_raw.exists():
             fallback_raw.unlink(missing_ok=True)
+        if photo_fb_path is not None and photo_fb_path.exists() and chosen_cand != photo_fb_cand:
+            photo_fb_path.unlink(missing_ok=True)
 
+        # 3C: Tier 3 AI Scene Generation (Cloudflare Workers AI Flux / Gemini Imagen 9:16 + Ken Burns)
+        if chosen_cand is None:
+            ai_hit = _generate_tier3_ai_scene_mp4(scene, dest_mp4, duration_sec=clip_dur)
+            if ai_hit:
+                chosen_cand, chosen_info = ai_hit
+                print(f"[asset_scout] {scene.scene_id}: memakai Tier-3 AI Scene ({chosen_cand.source})")
+
+        # 3D: Zero Hard-Crash Safety Fallback (reuse previous footage if rerender, else rendered editorial ambient scene)
         if (chosen_cand is None or chosen_info is None) and existing_assets and scene.scene_id in existing_assets:
-            # Re-scout found nothing better/safer: keep the previous footage instead of crashing the episode
-            print(f"[asset_scout] {scene.scene_id}: tidak ada pengganti yang lolos screening; memakai footage sebelumnya")
+            print(f"[asset_scout] {scene.scene_id}: memakai footage sebelumnya")
             results.append(existing_assets[scene.scene_id])
             continue
 
         if chosen_cand is None or chosen_info is None:
+            amb_hit = _render_tier3_ambient_mp4(scene, dest_mp4, duration_sec=clip_dur)
+            if amb_hit:
+                chosen_cand, chosen_info = amb_hit
+                print(f"[asset_scout] {scene.scene_id}: zero-crash fallback ke Tier-3 Ambient Scene")
+
+        if chosen_cand is None or chosen_info is None:
             raise RuntimeError(
-                f"Agent 6 could not find real video footage for {scene.scene_id} "
+                f"Agent 6 could not synthesize fallback visual for {scene.scene_id} "
                 f"(queries: {[scene.visual_query] + list(scene.fallback_queries)})"
             )
 
@@ -1601,8 +2197,8 @@ def scout_assets_for_scenes(
                 duration_sec=round(chosen_info["duration"], 2),
                 width=chosen_info["width"],
                 height=chosen_info["height"],
-                sfx_path=trans_sfx_path,
-                animation_sfx_path=anim_sfx_path,
+                sfx_path=ent["trans_sfx_path"],
+                animation_sfx_path=ent["anim_sfx_path"],
                 notes=chosen_cand.title,
             )
         )

@@ -51,7 +51,7 @@
     "wavelength": "panjang gelombang",
     "frequency": "frekuensi",
     "subscribe": "subskraib",
-    "kimiabill": "Kimiabil"
+    "kimiabill": "Kimia Bil"
   },
   "typo_fixes": [
     {"pattern": "\\btaro\\s+hande[iy]?\\b", "replacement": "Taruhan deh"},

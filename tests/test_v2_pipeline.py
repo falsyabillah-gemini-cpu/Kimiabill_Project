@@ -647,5 +647,162 @@ class TestReviewManagerAndChiefEditor(unittest.TestCase):
                 self.assertEqual(curr["status"], "awaiting_review")
 
 
+class TestGapFillWaterfallAndContracts(unittest.TestCase):
+    def test_kimiabill_phonetic_and_consecutive_mechanism_guard(self) -> None:
+        self.assertIn("Kimia Bil", to_tts_phonetic("Selamat datang di Kimiabill!"))
+
+        from src.pipeline import _sanitize_agent3_output
+
+        s1 = _sample_scene("scene_1", "Kenapa es mengapung di air padahal wujudnya padat dan lebih keras dari air cair di bawahnya setiap hari?", kind="process_flow")
+        s2 = _sample_scene("scene_2", "Saat air membeku, ikatan hidrogen membentuk kisi kristal heksagonal yang lebih renggang sehingga volume es membesar dan massa jenisnya turun.", kind="process_flow")
+        s3 = _sample_scene("scene_3", "Rongga antar molekul es membuat volume es mengembang sekitar sembilan persen lebih besar daripada volume air cair sebelumnya.", kind="process_flow")
+        s4 = _sample_scene("scene_4", "Akibat massa jenis es turun menjadi lebih ringan dari air cair, lapisan es selalu mengapung dan Subscribe channel ini sekarang!", kind="process_flow")
+
+        ep_raw = EpisodeState(
+            episode_id="ep_mech_dup",
+            agent3=Agent3Output(
+                episode_slug="es-mengapung-di-air",
+                topic_title="Kenapa Es Mengapung Di Air?",
+                title="Kenapa Es Mengapung Di Air?",
+                caption_social="Subscribe untuk fakta kimia harian!",
+                hashtags=["#kimiabill"],
+                target_duration_sec=36.0,
+                scenes=[s1, s2, s3, s4],
+            ),
+        )
+        ok_before, issues_before = run_pre_render_gate0_checks(ep_raw)
+        self.assertFalse(ok_before)
+        self.assertTrue(any("repeats previous scene" in iss for iss in issues_before))
+
+        fixed_a3 = _sanitize_agent3_output(ep_raw.agent3)
+        for idx in range(1, len(fixed_a3.scenes)):
+            self.assertNotEqual(fixed_a3.scenes[idx - 1].mechanism.kind, fixed_a3.scenes[idx].mechanism.kind)
+        ep_fixed = EpisodeState(episode_id="ep_mech_dup", agent3=fixed_a3)
+        ok_after, issues_after = run_pre_render_gate0_checks(ep_fixed)
+        self.assertTrue(ok_after, msg=f"Unexpected issues: {issues_after}")
+
+    def test_negative_keywords_and_24h_pixabay_cache_and_coverr_unsplash_skip(self) -> None:
+        import src.tools.asset_scout as asc
+
+        sc = _sample_scene("scene_1")
+        sc.visual_query = "coffee pouring mug"
+        self.assertIn("watermark", sc.negative_keywords)
+        good_cand = asc.VideoCandidate("pixabay", "Pixabay #1 - coffee pouring mug slow motion", "https://ex/1.mp4", "https://ex/p1", "Pixabay", 8.0, 1080, 1920)
+        bad_cand = asc.VideoCandidate("pixabay", "Pixabay #2 - coffee presentation logo lecture slide", "https://ex/2.mp4", "https://ex/p2", "Pixabay", 8.0, 1080, 1920)
+        terms = asc._extract_scene_topic_terms(sc)
+        self.assertGreater(asc._metadata_relevance_score(good_cand, sc, terms), 0)
+        self.assertEqual(asc._metadata_relevance_score(bad_cand, sc, terms), -10)
+
+        # Silent empty key skips
+        with patch.dict(os.environ, {"COVERR_API_KEY": "", "UNSPLASH_ACCESS_KEY": ""}, clear=False):
+            self.assertEqual(asc.search_coverr_videos("coffee mug"), [])
+            self.assertEqual(asc.search_unsplash_photos("coffee mug"), [])
+
+        # Pixabay 24h cache avoids duplicate HTTP call
+        with tempfile.TemporaryDirectory() as td:
+            cache_p = Path(td) / "pixabay_cache.json"
+            fake_hit = {
+                "id": 99,
+                "duration": 9,
+                "tags": "coffee mug pour",
+                "pageURL": "https://pixabay.com/v/99",
+                "videos": {"medium": {"url": "https://cdn.pixabay.com/99.mp4", "width": 1080, "height": 1920}},
+            }
+            mock_resp = MagicMock(status_code=200, json=lambda: {"hits": [fake_hit]})
+            with (
+                patch.object(asc, "PIXABAY_CACHE_PATH", cache_p),
+                patch.dict(os.environ, {"PIXABAY_API_KEY": "12345-abcdef1234567890"}, clear=False),
+                patch("src.tools.asset_scout.requests.get", return_value=mock_resp) as m_get,
+            ):
+                first = asc.search_pixabay("coffee mug")
+                second = asc.search_pixabay("coffee mug")
+                self.assertEqual(len(first), 1)
+                self.assertEqual(len(second), 1)
+                m_get.assert_called_once()
+
+        # Unsplash download_location ping is sent when UNSPLASH_ACCESS_KEY is set
+        if shutil.which("ffmpeg"):
+            with tempfile.TemporaryDirectory() as td:
+                tmp = Path(td)
+                jpg_buf = tmp / "src.jpg"
+                Image.new("RGB", (400, 600), (40, 80, 120)).save(jpg_buf)
+                img_bytes = jpg_buf.read_bytes()
+                u_cand = asc.VideoCandidate(
+                    "unsplash_photo",
+                    "Unsplash - coffee cup",
+                    "https://images.unsplash.com/photo-1",
+                    "https://unsplash.com/photos/1",
+                    "Unsplash",
+                    duration_sec=7.0,
+                    width=1080,
+                    height=1920,
+                    ping_url="https://api.unsplash.com/photos/1/download?ixid=abc",
+                )
+                with (
+                    patch.dict(os.environ, {"UNSPLASH_ACCESS_KEY": "u_key_123"}, clear=False),
+                    patch("src.tools.asset_scout.requests.get") as m_uget,
+                ):
+                    m_uget.return_value = MagicMock(status_code=200, content=img_bytes, raise_for_status=lambda: None)
+                    info = asc._render_photo_ken_burns_mp4(u_cand, tmp / "out_kb.mp4", duration_sec=2.5)
+                    self.assertIsNotNone(info)
+                    called_urls = [c.args[0] for c in m_uget.call_args_list]
+                    self.assertIn("https://api.unsplash.com/photos/1/download?ixid=abc", called_urls)
+
+    def test_batch_contact_sheet_audit_and_tier3_ambient_zero_crash(self) -> None:
+        if not shutil.which("ffmpeg"):
+            self.skipTest("ffmpeg missing")
+        import src.tools.asset_scout as asc
+
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            sc1 = _sample_scene("scene_1")
+            sc1.visual_query = "boiling water pot"
+            sc2 = _sample_scene("scene_2")
+            sc2.visual_query = "steam rising kitchen"
+
+            amb1 = asc._render_tier3_ambient_mp4(sc1, tmp / "s1.mp4", duration_sec=2.5)
+            amb2 = asc._render_tier3_ambient_mp4(sc2, tmp / "s2.mp4", duration_sec=2.5)
+            self.assertIsNotNone(amb1)
+            self.assertIsNotNone(amb2)
+            assert amb1 is not None and amb2 is not None
+            self.assertEqual(amb1[1]["width"], 1080)
+            self.assertEqual(amb1[1]["height"], 1920)
+
+            fake_verdict = MagicMock()
+            fake_verdict.shots = [
+                MagicMock(shot_index=1, family_safe=True, has_watermark_or_bumper=False, relevance_score=7.0, reason="hook < 7.5"),
+                MagicMock(shot_index=2, family_safe=True, has_watermark_or_bumper=False, relevance_score=6.4, reason="body >= 6.0"),
+            ]
+            with (
+                patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", "ASSET_VISION_SCREEN": "true"}, clear=False),
+                patch("src.providers.call_structured_agent", return_value=fake_verdict) as m_vision,
+            ):
+                res = asc.batch_audit_broll_contact_sheet(
+                    [(1, sc1, tmp / "s1.mp4"), (2, sc2, tmp / "s2.mp4")],
+                    tmp / "sheet.jpg",
+                )
+            m_vision.assert_called_once()
+            self.assertFalse(res[1][0])  # shot 1 needs >= 7.5
+            self.assertTrue(res[2][0])   # shot 2 needs >= 6.0
+
+            # Full scout_assets_for_scenes never hard-crashes even when all stock/photo/AI sources return nothing
+            fake_mem = MagicMock()
+            fake_mem.get_used_flow_clip_ids.return_value = set()
+            fake_mem.get_bgm_path.return_value = None
+            fake_mem.get_sfx_path.return_value = None
+            with (
+                patch.dict(os.environ, {"PIXABAY_API_KEY": "", "PEXELS_API_KEY": "", "COVERR_API_KEY": "", "UNSPLASH_ACCESS_KEY": "", "GEMINI_API_KEY": "", "CF_ACCOUNT_ID": "", "CF_API_TOKEN": ""}, clear=False),
+                patch.object(asc, "list_flow_clip_bank", return_value=[]),
+                patch.object(asc, "search_wikimedia_videos", return_value=[]),
+                patch.object(asc, "search_wikimedia_photos", return_value=[]),
+                patch.object(asc, "search_openverse_photos", return_value=[]),
+                patch.object(asc, "search_nasa_videos", return_value=[]),
+            ):
+                out = asc.scout_assets_for_scenes([sc1], tmp / "ep_zero" / "assets", fake_mem)
+            self.assertEqual(len(out.assets), 1)
+            self.assertEqual(out.assets[0].source, "tier3_ambient")
+            self.assertTrue(Path(out.assets[0].footage_path).exists())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -163,6 +163,10 @@ class SceneSpec(BaseModel):
     narration: str = Field(description="Clean baku Indonesian spoken line for this scene (NO 'follow')")
     visual_query: str = Field(description="Concrete 2-4 word English search query for REAL video footage")
     fallback_queries: list[str] = Field(default_factory=list)
+    negative_keywords: list[str] = Field(
+        default_factory=lambda: ["logo", "text", "watermark", "presentation", "lecture", "intro", "slide"],
+        description="Tokens to strictly avoid in B-roll clips",
+    )
     overlay_badge: Optional[str] = Field(
         default=None,
         description="Optional short formula or callout badge ONLY if helpful (e.g. 'Fe + O₂ + H₂O → Karat')",

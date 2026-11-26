@@ -260,15 +260,27 @@ def _is_weekend_karat_mode() -> bool:
 
 
 def _sanitize_agent3_output(agent3: Agent3Output) -> Agent3Output:
-    """Apply clean Indonesian proofreading & enforce YouTube CTA word rules deterministically."""
+    """Apply clean Indonesian proofreading, enforce YouTube CTA rules, and forbid back-to-back identical diagram templates."""
     from src.tools.tts_engine import sanitize_indonesian_script
 
     agent3.title = sanitize_indonesian_script(agent3.title)
     agent3.caption_social = sanitize_indonesian_script(agent3.caption_social)
+    prev_kind: Optional[str] = None
+    safe_neutral_cycle = ("process_flow", "concept_comparison", "highlight_stat", "minimal_formula_badge")
     for sc in agent3.scenes:
         sc.narration = sanitize_indonesian_script(sc.narration)
         if sc.overlay_badge:
             sc.overlay_badge = sanitize_indonesian_script(sc.overlay_badge)
+        if sc.mechanism is not None:
+            cur_kind = sc.mechanism.kind
+            if prev_kind and cur_kind == prev_kind:
+                for alt_kind in safe_neutral_cycle:
+                    if alt_kind != prev_kind and (alt_kind != "concept_comparison" or (sc.mechanism.actor_b or "").strip()):
+                        sc.mechanism.kind = alt_kind  # type: ignore[assignment]
+                        break
+            prev_kind = sc.mechanism.kind
+        else:
+            prev_kind = None
     return agent3
 
 
@@ -498,9 +510,10 @@ def run_agent_1_to_3(
         "- **Penutup (scene terakhir — ZERO DEAD-AIR / SEAMLESS LOOP):** Akhiri langsung di klimaks/kesimpulan atau sambungkan kembali ke kalimat pembuka (*loop*). "
         "Jika memakai CTA, maksimal 1,5 detik dan WAJIB memakai kata **'Subscribe'** (DILARANG KERAS memakai kata **'follow'** di naskah atau caption YouTube!). JANGAN taruh kartu referensi statis atau 'Thank you for watching'!\n"
         "- **Referensi:** Isi field `references` untuk deskripsi YouTube (jurnal/institusi, tahun, URL/DOI yang valid; jangan mengarang URL palsu!).\n"
-        "VISUAL QUERY RULES (100% REAL CAMERA FOOTAGE FOR PEXELS/PIXABAY):\n"
-        "- Each scene MUST have a simple concrete 2-3 word English `visual_query` of an everyday/science camera subject + 2 concrete `fallback_queries` (e.g., 'dry cracked earth', 'scientist laboratory flask', 'fireflies dark forest', 'factory smoke sky').\n"
+        "VISUAL QUERY RULES (100% REAL CAMERA FOOTAGE FOR PIXABAY/COVERR/UNSPLASH):\n"
+        "- Each scene MUST have a simple concrete 2-3 word English `visual_query` of an everyday/science camera subject + 2 concrete `fallback_queries` + `negative_keywords` (default: `['logo','text','watermark','presentation','lecture','intro','slide']`).\n"
         "- STRICTLY FORBIDDEN words in visual_query/fallback_queries: 'animation', 'visualization', 'diagram', '3d', 'cartoon', 'illustration', 'slide', 'lecture', 'arduino', 'mouse cage'. Always phrase what a real camera can film!\n"
+        "- Do NOT repeat the exact same `mechanism.kind` in two consecutive scenes (vary across `process_flow`, `concept_comparison`, `highlight_stat`, `minimal_formula_badge`).\n"
         "DIAGRAM / MECHANISM VISUAL RULES (ZERO PLACEHOLDERS & STRICT DOMAIN ENUM!):\n"
         "- Prioritize clean neutral templates: `concept_comparison` (Perbandingan A vs B), `process_flow` (Alur 3 tahap sebab-akibat), `highlight_stat` (Angka/fakta kunci), `minimal_formula_badge` (Rumus/senyawa singkat).\n"
         "- `mechanical_stress` / `polymer_crosslink` IS STRICTLY FORBIDDEN unless the topic is genuinely mechanics/material strength/polymers.\n"
