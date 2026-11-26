@@ -267,7 +267,7 @@ def evaluate_mp4_blind(mp4_path: Path, episode_meta: dict[str, Any]) -> ChiefEdi
 
 
 def run_chief_editor_audit(episode_id: str = "", force: bool = False) -> dict[str, Any]:
-    """Audit pending episode when user pressed `Serahkan ke AI` or missed 18:15 WIB deadline."""
+    """Audit pending episode when user pressed `Serahkan ke AI` or missed slot deadline (11:45 / 18:45 WIB)."""
     rec = get_review_record(episode_id)
     if not rec:
         return {"ok": True, "action": "no_pending_review"}

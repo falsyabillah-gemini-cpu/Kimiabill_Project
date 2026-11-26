@@ -127,7 +127,8 @@ class TestWorkflowsAndConfigs(unittest.TestCase):
         self.assertEqual(brand["voice"]["voice_name"], LOCKED_DEFAULT_VOICE)
         self.assertTrue(brand["voice"]["lock_single_voice"])
         self.assertEqual(brand["publishing"]["default_mode"], "draft")
-        self.assertEqual(brand["publishing"]["publish_time_wib"], "18:30")
+        self.assertEqual(brand["publishing"]["publish_slots_wib"], ["12:00", "19:00"])
+        self.assertEqual(brand["publishing"]["publish_time_wib"], "19:00")
 
         for state_name in ("rejected_topics.json", "pending_review.json"):
             data = json.loads((REPO_ROOT / "data" / state_name).read_text(encoding="utf-8"))
@@ -150,7 +151,8 @@ class TestWorkflowsAndConfigs(unittest.TestCase):
         daily = yaml.safe_load(daily_raw)
         on_block = daily.get("on") or daily.get(True)
         crons = [item["cron"] for item in on_block["schedule"]]
-        self.assertIn("0 10 * * *", crons)
+        self.assertIn("30 3 * * *", crons)
+        self.assertIn("30 10 * * *", crons)
         self.assertIn("telegram_rerender", on_block["repository_dispatch"]["types"])
         self.assertIn("telegram_reject_next", on_block["repository_dispatch"]["types"])
         self.assertEqual(on_block["workflow_dispatch"]["inputs"]["publish_mode"]["default"], "draft")
@@ -160,10 +162,21 @@ class TestWorkflowsAndConfigs(unittest.TestCase):
         audit = yaml.safe_load(audit_raw)
         audit_on = audit.get("on") or audit.get(True)
         audit_crons = [item["cron"] for item in audit_on["schedule"]]
-        self.assertIn("0 11 * * *", audit_crons)
-        self.assertIn("15 11 * * *", audit_crons)
+        self.assertIn("30 4 * * *", audit_crons)
+        self.assertIn("45 4 * * *", audit_crons)
+        self.assertIn("30 11 * * *", audit_crons)
+        self.assertIn("45 11 * * *", audit_crons)
         self.assertIn("telegram_approve", audit_on["repository_dispatch"]["types"])
         self.assertIn("telegram_ai_audit", audit_on["repository_dispatch"]["types"])
+
+    def test_dual_slot_target_publish_time_selection(self) -> None:
+        from src.tools.review_manager import compute_target_publish_iso
+
+        with patch.dict(os.environ, {"TARGET_PUBLISH_TIME_WIB": "", "PUBLISH_TIME_WIB": ""}, clear=False):
+            morn_iso = compute_target_publish_iso(now_wib=datetime(2026, 11, 26, 10, 30, tzinfo=WIB))
+            eve_iso = compute_target_publish_iso(now_wib=datetime(2026, 11, 26, 17, 30, tzinfo=WIB))
+        self.assertIn("T12:00:00", morn_iso)
+        self.assertIn("T19:00:00", eve_iso)
 
 
 class TestTopicGuardAndReferences(unittest.TestCase):

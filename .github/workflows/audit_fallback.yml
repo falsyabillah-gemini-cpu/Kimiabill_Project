@@ -2,10 +2,12 @@ name: Kimiabill Audit Reminder & AI Chief Editor Fallback
 
 on:
   schedule:
-    # 18:00 WIB (11:00 UTC): Pengingat Audit jika belum direspons
-    - cron: "0 11 * * *"
-    # 18:15 WIB (11:15 UTC): AI Chief Editor Blind Audit Fallback jika tetap tidak ada respon
-    - cron: "15 11 * * *"
+    # Slot Siang (target tayang 12:00 WIB):
+    - cron: "30 4 * * *"   # 11:30 WIB: Pengingat Audit jika belum direspons
+    - cron: "45 4 * * *"   # 11:45 WIB: AI Chief Editor Blind Audit Fallback
+    # Slot Malam (target tayang 19:00 WIB):
+    - cron: "30 11 * * *"  # 18:30 WIB: Pengingat Audit jika belum direspons
+    - cron: "45 11 * * *"  # 18:45 WIB: AI Chief Editor Blind Audit Fallback
   repository_dispatch:
     types: [telegram_approve, telegram_ai_audit]
   workflow_dispatch:
@@ -65,7 +67,7 @@ jobs:
           GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          PUBLISH_TIME_WIB: ${{ vars.PUBLISH_TIME_WIB || '18:30' }}
+          PUBLISH_TIME_WIB: ${{ (github.event.schedule == '30 4 * * *' || github.event.schedule == '45 4 * * *') && '12:00' || ((github.event.schedule == '30 11 * * *' || github.event.schedule == '45 11 * * *') && '19:00') || vars.PUBLISH_TIME_WIB || '' }}
           ENABLE_AI_FALLBACK_AUDIT: "true"
           EVENT_NAME: ${{ github.event_name }}
           EVENT_ACTION: ${{ github.event.action || '' }}
@@ -84,7 +86,7 @@ jobs:
           manual_action = os.environ.get("DISPATCH_ACTION", "ai_audit")
           ep_id = os.environ.get("EPISODE_ID", "").strip()
 
-          if (ev == "schedule" and cron == "0 11 * * *") or (ev == "workflow_dispatch" and manual_action == "reminder"):
+          if (ev == "schedule" and cron in ("30 4 * * *", "30 11 * * *")) or (ev == "workflow_dispatch" and manual_action == "reminder"):
               res = send_pending_review_reminder()
           elif (ev == "repository_dispatch" and ev_action == "telegram_approve") or (ev == "workflow_dispatch" and manual_action == "approve"):
               res = handle_telegram_approve(ep_id, by_ai=False)

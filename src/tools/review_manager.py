@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -34,12 +34,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 PENDING_REVIEW_PATH = BASE_DIR / "data" / "pending_review.json"
 
 
-def compute_target_publish_iso(publish_time_wib: Optional[str] = None) -> str:
-    hhmm = (publish_time_wib or os.environ.get("PUBLISH_TIME_WIB", "18:30")).strip()
+def compute_target_publish_iso(publish_time_wib: Optional[str] = None, now_wib: Optional[datetime] = None) -> str:
+    now = now_wib or datetime.now(WIB)
+    hhmm = (
+        (publish_time_wib or "").strip()
+        or os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
+        or os.environ.get("PUBLISH_TIME_WIB", "").strip()
+    )
     if ":" not in hhmm:
-        hhmm = "18:30"
+        hhmm = "12:00" if now.hour < 15 else "19:00"
     hh, mm = (int(x) for x in hhmm.split(":", 1))
-    now = datetime.now(WIB)
     target = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
     return target.isoformat(timespec="seconds")
 
@@ -150,7 +154,7 @@ def build_4_keyframe_collage(video_path: Path, out_jpg: Path) -> Optional[Path]:
     return out_jpg
 
 
-def _build_inline_keyboard(episode_id: str, publish_time_label: str = "18:30 WIB") -> dict[str, Any]:
+def _build_inline_keyboard(episode_id: str, publish_time_label: str = "19:00 WIB") -> dict[str, Any]:
     return {
         "inline_keyboard": [
             [{"text": f"✅ Upload / Jadwalkan ({publish_time_label})", "callback_data": f"approve:{episode_id}"}],
@@ -186,9 +190,12 @@ def send_audit_review_message(
 
     pub_iso = target_publish_iso or compute_target_publish_iso()
     try:
-        pub_hhmm = datetime.fromisoformat(pub_iso).strftime("%H:%M WIB")
+        pub_dt = datetime.fromisoformat(pub_iso)
+        pub_hhmm = pub_dt.strftime("%H:%M WIB")
+        fallback_hhmm = (pub_dt - timedelta(minutes=15)).strftime("%H:%M WIB")
     except Exception:
-        pub_hhmm = "18:30 WIB"
+        pub_hhmm = "19:00 WIB"
+        fallback_hhmm = "18:45 WIB"
 
     winner = (
         next((c for c in state.agent1.candidates if c.id == state.agent2.winner_id), None)
@@ -238,7 +245,7 @@ def send_audit_review_message(
         "📚 Referensi (Deskripsi YT):",
         refs_txt,
         "",
-        "Pilih aksi di bawah sebelum AI Chief Editor ambil alih otomatis (18:15 WIB):",
+        f"Pilih aksi di bawah sebelum AI Chief Editor ambil alih otomatis ({fallback_hhmm}):",
     ])[:1000]
 
     token, chat_id = _bot_creds()
@@ -320,13 +327,23 @@ def send_pending_review_reminder() -> dict[str, Any]:
         return {"ok": True, "action": "reminder_already_sent"}
 
     token, chat_id = _bot_creds()
+    fallback_hhmm = "11:45 / 18:45 WIB"
+    target_hhmm = rec.target_publish_iso or "jadwal tayang"
+    if rec.target_publish_iso:
+        try:
+            pub_dt = datetime.fromisoformat(rec.target_publish_iso)
+            target_hhmm = pub_dt.strftime("%H:%M WIB")
+            fallback_hhmm = (pub_dt - timedelta(minutes=15)).strftime("%H:%M WIB")
+        except Exception:
+            pass
     msg = (
         f"⏰ PENGINGAT AUDIT KIMIABILL (15 menit menuju AI Fallback)\n"
         f"• Judul: {rec.topic_title}\n"
         f"• Episode: `{rec.episode_id}`\n"
+        f"• Target Tayang: {target_hhmm}\n"
         f"• Unlisted YT: {rec.youtube_url or '-'}\n"
         f"Silakan tekan tombol pada pesan preview di atas (Approve / Revisi / Tolak / AI Audit). "
-        f"Jika tidak ada respon hingga 18:15 WIB, AI Chief Editor akan otomatis mengaudit."
+        f"Jika tidak ada respon hingga {fallback_hhmm}, AI Chief Editor akan otomatis mengaudit."
     )
     if token and chat_id:
         send_telegram_message(msg)

@@ -455,7 +455,7 @@ class Agent8WeeklyAuditOutput(BaseModel):
         description="2-3 concrete engagement experiments to test next week (hook style, CTA, pacing, topic angle)",
     )
     recommended_weekend_hours_wib: list[str] = Field(
-        default_factory=lambda: ["12:00", "18:30"],
+        default_factory=lambda: ["12:00", "19:00"],
         description="Top 2 optimal HH:MM WIB upload times for Saturday/Sunday KARAT Research Edition based on analytics",
     )
     karat_weekend_directives: list[str] = Field(

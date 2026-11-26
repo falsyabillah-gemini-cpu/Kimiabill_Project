@@ -64,7 +64,8 @@ audio_mix:
 
 publishing:
   default_mode: "draft"   # Wajib unlisted saat draft audit Telegram; jadi private+publishAt / public setelah Approve
-  publish_time_wib: "18:30"
+  publish_slots_wib: ["12:00", "19:00"]
+  publish_time_wib: "19:00"
   audit_lead_minutes: 90
   enable_ai_fallback_audit: true
   platforms:

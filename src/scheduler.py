@@ -106,18 +106,33 @@ def run_one_automated_episode() -> None:
 
         now_wib = datetime.now(WIB)
         today_str = now_wib.strftime("%Y-%m-%d")
+        target_pub_env = (
+            os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
+            or os.environ.get("PUBLISH_TIME_WIB", "").strip()
+        )
+        slot_evening = (
+            int(target_pub_env.split(":", 1)[0]) >= 16
+            if ":" in target_pub_env
+            else now_wib.hour >= 16
+        )
 
         if os.environ.get("SKIP_IF_SLOT_PUBLISHED", "").lower() == "true":
             pr_state = load_pending_review_store()
             curr = pr_state.get("current")
             if isinstance(curr, dict) and curr.get("status") in ("awaiting_review", "approved", "approved_by_ai"):
                 created_at = str(curr.get("created_at") or "")
+                ref_ts = str(curr.get("target_publish_iso") or created_at)
                 if created_at.startswith(today_str):
-                    print(
-                        f"[scheduler] Slot hari ini sudah memiliki draft audit aktif "
-                        f"({curr.get('episode_id')} | status={curr.get('status')}) — melewati duplikasi cron."
-                    )
-                    return
+                    try:
+                        curr_evening = datetime.fromisoformat(ref_ts).hour >= 16
+                    except Exception:
+                        curr_evening = slot_evening
+                    if curr_evening == slot_evening:
+                        print(
+                            f"[scheduler] Slot hari ini ({'malam' if slot_evening else 'siang'}) sudah memiliki draft audit aktif "
+                            f"({curr.get('episode_id')} | status={curr.get('status')}) — melewati duplikasi cron."
+                        )
+                        return
 
         if HISTORY_PATH.exists():
             hist_items = _json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
@@ -126,12 +141,6 @@ def run_one_automated_episode() -> None:
                 if t and t not in avoid_titles:
                     avoid_titles.append(t)
             if os.environ.get("SKIP_IF_SLOT_PUBLISHED", "").lower() == "true":
-                target_pub_env = os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
-                slot_evening = (
-                    int(target_pub_env.split(":", 1)[0]) >= 16
-                    if ":" in target_pub_env
-                    else now_wib.hour >= 16
-                )
                 for row in reversed(hist_items):
                     pub_at = row.get("published_at_wib") or ""
                     has_slot_proof = (
@@ -396,7 +405,7 @@ def run_one_automated_episode() -> None:
                             )
                             print(
                                 f"[scheduler] Audit Manual Telegram terkirim! episode_id={rec.episode_id} | "
-                                f"target_publish={rec.target_publish_time} | yt={rec.youtube_url}"
+                                f"target_publish={rec.target_publish_iso} | yt={rec.youtube_url}"
                             )
                         if (
                             state.request_id

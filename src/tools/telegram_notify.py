@@ -643,10 +643,12 @@ def notify_production_started(
         os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
         or os.environ.get("PUBLISH_TIME_WIB", "").strip()
     )
+    if not target_pub:
+        target_pub = "12:00" if datetime.now(WIB).hour < 15 else "19:00"
     pub_mode_now = os.environ.get("PUBLISH_MODE", "draft").strip().lower()
     if pub_mode_now == "draft":
-        pub_label = target_pub or "18:30"
-        target_line = f"🔍 Mode Audit Manual (Draft Unlisted ~17:06 WIB → Target Tayang {pub_label} WIB)"
+        lead = os.environ.get("AUDIT_LEAD_MINUTES", "90").strip() or "90"
+        target_line = f"🔍 Mode Audit Manual (Draft Unlisted → Target Tayang {target_pub} WIB | Lead {lead}m)"
     elif target_pub:
         target_line = f"⏰ Target Tayang: {target_pub} WIB"
     else:

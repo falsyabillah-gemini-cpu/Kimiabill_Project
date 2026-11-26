@@ -2,8 +2,10 @@ name: Kimiabill Daily Auto-Video
 
 on:
   schedule:
-    # 17:00 WIB (10:00 UTC): produksi draft unlisted agar owner punya >= 90 menit audit manual sebelum 18:30 WIB
-    - cron: "0 10 * * *"
+    # Slot Siang (target tayang 12:00 WIB): produksi 10:30 WIB (03:30 UTC) -> lead audit 90 menit
+    - cron: "30 3 * * *"
+    # Slot Malam (target tayang 19:00 WIB): produksi 17:30 WIB (10:30 UTC) -> lead audit 90 menit
+    - cron: "30 10 * * *"
   repository_dispatch:
     types: [telegram_feedback, telegram_rerender, telegram_reject_next]
   workflow_dispatch:
@@ -18,9 +20,9 @@ on:
           - public
           - dry_run
       target_publish_time_wib:
-        description: "Target jam tayang WIB (default 18:30)"
+        description: "Opsional: target jam tayang WIB (kosong = otomatis 12:00 siang / 19:00 malam sesuai jam)"
         required: false
-        default: "18:30"
+        default: ""
         type: string
       resume_artifact_run_id:
         description: "Opsional: isi GitHub Run ID sebelumnya untuk langsung upload ulang artifact video yang gagal ke YouTube (<1 menit)"
@@ -114,7 +116,8 @@ jobs:
           PYTHONUNBUFFERED: "1"
           GH_TOKEN: ${{ github.token }}
           PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'draft' }}
-          PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || vars.PUBLISH_TIME_WIB || '18:30' }}
+          PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || vars.PUBLISH_TIME_WIB || '' }}
+          TARGET_PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || vars.PUBLISH_TIME_WIB || '' }}
           AUDIT_LEAD_MINUTES: "90"
           ENABLE_AI_FALLBACK_AUDIT: "true"
           GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
@@ -195,8 +198,8 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
           PUBLISH_MODE: "draft"
-          PUBLISH_TIME_WIB: ${{ vars.PUBLISH_TIME_WIB || '18:30' }}
-          TARGET_PUBLISH_TIME_WIB: ${{ vars.PUBLISH_TIME_WIB || '18:30' }}
+          PUBLISH_TIME_WIB: ${{ vars.PUBLISH_TIME_WIB || '' }}
+          TARGET_PUBLISH_TIME_WIB: ${{ vars.PUBLISH_TIME_WIB || '' }}
           AUDIT_LEAD_MINUTES: "90"
           ENABLE_AI_FALLBACK_AUDIT: "true"
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
@@ -235,8 +238,8 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
           PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'draft' }}
-          PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || vars.PUBLISH_TIME_WIB || '18:30' }}
-          TARGET_PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || vars.PUBLISH_TIME_WIB || '18:30' }}
+          PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || (github.event.schedule == '30 3 * * *' && '12:00') || (github.event.schedule == '30 10 * * *' && '19:00') || vars.PUBLISH_TIME_WIB || '' }}
+          TARGET_PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || (github.event.schedule == '30 3 * * *' && '12:00') || (github.event.schedule == '30 10 * * *' && '19:00') || vars.PUBLISH_TIME_WIB || '' }}
           AUDIT_LEAD_MINUTES: "90"
           ENABLE_AI_FALLBACK_AUDIT: "true"
           SKIP_IF_SLOT_PUBLISHED: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
