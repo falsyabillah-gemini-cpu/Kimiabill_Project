@@ -141,5 +141,30 @@
       "Agent 5 (QA Video v2)": "gemini-3.5-flash-lite (fallback dari gemini-4-hydrogen)",
       "Agent 7 (Packaging & SEO)": "gemini-3.6-flash (fallback dari gemini-3.8-flash)"
     }
+  },
+  {
+    "episode_id": "ep_20261126_1521",
+    "published_at_wib": "2026-11-26T15:31:25+07:00",
+    "title": "Penawar Pedas Paling Ampuh?",
+    "discipline": "medisinal",
+    "section": "DAPUR",
+    "youtube_url": "https://youtube.com/shorts/ZQ142kVyKuI",
+    "gdrive_folder_url": "https://drive.google.com/drive/folders/1xOihasTHIPlA5cYLUFioixC49d6qWjkm",
+    "qa_score": 9.2,
+    "duration_sec": 36.393,
+    "hook_line": "Taruhan deh, pas lidahmu terbakar sambal, refleks pertamamu pasti nenggak air es—padahal itu justru bikin kapsaikin mengamuk!",
+    "revisions_used": 1,
+    "topic_attempts_used": 1,
+    "production_seconds": 501.7,
+    "publish_mode": "public",
+    "agent_models": {
+      "Agent 1 (Ideasi Topik)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)",
+      "Agent 2 (Auditor Hook)": "gemini-3.6-flash (fallback dari gemini-3.8-flash)",
+      "Agent 3 (Skrip & Storyboard)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)",
+      "Agent 6 (Screening Klip)": "gemini-3.5-flash-lite (17x)",
+      "Agent 5 (QA Video v1)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)",
+      "Agent 5 (QA Video v2)": "gemini-3.6-flash (fallback dari gemini-3.8-flash)",
+      "Agent 7 (Packaging & SEO)": "gemini-3.5-flash (fallback dari gemini-3.8-flash)"
+    }
   }
 ]
