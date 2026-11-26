@@ -1,48 +1,5 @@
 {
-  "current": {
-    "episode_id": "ep_20261126_2151_r1t2",
-    "topic_title": "Tetes Hidung Pembalik Usia",
-    "topic_slug": "tetes-hidung-pembalik-usia",
-    "source_url": "https://www.sciencedaily.com/releases/2026/11/261123005337.htm",
-    "keywords": [
-      "tetes",
-      "hidung",
-      "pembalik",
-      "usia",
-      "terapi",
-      "mrna",
-      "menstimulasi",
-      "protein",
-      "pelindung",
-      "otak",
-      "memulihkan",
-      "memori",
-      "subjek",
-      "penuaan"
-    ],
-    "topic_bucket": "research",
-    "discipline": "biologi",
-    "section": "REGULER",
-    "duration_sec": 26.2,
-    "references": [
-      "ScienceDaily Research News, November 2026",
-      "Journal of Neural Regeneration and mRNA Therapeutics, 2026",
-      "Sumber Riset: https://www.sciencedaily.com/releases/2026/11/261123005337.htm"
-    ],
-    "youtube_video_id": "xNF5c0uwCZY",
-    "youtube_url": "https://youtube.com/shorts/xNF5c0uwCZY",
-    "drive_url": "https://drive.google.com/drive/folders/1nD9_7KYCmk6xWS1Be_F-4CxZOygVn05g",
-    "artifact_path_or_url": "1GIxaUhP8HwxskarsVWMVy5O9n9cd57OE",
-    "revision_count": 0,
-    "qa_summary": "LOLOS AUDIT QA | Skor Akhir: 9.5/10 | Visual: 10.0 | Subtitle: 9.5 | Audio: 9.0 | Revisi: 0x",
-    "target_publish_iso": "2026-11-26T19:00:00+07:00",
-    "telegram_message_id": 73,
-    "status": "awaiting_review",
-    "reminder_sent": false,
-    "created_at": "2026-11-26T21:55:09+07:00",
-    "updated_at": "2026-11-26T21:55:14+07:00",
-    "decision_note": ""
-  },
+  "current": null,
   "history": [
     {
       "episode_id": "ep_20261126_2151_r1t2",
@@ -82,11 +39,11 @@
       "qa_summary": "LOLOS AUDIT QA | Skor Akhir: 9.5/10 | Visual: 10.0 | Subtitle: 9.5 | Audio: 9.0 | Revisi: 0x",
       "target_publish_iso": "2026-11-26T19:00:00+07:00",
       "telegram_message_id": 73,
-      "status": "awaiting_review",
+      "status": "saved_as_backup",
       "reminder_sent": false,
       "created_at": "2026-11-26T21:55:09+07:00",
-      "updated_at": "2026-11-26T21:55:14+07:00",
-      "decision_note": ""
+      "updated_at": "2026-11-26T21:58:46+07:00",
+      "decision_note": "Disimpan owner ke Bank Video Cadangan"
     }
   ]
 }
