@@ -267,6 +267,7 @@ def _upload_via_webhook(
     webhook_url: str,
     allow_youtube: bool = True,
     qa_summary: str = "",
+    send_basic_telegram: bool = True,
 ) -> str:
     """Upload final video, thumbnail, and caption sheet via Google Apps Script webhook + YouTube + email notify."""
     init_res = _post_webhook(
@@ -490,7 +491,10 @@ def _upload_via_webhook(
                 (hf_dir / "youtube_upload.json").write_text(
                     json.dumps(
                         {
+                            "video_id": video_id_yt,
                             "youtube_url": youtube_url,
+                            "drive_video_file_id": video_file_id,
+                            "drive_folder_url": folder_url,
                             "privacy": youtube_privacy,
                             "thumbnail_set": thumbnail_set,
                             "thumbnail_error": thumbnail_error or None,
@@ -580,33 +584,33 @@ def _upload_via_webhook(
 
     tg_sent = False
     notify_email_also = os.environ.get("NOTIFY_EMAIL_ALSO", "true").strip().lower() == "true"
-    try:
-        from src.tools.telegram_notify import send_telegram_message, send_telegram_video, telegram_enabled
+    if send_basic_telegram:
+        try:
+            from src.tools.telegram_notify import send_telegram_message, send_telegram_video, telegram_enabled
 
-        if telegram_enabled():
-            yt_line = f"▶️ YouTube ({youtube_privacy or 'public'}): {youtube_url}" if youtube_url else f"⏳ YouTube: {youtube_note or '-'}"
-            tg_caption = "\n".join(
-                [
-                    f"🎬 KIMIABILL VIDEO BARU SIAP ({ep_sec_tag})",
-                    f"Judul: {title}",
-                    f"Episode: {episode_name} | Disiplin: {ep_disc} | QA: {ep_qa}/10",
-                    yt_line,
-                    f"📁 Drive: {folder_url}",
-                    *( [f"📊 Sheet: {sheet_url}"] if sheet_url else [] ),
-                    "",
-                    "💬 Masukan untuk VIDEO BERIKUTNYA? Balas chat ini langsung.",
-                    "🔄 Video ini kacau & perlu dibuat ulang? Balas: /rerender <catatan>",
-                ]
-            )
-            if preview_mp4_path and preview_mp4_path.exists():
-                tg_sent = send_telegram_video(preview_mp4_path, caption=tg_caption)
-            else:
-                tg_sent = send_telegram_message(tg_caption)
-            if tg_sent and captions_text:
-                send_telegram_message(f"📝 Caption & Hashtag ({episode_name}):\n\n{captions_text[:3200]}")
-            print(f"[telegram] Preview video & status episode terkirim ke Telegram (ok={tg_sent})")
-    except Exception as tg_exc:
-        print(f"[telegram] Peringatan gagal kirim ke Telegram (fallback email): {tg_exc}")
+            if telegram_enabled():
+                yt_line = f"▶️ YouTube ({youtube_privacy or 'unlisted'}): {youtube_url}" if youtube_url else f"⏳ YouTube: {youtube_note or '-'}"
+                tg_caption = "\n".join(
+                    [
+                        f"🎬 KIMIABILL VIDEO BARU SIAP ({ep_sec_tag})",
+                        f"Judul: {title}",
+                        f"Episode: {episode_name} | Disiplin: {ep_disc} | QA: {ep_qa}/10",
+                        yt_line,
+                        f"📁 Drive: {folder_url}",
+                        *( [f"📊 Sheet: {sheet_url}"] if sheet_url else [] ),
+                    ]
+                )
+                if preview_mp4_path and preview_mp4_path.exists():
+                    tg_sent = send_telegram_video(preview_mp4_path, caption=tg_caption)
+                else:
+                    tg_sent = send_telegram_message(tg_caption)
+                if tg_sent and captions_text:
+                    send_telegram_message(f"📝 Caption & Hashtag ({episode_name}):\n\n{captions_text[:3200]}")
+                print(f"[telegram] Preview video & status episode terkirim ke Telegram (ok={tg_sent})")
+        except Exception as tg_exc:
+            print(f"[telegram] Peringatan gagal kirim ke Telegram (fallback email): {tg_exc}")
+    else:
+        tg_sent = True  # Audit review message handles interactive Telegram delivery
 
     skip_email = bool(tg_sent and not notify_email_also)
     notif_status = "Telegram ke owner" if skip_email else (f"Telegram + Email ke {notify_to}" if tg_sent else f"Email ke {notify_to}")
@@ -649,7 +653,7 @@ def _upload_via_webhook(
             timeout=60,
         )
         if skip_email:
-            print(f"[gdrive] Google Sheet Tracker diperbarui (email dilewati karena sudah masuk Telegram)")
+            print("[gdrive] Google Sheet Tracker diperbarui (email dilewati karena sudah masuk Telegram)")
         else:
             print(f"[gdrive] Notifikasi email{' & update Tracker Sheet' if sheet_id else ''} terkirim ke {notify_to}")
     except Exception as exc:
@@ -668,6 +672,7 @@ def upload_episode_to_gdrive(
     root_folder_name: Optional[str] = None,
     allow_youtube: bool = True,
     qa_summary: str = "",
+    send_basic_telegram: bool = True,
 ) -> str:
     """Upload final video, thumbnail, and logs to Google Drive (webhook or gdrive CLI)."""
     root_name = root_folder_name or os.environ.get("GDRIVE_ROOT_FOLDER", "Kimiabill_Studio")
@@ -680,6 +685,7 @@ def upload_episode_to_gdrive(
             webhook_url,
             allow_youtube=allow_youtube,
             qa_summary=qa_summary,
+            send_basic_telegram=send_basic_telegram,
         )
 
     root_id = ensure_folder(root_name)
@@ -703,3 +709,131 @@ def upload_episode_to_gdrive(
 
     url = _run_gdrive(["readonly", "url", ep_folder_id])
     return url.splitlines()[-1].strip()
+
+
+def _get_direct_youtube_access_token() -> Optional[str]:
+    cid = os.environ.get("YOUTUBE_CLIENT_ID", "").strip()
+    csec = os.environ.get("YOUTUBE_CLIENT_SECRET", "").strip()
+    rtok = os.environ.get("YOUTUBE_REFRESH_TOKEN", "").strip()
+    if not (cid and csec and rtok):
+        return None
+    resp = requests.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "client_id": cid,
+            "client_secret": csec,
+            "refresh_token": rtok,
+            "grant_type": "refresh_token",
+        },
+        timeout=25,
+    )
+    resp.raise_for_status()
+    return resp.json().get("access_token")
+
+
+def update_youtube_publish_status(
+    video_id: str,
+    *,
+    privacy_status: str,
+    publish_at_iso: Optional[str] = None,
+    first_comment: Optional[str] = None,
+) -> dict[str, Any]:
+    """Update existing YouTube video privacy (`private`+`publishAt` or `public`) via OAuth API or Apps Script webhook."""
+    vid = (video_id or "").strip()
+    if not vid:
+        raise ValueError("video_id required for YouTube status update")
+
+    access_token = _get_direct_youtube_access_token()
+    if access_token:
+        status_body: dict[str, Any] = {
+            "privacyStatus": privacy_status,
+            "selfDeclaredMadeForKids": False,
+        }
+        if privacy_status == "private" and publish_at_iso:
+            status_body["publishAt"] = publish_at_iso
+        resp = requests.put(
+            "https://www.googleapis.com/youtube/v3/videos?part=status",
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            json={"id": vid, "status": status_body},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        comment_posted = False
+        if privacy_status == "public" and first_comment:
+            try:
+                c_resp = requests.post(
+                    "https://www.googleapis.com/youtube/v3/commentThreads?part=snippet",
+                    headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+                    json={
+                        "snippet": {
+                            "videoId": vid,
+                            "topLevelComment": {"snippet": {"textOriginal": first_comment[:800]}},
+                        }
+                    },
+                    timeout=25,
+                )
+                comment_posted = c_resp.status_code in (200, 201)
+            except Exception:
+                comment_posted = False
+        return {"ok": True, "video_id": vid, "privacy_status": privacy_status, "publish_at": publish_at_iso, "comment_posted": comment_posted}
+
+    raw_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
+    if not raw_url:
+        raise RuntimeError("Neither YouTube OAuth credentials nor GDRIVE_WEBHOOK_URL are configured.")
+    yt_url, yt_tok = _resolve_youtube_webhook(raw_url)
+    payload: dict[str, Any] = {
+        "action": "update_youtube_status",
+        "video_id": vid,
+        "privacy_status": privacy_status,
+    }
+    if publish_at_iso:
+        payload["publish_at"] = publish_at_iso
+    if first_comment:
+        payload["first_comment"] = first_comment[:800]
+    return _post_webhook(yt_url, payload, timeout=90, token_override=yt_tok)
+
+
+def delete_youtube_video(video_id: Optional[str]) -> dict[str, Any]:
+    """Delete an unlisted draft YouTube video (on revise/reject) via OAuth API or Apps Script webhook."""
+    vid = (video_id or "").strip()
+    if not vid:
+        return {"ok": True, "skipped": "no_video_id"}
+
+    access_token = _get_direct_youtube_access_token()
+    if access_token:
+        resp = requests.delete(
+            f"https://www.googleapis.com/youtube/v3/videos?id={vid}",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=25,
+        )
+        if resp.status_code in (200, 204, 404):
+            return {"ok": True, "video_id": vid, "deleted": True}
+        resp.raise_for_status()
+
+    raw_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
+    if not raw_url:
+        return {"ok": False, "reason": "no_webhook"}
+    yt_url, yt_tok = _resolve_youtube_webhook(raw_url)
+    try:
+        return _post_webhook(yt_url, {"action": "delete_youtube_video", "video_id": vid}, timeout=45, token_override=yt_tok)
+    except Exception as exc:
+        print(f"[youtube] Peringatan hapus video lama {vid} gagal (tidak memblokir lanjut): {exc}")
+        return {"ok": False, "error": str(exc)}
+
+
+def download_drive_file_by_id(file_id: str, dest_path: Path) -> Optional[Path]:
+    """Download a stored MP4 from Google Drive via Apps Script webhook (used when audit job lacks local copy)."""
+    raw_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
+    if not raw_url or not file_id:
+        return None
+    try:
+        res = _post_webhook(raw_url, {"action": "download_drive_file", "file_id": file_id}, timeout=120)
+        b64 = res.get("content_base64")
+        if not b64:
+            return None
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        dest_path.write_bytes(base64.b64decode(b64))
+        return dest_path if dest_path.exists() and dest_path.stat().st_size > 1024 else None
+    except Exception as exc:
+        print(f"[gdrive] Gagal unduh file {file_id}: {exc}")
+        return None

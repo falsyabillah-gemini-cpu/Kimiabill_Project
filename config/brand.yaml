@@ -13,12 +13,14 @@ brand:
     viral_first: true
     viral_lookback_hours: 72
     min_viral_matches: 2
+    everyday_ratio: 0.70
+    research_ratio: 0.30
     fallback_source: "data/idea_bank.json"
     balance_disciplines: true
   audience: "Umum (pelajar, mahasiswa, dan masyarakat awam yang penasaran dengan sains murni)"
   tone:
     - "Ceria, ramah, antusias, tidak menggurui"
-    - "Bahasa Indonesia sehari-hari yang jelas dan natural"
+    - "Bahasa Indonesia sehari-hari yang baku, bersih dari typo, dan natural"
     - "Hindari jargon rumit tanpa analogi sederhana"
 
 video:
@@ -27,13 +29,14 @@ video:
   proxy_fps: 15
   final_resolution: [1080, 1920]
   final_fps: 30
-  target_duration_sec: [38, 56]
+  target_duration_sec: [30, 48]
   visual_policy:
     real_footage_only: true
     no_full_animation: true
     mechanistic_overlay: true
+    fullscreen_9_16: true
     overlay_style: "comic_science_hybrid"
-    overlay_policy: "Real footage sebagai dasar + layer animasi mekanistik 30fps berbingkai tegas untuk menggambarkan proses sains secara nyata"
+    overlay_policy: "Real footage full-screen 9:16 sebagai dasar + layer animasi mekanistik 30fps bebas placeholder yang cocok persis dengan konsep sains"
   mascot:
     enabled: true
     style: "option_b_duo"
@@ -47,10 +50,12 @@ video:
 voice:
   engine: "edge_tts"
   voice_name: "id-ID-ArdiNeural"
-  style_notes: "Suara laki-laki ceria, intonasi jelas, pelafalan tegas, pace sedang agar mudah diikuti"
-  rate: "+2%"
+  lock_single_voice: true
+  style_notes: "Suara laki-laki ceria konsisten id-ID-ArdiNeural, intonasi jelas, pelafalan ilmiah Indonesia natural via pronunciation_dict.json"
+  rate: "+4%"
   pitch: "+4Hz"
-  target_wpm: [135, 160]
+  volume: "+0%"
+  target_wpm: [140, 165]
 
 audio_mix:
   voice_lufs: -15.0
@@ -58,17 +63,18 @@ audio_mix:
   bgm_gain_db: -24.0
 
 publishing:
-  default_mode: "public"   # "dry_run" | "draft" (YouTube Unlisted) | "public" (langsung tayang)
+  default_mode: "draft"   # Wajib unlisted saat draft audit Telegram; jadi private+publishAt / public setelah Approve
+  publish_slots_wib: ["12:00", "19:00"]
+  publish_time_wib: "19:00"
+  audit_lead_minutes: 90
+  enable_ai_fallback_audit: true
   platforms:
     - "youtube_shorts"
-    # Aktifkan nanti saat sudah siap:
-    # - "tiktok"
-    # - "instagram_reels"
   generate_thumbnail: true
   tracking_sheet_id: ""  # Dinonaktifkan sementara (ID tersimpan: 1HltIwSA5VK5ehVg_WLhNf_oFCah2A2aJed6VahKYlHc)
 
 guardrails:
-  max_revisions: 4
+  max_revisions: 2
   max_topic_attempts: 3
   min_idea_score: 7.5
   min_qa_score: 8.0

@@ -92,34 +92,23 @@ def save_state(state: EpisodeState) -> Path:
     return p
 
 
-def _collect_episode_references(state: EpisodeState) -> list[str]:
-    """Assemble clean scientific references + real footage source credits for end-card & description."""
-    refs: list[str] = []
-    seen: set[str] = set()
+def _collect_episode_references(state: EpisodeState, *, check_http: bool = True) -> list[str]:
+    """Assemble HTTP-verified scientific references for YouTube description (never rendered as static video end-card)."""
+    from src.tools.reference_verifier import verify_and_clean_references
 
-    def add_ref(text: str) -> None:
-        cleaned = " ".join(text.strip().split())
-        if cleaned and cleaned.lower() not in seen:
-            seen.add(cleaned.lower())
-            refs.append(cleaned)
-
+    raw_refs: list[str] = []
     if state.agent3 and state.agent3.references:
-        for r in state.agent3.references:
-            add_ref(r)
+        raw_refs.extend(state.agent3.references)
 
     if state.agent1 and state.agent2:
         winner = next((c for c in state.agent1.candidates if c.id == state.agent2.winner_id), None)
         if winner and winner.viral_source_url:
-            add_ref(f"Sumber Riset: {winner.viral_source_url}")
+            raw_refs.append(f"Sumber Riset: {winner.viral_source_url}")
 
-    if not refs and state.agent3:
-        add_ref(f"Referensi Sains Umum: {state.agent3.title}")
-
-    if state.agent6 and state.agent6.assets:
-        sources = sorted({a.source.replace("_", " ").title() for a in state.agent6.assets})
-        add_ref(f"Footage Video: {', '.join(sources)} (Lisensi CC/Gratis)")
-
-    return refs[:4]
+    cleaned = verify_and_clean_references(raw_refs, check_http=check_http)
+    if not cleaned and state.agent3:
+        cleaned = [f"Editorial Sains Kimiabill: {state.agent3.title}"]
+    return cleaned[:4]
 
 
 def build_render_plan(
@@ -210,9 +199,6 @@ def build_render_plan(
     else:
         out_mp4 = paths["renders"] / f"proxy_v{version}_480p.mp4"
 
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-
     is_kitchen = _is_kitchen_chemistry_slot()
     is_karat = _is_weekend_karat_mode()
     section_tag = "KARAT" if is_karat else ("DAPUR" if is_kitchen else "REGULER")
@@ -233,7 +219,7 @@ def build_render_plan(
         section_tagline=section_tagline,
         requested_by=state.requested_by or getattr(state.agent3, "requested_by", None),
         use_mascot=use_mascot,
-        references=_collect_episode_references(state),
+        references=_collect_episode_references(state, check_http=(resolution_mode == "final_1080p")),
         voice_path=voice_path,
         total_duration_sec=round(total_dur, 3),
         segments=segments,
@@ -245,7 +231,7 @@ def build_render_plan(
 
 
 def _is_kitchen_chemistry_slot() -> bool:
-    """Return True on the daily 12:00 WIB lunch-break slot for relatable Kitchen Chemistry / everyday science."""
+    """Return True on the daily noon lunch-break slot for relatable Kitchen Chemistry / everyday science."""
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
@@ -273,6 +259,19 @@ def _is_weekend_karat_mode() -> bool:
     return datetime.now(ZoneInfo("Asia/Jakarta")).weekday() in (5, 6)
 
 
+def _sanitize_agent3_output(agent3: Agent3Output) -> Agent3Output:
+    """Apply clean Indonesian proofreading & enforce YouTube CTA word rules deterministically."""
+    from src.tools.tts_engine import sanitize_indonesian_script
+
+    agent3.title = sanitize_indonesian_script(agent3.title)
+    agent3.caption_social = sanitize_indonesian_script(agent3.caption_social)
+    for sc in agent3.scenes:
+        sc.narration = sanitize_indonesian_script(sc.narration)
+        if sc.overlay_badge:
+            sc.overlay_badge = sanitize_indonesian_script(sc.overlay_badge)
+    return agent3
+
+
 def run_agent_1_to_3(
     episode_id: str,
     topic_hint: Optional[str] = None,
@@ -294,7 +293,7 @@ def run_agent_1_to_3(
     is_kitchen = _is_kitchen_chemistry_slot() and not (requested_by and topic_hint)
     is_karat = _is_weekend_karat_mode()
 
-    # Pre-Agent 1 (0-Token): Scan viral pure-science trends, Kitchen Chemistry bank, or Weekend KARAT papers
+    # Pre-Agent 1 (0-Token): Scan viral pure-science trends with strict published/rejected deduplication + 70/30 split
     ideation_cfg = brand["brand"].get("ideation_policy", {})
     trend_brief = build_agent1_brief(
         BASE_DIR,
@@ -302,16 +301,17 @@ def run_agent_1_to_3(
         min_viral_matches=ideation_cfg.get("min_viral_matches", 2),
         weekend_paper_mode=is_karat,
         kitchen_chemistry_mode=is_kitchen,
+        extra_avoid_titles=avoid_titles,
     )
     (paths["handoffs"] / "agent0_trend_brief.json").write_text(
         json.dumps(trend_brief, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    # Agent 1: Batch Ideation
     from src.tools.telegram_notify import (
         get_agent_specific_owner_directives,
         get_owner_runtime_overrides,
     )
+    from src.tools.topic_guard import check_topic_duplication
     from src.tools.weekly_growth_auditor import load_latest_agent_directives
 
     from datetime import datetime
@@ -323,6 +323,9 @@ def run_agent_1_to_3(
     owner_a2 = get_agent_specific_owner_directives("agent_2")
     owner_a3 = get_agent_specific_owner_directives("agent_3")
     karat_dir = weekly_dir.get("karat_weekend_directives", []) if is_karat else []
+    ratio_g = trend_brief.get("topic_ratio_guidance") or {}
+    preferred_bucket = ratio_g.get("preferred_next_bucket", "everyday")
+
     slot_map_hint: list[str] = []
     if weekly_dir.get("next_week_topic_map"):
         day_names = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
@@ -335,34 +338,33 @@ def run_agent_1_to_3(
                     f"Prioritaskan ide '{slot.get('planned_topic')}' ({slot.get('discipline')}) — alasan: {slot.get('rationale')}"
                 )
                 break
+
     a1_cfg = agents_cfg["agents"]["agent_1_ideation"]
     karat_a1_note = (
-        "WEEKEND SPECIAL SECTION ACTIVE — 'KARAT (Kabar Riset Terkini)': Select and pitch 5 ideas centered on "
-        "RECENT PEER-REVIEWED RESEARCH PAPERS or breaking scientific breakthroughs from the last 72 hours "
-        "(Nature, Science, Phys.org, ScienceDaily, national/international science news) that connect DIRECTLY to "
-        "INDONESIAN EVERYDAY LIFE (health, human body, sleep, food/drink, skin, stress, weather, household materials, "
-        "microplastics, or smartphone/daily habits — 'Riset Terbaru yang Nyambung dengan Hidup Sehari-hari'). "
-        "REJECT overly abstract cosmology/particle theory that has zero impact on daily life. "
-        "PRIORITIZE papers matching Agent 8's `karat_weekend_directives` and `trend_brief.indonesian_viral_style_benchmarks`. "
+        "WEEKEND SPECIAL SECTION ACTIVE — 'KARAT (Kabar Riset Terkini)': Include strong ideas centered on "
+        "RECENT PEER-REVIEWED RESEARCH PAPERS or breaking breakthroughs from the last 72 hours that connect directly "
+        "to everyday human life (sleep, food, body, materials). "
         if is_karat
         else ""
     )
     kitchen_a1_note = (
-        "DAILY SPECIAL SECTION ACTIVE — 'KIMIA DAPUR (Kitchen Chemistry & Sains Sehari-hari)': "
-        "Select and pitch 5 hyper-relatable science ideas about COOKING, FOOD, DRINKS, or EVERYDAY KITCHEN/HOME MOMENTS "
-        "(e.g., asap bakaran selalu ngejar kita, lidah gatal makan nanas, ngantuk habis makan nasi, gorengan meledak, bawang, kopi, es batu, sabun & minyak) "
-        "backed by real chemistry/physics/food-science mechanisms! Pick unused topics from `idea_bank_fallback_candidates` "
-        "or create equally relatable fresh Indonesian everyday-science moments with concrete filmable footage. "
+        "KIMIA DAPUR MODE ACTIVE: Prioritize hyper-relatable everyday food, drink, cooking, and home chemistry phenomena "
+        "with concrete filmable real footage! "
         if is_kitchen
         else ""
     )
     req_a1_note = (
         f"AUDIENCE COMMENT REQUEST PRIORITY: Viewer '{requested_by}' specifically requested: '{topic_hint}' "
-        f"(comment: '{request_source_comment or topic_hint}'). You MUST put a fulfilling, accurate pure-science "
-        f"Shorts idea for this exact request as Candidate #1! "
+        f"(comment: '{request_source_comment or topic_hint}'). Put a fulfilling, accurate pure-science idea as Candidate #1! "
         if requested_by and topic_hint
         else ""
     )
+    all_avoid = list(dict.fromkeys(
+        (avoid_titles or [])
+        + list(trend_brief.get("recent_published_titles") or [])
+        + list(trend_brief.get("rejected_topics_blacklist") or [])
+    ))
+
     state.agent1 = call_structured_agent(
         provider=a1_cfg["provider"],
         model=a1_cfg.get("model", a1_cfg["recommended_prod_model"]),
@@ -370,18 +372,14 @@ def run_agent_1_to_3(
             "You are Agent 1 (Viral Pure-Science Trend Scout) for Kimiabill. "
             "Cover strictly pure science phenomena across: kimia, fisika, matematika, medisinal, biologi. "
             f"{req_a1_note}{karat_a1_note}{kitchen_a1_note}"
-            "EVERYDAY RELATABILITY & BENCHMARK RULE (CRITICAL FOR HIGH VIEWS): "
-            "Every candidate (REGULER, DAPUR, AND KARAT) MUST connect to something ordinary Indonesians immediately recognize "
-            "in daily life (human body, sleep, pain, food/cooking, weather, everyday annoyances like smoke/sweat/ice/plastic). "
-            "Follow `trend_brief.indonesian_viral_style_benchmarks` (@KokBisa 2.5M, @KacamataPenjelajah 11M, Marbel 4.5M): "
-            "- ZERO-SPOILER PUNCHY TITLE: Title MUST be **3 to 6 Indonesian words**, punchy & colloquial, creating a mystery gap "
-            "(using mystery pronouns like 'Ini' or personification like 'Kok Asap Terus Ngejar?!', 'Buah Ini Memakan Dagingmu!') — "
-            "NEVER spoil the chemical/scientific answer inside the title or write long textbook titles!\n"
-            "PRIORITY 1: When in KARAT or REGULER mode and `viral_candidates` has fresh everyday-relatable science topics/papers, "
-            "turn them into gripping Indonesian short-video ideas (`source_mode: 'viral_trend'`). "
-            "PRIORITY 2 (Fallback): Select and enrich unused relatable ideas from `idea_bank_fallback_candidates` (`source_mode: 'idea_bank'`). "
-            "Every idea must be visualizable with REAL, concrete, filmable science/nature/kitchen footage (never full animation), "
-            "MUST NOT repeat any topic in `avoid_titles`, and MUST apply any `weekly_growth_directives` and `[MASUKAN OWNER]` feedback."
+            "TOPIC RATIO 70/30 RULE (MANDATORY):\n"
+            f"- Target global mix: **70% everyday relatable life science** (`topic_bucket: 'everyday'` — food, sleep, body, kitchen, household items) "
+            f"and **30% unique pure-science research news** (`topic_bucket: 'research'` — Nature, ScienceDaily, Phys.org, Quanta).\n"
+            f"- Current portfolio balance suggests preferring `{preferred_bucket}` if choosing between equal candidates.\n"
+            "STRICT DEDUPLICATION RULE (ZERO TOLERANCE):\n"
+            "- NEVER pick or rephrase ANY topic, source_url, or core scientific concept already present in "
+            "`avoid_titles`, `trend_brief.recent_published_titles`, or `trend_brief.rejected_topics_blacklist`!\n"
+            "- Every candidate MUST have a punchy **3 to 6 word spoiler-free Indonesian title** and 2-4 concrete real-footage keywords."
         ),
         user_payload={
             "brand": brand["brand"],
@@ -390,7 +388,7 @@ def run_agent_1_to_3(
             "topic_hint": topic_hint,
             "requested_by": requested_by,
             "request_comment": request_source_comment,
-            "avoid_titles": avoid_titles or [],
+            "avoid_titles": all_avoid,
             "weekly_growth_directives": owner_a1 + weekly_dir.get("agent_1_directives", []) + karat_dir + slot_map_hint,
         },
         response_model=Agent1Output,
@@ -399,10 +397,31 @@ def run_agent_1_to_3(
     state.status = "ideated"
     save_state(state)
 
-    # Agent 2: Editorial Auditor (Score 5 -> pick 1 winner + max 4 sharp improvements)
+    # Filter out any duplicate candidates deterministically BEFORE Agent 2 scores them
+    fresh_candidates = []
+    for cand in state.agent1.candidates:
+        is_dup, dup_reason = check_topic_duplication(
+            cand.title,
+            source_url=cand.viral_source_url,
+            phenomenon=f"{cand.phenomenon} {cand.core_explanation}",
+            avoid_titles=avoid_titles,
+            base_dir=BASE_DIR,
+        )
+        if is_dup:
+            print(f"[dedup] Menolak kandidat '{cand.title}': {dup_reason}")
+        else:
+            fresh_candidates.append(cand)
+    if not fresh_candidates and not topic_hint:
+        raise RuntimeError(
+            "Semua kandidat Agent 1 terdeteksi duplikat dengan published_history/rejected_topics; mencoba topik baru."
+        )
+    if fresh_candidates:
+        state.agent1.candidates = fresh_candidates
+
+    # Agent 2: Editorial Auditor
     a2_cfg = agents_cfg["agents"]["agent_2_editorial_auditor"]
     req_a2_note = (
-        f"Because viewer '{requested_by}' requested '{topic_hint}', ensure the candidate answering that viewer request is selected cleanly and stays faithful to what they asked! "
+        f"Viewer '{requested_by}' requested '{topic_hint}' — keep that candidate selected cleanly! "
         if requested_by and topic_hint
         else ""
     )
@@ -411,18 +430,15 @@ def run_agent_1_to_3(
         model=a2_cfg.get("model", a2_cfg["recommended_prod_model"]),
         system_prompt=(
             "You are Agent 2 (Editorial & 90%+ Retention Hook Auditor) for Kimiabill. Score all candidates strictly on:\n"
-            "(1) EVERYDAY HUMAN RELATABILITY (Daily & KARAT): Will ordinary Indonesians immediately think 'Eh iya bener banget, "
-            "gua sering ngalamin ini!' or 'Ini nyambung sama badan/keseharian gua!'?\n"
-            "(2) ZERO-SPOILER 3-6 WORD TITLE & PERSONIFICATION 0-3s HOOK: Penalize titles that explain the answer upfront! "
-            "Reward short mystery titles and hooks that personify molecules/nature or open with a vivid bet/prediction "
-            "(ZERO slow greetings, ZERO 'pernahkah kamu berpikir' or dictionary definitions).\n"
-            "(3) TIGHT PACING & VISUAL CONTRAST: Fast momentum with concrete real-world visuals.\n"
-            "Pick the #1 winner and give max 4 sharp improvement notes (including rewriting the title to <=6 spoiler-free words if too long, "
-            "and sharpening scene_1 into an everyday relatable personification/bet hook), applying any `weekly_growth_directives` and `[MASUKAN OWNER]` feedback. "
+            "(1) EVERYDAY HUMAN RELATABILITY & 70/30 RATIO: Favor 'everyday' relatable life-science (70%) over abstract theory, unless 'research' is currently underrepresented AND directly relatable.\n"
+            "(2) ZERO-SPOILER 3-6 WORD TITLE & 0-3s HOOK: Reject slow greetings/definitions.\n"
+            "(3) REAL FILMABLE FOOTAGE: Must work with clean Pexels/stock real-world video (zero reliance on cartoons or obscure equipment).\n"
+            "Pick the #1 winner and give up to 4 sharp improvement notes for Agent 3. "
             f"{req_a2_note}"
         ),
         user_payload={
             "candidates": [c.model_dump() for c in state.agent1.candidates],
+            "topic_ratio_guidance": ratio_g,
             "requested_by": requested_by,
             "topic_hint": topic_hint,
             "weekly_growth_directives": owner_a2 + weekly_dir.get("agent_2_directives", []) + karat_dir,
@@ -433,7 +449,7 @@ def run_agent_1_to_3(
     state.status = "audited_idea"
     save_state(state)
 
-    # Agent 3: Script & Shot-List Reviser
+    # Agent 3: Script & Shot-List Reviser (strict 30-48s, Subscribe/Loop CTA, zero placeholders, clean baku ID)
     a3_cfg = agents_cfg["agents"]["agent_3_script_reviser"]
     winner = next(
         (c for c in state.agent1.candidates if c.id == state.agent2.winner_id),
@@ -442,100 +458,99 @@ def run_agent_1_to_3(
     if winner.source_mode == "idea_bank":
         memory.mark_idea_used(winner.id, episode_id)
     karat_a3_note = (
-        "THIS IS A WEEKEND 'KARAT — Kabar Riset Terkini' EPISODE (TARGET ~48-56s TOTAL): "
-        "DO NOT start scene_1 with 'Selamat datang di KARAT'! Open scene_1 (0-3s) IMMEDIATELY with an everyday relatable hook "
-        "tied to viewers' daily lives (e.g. kebiasaan tidur, makan, pakai HP, cuaca panas), weave in 'Lewat riset terbaru di KARAT...' "
-        "naturally in scene 2-3 (naming who/which institution found it and what mechanism occurs), and end with the practical daily takeaway! "
-        "In `references`, cite the exact journal / research institution / year & title. "
+        "THIS IS A 'KARAT — Kabar Riset Terkini' EPISODE (STILL STRICT 30-46s TOTAL): "
+        "Open scene_1 (0-3s) IMMEDIATELY with an everyday hook without greeting; weave the recent research finding & institution cleanly into scene 2-3! "
+        "In `references`, put real peer-reviewed journal/institution name + year + working URL/DOI (do NOT invent URLs). "
         if is_karat
         else ""
     )
     kitchen_a3_note = (
-        "THIS IS A DAILY 'KIMIA DAPUR (Kitchen Chemistry & Sains Sehari-hari)' EPISODE (TARGET ~38-48s TOTAL): "
-        "Keep every line hyper-relatable to everyday Indonesian homes, food, drinks, and shared experiences, "
-        "pair every step with concrete real kitchen/home footage queries, and end with 1 crisp 'oh pantes!' practical takeaway! "
+        "THIS IS A 'KIMIA DAPUR' EPISODE (STRICT 30-46s TOTAL): keep every explanation grounded in relatable Indonesian food/home moments! "
         if is_kitchen
         else ""
     )
     custom_dur = owner_ro.get("target_duration_sec")
     if isinstance(custom_dur, list) and len(custom_dur) == 2:
-        lo_d, hi_d = int(custom_dur[0]), int(custom_dur[1])
-        est_words_lo, est_words_hi = int(lo_d * 2.3), int(hi_d * 2.5)
-        duration_rule = f"~{lo_d}-{hi_d}s total spoken (~{est_words_lo}-{est_words_hi} Indonesian words across 5-6 tight scenes)"
+        lo_d = max(30, int(custom_dur[0]))
+        hi_d = min(48, int(custom_dur[1]))
     else:
-        duration_rule = (
-            "~48-56s total spoken (~115-145 Indonesian words across 6 tight scenes, ~18-24 words per scene)"
-            if is_karat
-            else "~38-48s total spoken (~95-120 Indonesian words across 5-6 tight scenes, ~15-21 words per scene)"
-        )
+        lo_d, hi_d = 32, 45
+    est_words_lo, est_words_hi = int(lo_d * 2.3), int(hi_d * 2.45)
+    duration_rule = f"STRICTLY {lo_d}-{hi_d}s total spoken ({est_words_lo}-{est_words_hi} Indonesian words across 5 tight scenes — NEVER exceed 48 seconds!)"
+
     spoken_requester = requested_by.lstrip("@") if requested_by else ""
     req_a3_note = (
-        f"THIS EPISODE FULFILLS A VIEWER REQUEST FROM '{requested_by}' (comment: '{request_source_comment or topic_hint}'): "
-        f"In scene_1's spoken narration, warmly mention the requester right alongside the hook (e.g., 'Menjawab request {spoken_requester}!'), "
-        f"and right before the closing CTA thank {spoken_requester} and invite viewers to drop more requests! "
+        f"FULFILLS VIEWER REQUEST FROM '{requested_by}': mention {spoken_requester} briefly right alongside scene_1 hook! "
         if requested_by
         else ""
     )
     from src.tools.mechanism_bank import format_mechanism_catalog_for_agent3
+    from src.tools.qa_gate import run_pre_render_gate0_checks
 
     mech_catalog = format_mechanism_catalog_for_agent3()
     animator_dirs = weekly_dir.get("agent_4_animator_directives", []) + get_agent_specific_owner_directives("agent_4")
 
-    state.agent3 = call_structured_agent(
-        provider=a3_cfg["provider"],
-        model=a3_cfg.get("model", a3_cfg["recommended_prod_model"]),
-        system_prompt=(
-            "You are Agent 3 (Script, Shot-List & Mechanistic Storyboard Reviser) for Kimiabill. "
-            f"Write an energetic, crystal-clear, tight-paced Indonesian short script ({duration_rule}) "
-            "applying Agent 2's notes, `[MASUKAN OWNER]`, and `weekly_growth_directives`. "
-            "TITLE RULE: `title` MUST be 3 to 6 punchy Indonesian words WITHOUT spoiling the scientific answer! "
-            f"{req_a3_note}{karat_a3_note}{kitchen_a3_note}"
-            "PROVEN RETENTION & VIRAL STORYTELLING STRUCTURE:\n"
-            "- Scene 1 (0-3s Hook — NO GREETING, ZERO SPOILER): Start directly with PERSONIFICATION (e.g. molecules/objects acting like cheeky humans), "
-            "a shared everyday annoyance ('Kenapa asap bakaran selalu ngejar ke arah kita?'), or a 1-second PREDICTION BET ('Coba tebak apa yang terjadi kalau...'). "
-            "NEVER open with 'Selamat datang', 'Halo teman-teman', or textbook definitions.\n"
-            "- Middle scenes (Fast Prediction -> Reveal -> Everyday Impact): Zero dry lecturing! Build curiosity with 1 twist/re-hook "
-            "('Tapi anehnya justru...', 'Nah, bagian ini yang sering bikin kita ketipu...') and explain the hidden mechanism in plain conversational language.\n"
-            "- Final scene (Payoff + 1-WORD DEBATE COMMENT CTA): Close the opening mystery cleanly, ask ONE super specific, playful 1-word "
-            "either/or poll or everyday confession tailored to THIS episode so viewers reply immediately "
-            "(e.g. 'Lidah kamu langsung gatel makan nanas nggak? Ketik GATEL atau AMAN!', NOT generic 'tulis pendapatmu'), "
-            "and end cleanly with: 'Jangan lupa follow Kimiabill untuk info sains berikutnya!'\n"
-            "VISUAL QUERY RULES: Each scene MUST specify an English real-footage visual_query (no cartoons/animations) that names a "
-            "CONCRETE, FAMILY-SAFE, filmable object or kitchen/lab process (e.g. 'charcoal barbecue smoke rising outdoor', "
-            "'gel cube compressed by hand in laboratory'). NEVER use words about human bodies, skin, stretching people, clothing, "
-            "dance, music, or vague single words; provide 2-3 equally concrete fallback_queries. "
-            "MECHANISTIC ANIMATION BANK RULES (CRITICAL — NO GENERIC TEMPLATES!):\n"
-            "For ALL middle explanation scenes (scenes 2 through second-to-last), ALWAYS provide BOTH `overlay_badge` AND `mechanism` "
-            "picking from the FULL 12 engines + matching `custom_presets` in `mechanism_bank`:\n"
-            "- `osmosis_membrane` (osmosis air, sel/kulit keriput, konsentrasi membran)\n"
-            "- `protein_cleavage` (enzim memotong serat/protein seperti bromelain/pencernaan — DO NOT use lock-and-key receptor_binding for chopping enzymes!)\n"
-            "- `phase_transition` (uap memuai/meledak, air mendidih, mencair, karamelisasi panas)\n"
-            "- `surface_surfactant` (sabun mengangkat minyak/lemak, emulsi, tegangan permukaan)\n"
-            "- `acid_base_bubble` (cuka/asam melarutkan basa/kerak, gelembung gas CO2/H2)\n"
-            "- `crystal_lattice` (pembentukan/retak kisi kristal es, garam, gula, logam)\n"
-            "- `electron_transfer` (ONLY redox, karat, ion listrik, baterai)\n"
-            "- `polymer_crosslink` (ONLY bending hydrogels/polymers/plastics becoming rigid)\n"
-            "- `receptor_binding` (ONLY drug/hormone/neurotransmitter lock-and-key docking)\n"
-            "- `molecular_reaction`, `force_wave`, `math_geometry`.\n"
-            "VARIETY RULE: NEVER pick the same `mechanism.kind` for back-to-back middle scenes unless truly identical; set optional `preset_id` / `accent_color` if a preset in `mechanism_bank` matches! "
-            "Fill concise `title` (<=28 chars), `actor_a` & `actor_b` (<=14 chars, 1-2 crisp Indonesian words so cards NEVER truncate), `result` (<=20 chars), and `caption`. "
-            "COPYRIGHT-FREE SFX RULE (MANDATORY): Set `sfx_cue` on EVERY scene (NEVER `'none'`!) using ONLY internal synthesized royalty-free cues "
-            "(`riser` for hook/build-up, `whoosh` for footage transitions, `pop`/`spark` for animated diagrams/facts, `ding` for key reveal, `chime` for closing CTA). "
-            "ALWAYS populate `references` with 1-3 real, accurate scientific references."
-        ),
-        user_payload={
-            "winner_idea": winner.model_dump(),
-            "audit_notes": state.agent2.improvement_notes,
-            "voice_style": brand["voice"],
-            "requested_by": requested_by,
-            "request_comment": request_source_comment,
-            "weekly_growth_directives": owner_a3 + weekly_dir.get("agent_3_directives", []) + karat_dir,
-            "animator_directives": animator_dirs,
-            "mechanism_bank": mech_catalog,
-        },
-        response_model=Agent3Output,
-        handoff_path=paths["handoffs"] / "agent3_script.json",
+    a3_system_prompt = (
+        "You are Agent 3 (High-Retention Indonesian Science Shorts Scriptwriter & Storyboarder) for @kimiabill (YouTube Shorts).\n"
+        f"STRICT DURATION & STRUCTURE ({duration_rule}):\n"
+        "- **0–3 detik (scene_1 Hook):** Langsung konflik/fakta mengejutkan tanpa salam, tanpa basa-basi, zero spoiler judul.\n"
+        "- **3–38 detik (scenes 2–4 Isi):** Penjelasan mekanisme ilmiah padat, konkret, bebas typo (gunakan Bahasa Indonesia baku yang natural, misalnya 'Taruhan deh' BUKAN 'Taro Handei'; tulis istilah ilmiah standar seperti 'kapsaisin', 'glimfatik', 'paklitaksel').\n"
+        "- **Penutup (scene terakhir — ZERO DEAD-AIR / SEAMLESS LOOP):** Akhiri langsung di klimaks/kesimpulan atau sambungkan kembali ke kalimat pembuka (*loop*). "
+        "Jika memakai CTA, maksimal 1,5 detik dan WAJIB memakai kata **'Subscribe'** (DILARANG KERAS memakai kata **'follow'** di naskah atau caption YouTube!). JANGAN taruh kartu referensi statis atau 'Thank you for watching'!\n"
+        "- **Referensi:** Isi field `references` untuk deskripsi YouTube (jurnal/institusi, tahun, URL/DOI yang valid; jangan mengarang URL palsu!).\n"
+        "VISUAL QUERY RULES:\n"
+        "- Each scene MUST have a concrete 2-4 word English `visual_query` of a REAL filmable object/action (ideal for vertical 9:16 Pexels stock) + 2 concrete `fallback_queries`. NEVER request lecture slides, university promos, Arduino demos, or cartoons.\n"
+        "DIAGRAM / MECHANISM VISUAL RULES (ZERO PLACEHOLDERS & STRICT DOMAIN ENUM!):\n"
+        "- Prioritize clean neutral templates: `concept_comparison` (Perbandingan A vs B), `process_flow` (Alur 3 tahap sebab-akibat), `highlight_stat` (Angka/fakta kunci), `minimal_formula_badge` (Rumus/senyawa singkat).\n"
+        "- `mechanical_stress` / `polymer_crosslink` IS STRICTLY FORBIDDEN unless the topic is genuinely mechanics/material strength/polymers.\n"
+        "- `redox_reaction` / `electron_transfer` IS STRICTLY FORBIDDEN unless there is actual electron transfer / oxidation-reduction.\n"
+        "- NEVER output placeholders like 'Molekul A', 'Molekul B', 'Actor A', 'SOLUSI:', 'REAKSI', or 'Produk'! "
+        "Every `mechanism` MUST specify exact Indonesian `title` (<=28 chars), concrete `actor_a` (<=16 chars), concrete `actor_b` (<=16 chars, or '' ONLY for highlight_stat/minimal_formula_badge), and concrete `result` (<=22 chars).\n"
+        "- Ensure scientific accuracy (e.g., nonpolar capsaicin does NOT dissolve/react with cold water — it binds TRPV1 receptors and dissolves better in fats/casein!).\n"
+        "- Assign copyright-free `sfx_cue` (`riser`, `whoosh`, `pop`, `spark`, `ding`, `chime`) on every scene.\n"
+        f"{req_a3_note}{karat_a3_note}{kitchen_a3_note}"
     )
+
+    last_a3_errors: list[str] = []
+    for a3_try in range(3):
+        try:
+            agent3_out = call_structured_agent(
+                provider=a3_cfg["provider"],
+                model=a3_cfg.get("model", a3_cfg["recommended_prod_model"]),
+                system_prompt=a3_system_prompt,
+                user_payload={
+                    "winner_idea": winner.model_dump(),
+                    "audit_notes": state.agent2.improvement_notes,
+                    "voice_style": brand["voice"],
+                    "requested_by": requested_by,
+                    "request_comment": request_source_comment,
+                    "weekly_growth_directives": owner_a3 + weekly_dir.get("agent_3_directives", []) + karat_dir,
+                    "animator_directives": animator_dirs,
+                    "mechanism_bank": mech_catalog,
+                    "schema_repair_errors": last_a3_errors,
+                },
+                response_model=Agent3Output,
+                handoff_path=paths["handoffs"] / "agent3_script.json",
+            )
+            agent3_out = _sanitize_agent3_output(agent3_out)
+            state.agent3 = agent3_out
+            ok_pre, pre_issues = run_pre_render_gate0_checks(state)
+            if ok_pre:
+                break
+            last_a3_errors = pre_issues
+            print(f"[agent3] Pre-render Gate 0 menolak draft #{a3_try + 1}, retry Agent 3: {pre_issues}")
+        except Exception as exc:
+            last_a3_errors = [str(exc)[:300]]
+            print(f"[agent3] Schema validation gagal #{a3_try + 1}, retry Agent 3: {last_a3_errors}")
+            if a3_try >= 2:
+                raise
+
+    if state.agent3 is None:
+        raise RuntimeError(f"Agent 3 failed validation after retries: {last_a3_errors}")
+    ok_pre_final, pre_issues_final = run_pre_render_gate0_checks(state)
+    if not ok_pre_final:
+        raise RuntimeError(f"Agent 3 failed Pre-Render Gate 0: {pre_issues_final}")
+
     if requested_by and not state.agent3.requested_by:
         state.agent3.requested_by = requested_by
     state.status = "scripted"
@@ -620,11 +635,18 @@ def run_agent_4_proxy_and_gate0(
     bgm_gain_db: float = -24.0,
     scene_offsets: Optional[dict[str, float]] = None,
 ) -> tuple[EpisodeState, str, str]:
+    from src.tools.qa_gate import run_pre_render_gate0_checks
+    from src.tools.tts_engine import LOCKED_DEFAULT_VOICE
+
     brand, _ = load_configs()
     paths = episode_paths(episode_id)
     state = load_or_init_state(episode_id)
     if state.agent3 is None or state.agent6 is None:
         raise RuntimeError("Need Agent 3 script and Agent 6 assets before rendering.")
+
+    ok_pre, pre_issues = run_pre_render_gate0_checks(state)
+    if not ok_pre:
+        raise RuntimeError(f"Gate 0 Pre-Render failed before render: {pre_issues}")
 
     if (
         version > 1
@@ -647,7 +669,7 @@ def run_agent_4_proxy_and_gate0(
             for seg in state.render_plan.segments
         ]
         subtitles = list(state.render_plan.subtitles)
-        print(f"[tts] Memakai ulang audio voiceover dari v1 untuk revisi v{version} (hemat kuota ElevenLabs)")
+        print(f"[tts] Memakai ulang audio voiceover locked {LOCKED_DEFAULT_VOICE} dari v1 untuk revisi v{version}")
     else:
         voice_cfg = dict(brand["voice"])
         try:
@@ -665,9 +687,10 @@ def run_agent_4_proxy_and_gate0(
         voice_path, scene_timings, subtitles, _ = generate_episode_voiceover(
             scenes=state.agent3.scenes,
             out_dir=paths["renders"] / f"audio_v{version}",
-            voice=voice_cfg["voice_name"],
-            rate=voice_cfg["rate"],
-            pitch=voice_cfg["pitch"],
+            voice=str(voice_cfg.get("voice_name") or LOCKED_DEFAULT_VOICE),
+            rate=str(voice_cfg.get("rate") or "+4%"),
+            pitch=str(voice_cfg.get("pitch") or "+4Hz"),
+            volume=str(voice_cfg.get("volume") or "+0%"),
         )
 
     plan = build_render_plan(
@@ -704,13 +727,16 @@ def run_agent_5_video_qa(
     sheet_path: str,
     version: int = 1,
 ) -> tuple[EpisodeState, Agent5AuditOutput]:
-    """Strict multimodal Video QA Audit inspecting the rendered contact sheet + Gate 0 report."""
+    """Strict multimodal Video QA Audit inspecting keyframes + script-vs-diagram science consistency + Gate 0."""
+    from src.tools.qa_gate import run_pre_render_gate0_checks
+
     brand, agents_cfg = load_configs()
     paths = episode_paths(episode_id)
     state = load_or_init_state(episode_id)
     if state.agent3 is None or state.render_plan is None or state.gate0 is None:
         raise RuntimeError("Render proxy and Gate 0 before running Agent 5 QA.")
 
+    ok_pre, pre_issues = run_pre_render_gate0_checks(state)
     min_qa = float(brand.get("guardrails", {}).get("min_qa_score", 8.0))
     a5_cfg = agents_cfg["agents"]["agent_5_video_qa"]
 
@@ -718,35 +744,29 @@ def run_agent_5_video_qa(
         provider=a5_cfg["provider"],
         model=a5_cfg.get("model", a5_cfg["recommended_prod_model"]),
         system_prompt=(
-            "You are Agent 5 (Strict Multimodal Video QA Auditor) for Kimiabill. "
-            "Inspect the attached contact sheet image carefully alongside Gate 0 technical checks and script. "
-            "Be RUTHLESS and objective — do NOT pass mediocre videos! Check EVERY item:\n"
-            "0. SAFETY FIRST: Any nudity, suggestive, violent or otherwise inappropriate frame for a kids/teen science "
-            "channel = automatic fail with revision_target 'asset_scout' and that scene in affected_scenes.\n"
-            "1. Visual clarity & framing: Is the real footage crisp and un-zoomed (NOT blurry or overly cropped)? "
-            "NOTE: landscape clips are INTENTIONALLY shown as a large full-width window over a blurred backdrop of "
-            "the same clip — this is the house style, NOT a defect. Also judge whether each clip visually matches its narration "
-            "and is free of watermarks/music-player/app UI.\n"
-            "2. Mechanistic comic-science overlays: Are the animated mechanism diagrams clearly visible, with 100% crisp "
-            "text contrast (NO white text spilling onto white card background, NO clipped/overflowing labels, NO mascot covering text), "
-            "AND does `mechanism.kind` + actors actually match that scene's scientific mechanism (flag if generic rigid/lock-and-key/electron is misused)?\n"
-            "3. Duo mascots: Are the Kimiabill mascots visible and cleanly positioned without blocking subtitles?\n"
-            "4. Subtitle readability: Are Indonesian subtitles sharp, centered, and inside safe zone?\n"
-            "5. End-card references: The LAST tile of the contact sheet labelled 'END-CARD' is the closing frame; "
-            "check that it shows the 'REFERENSI & SUMBER' bibliography card.\n"
-            "6. Gate 0 audio/video health: Must pass technical checks.\n"
-            "7. Hook & Retention Pacing: Confirm scene_1 visual frame + narration deliver an immediate, scroll-stopping "
-            "curiosity hook (zero generic filler) and middle scenes advance briskly without over-explaining.\n"
-            f"Set `passed: true` ONLY if Gate 0 passed AND overall_score >= {min_qa} AND no major visual defects exist. "
-            "If failing, specify exact `revision_target` ('asset_scout', 'editor', or 'both'), list the exact "
-            "`affected_scenes` (e.g. ['scene_2']), and give up to 4 sharp `patch_instructions`."
+            "You are Agent 5 (Strict Multimodal Video QA Auditor) for @kimiabill YouTube Shorts. "
+            "Inspect the attached 4-6 keyframe contact sheet image carefully alongside Gate 0 checks, script, and diagram specs. "
+            "Be RUTHLESS and objective — do NOT pass defective videos! Check EVERY item:\n"
+            "0. SAFETY FIRST: Any nudity, suggestive, violent, or inappropriate frame = automatic FAIL (`revision_target: 'asset_scout'`).\n"
+            "1. Full-screen 9:16 B-Roll Relevance & Cleanliness: Confirm every scene fills 9:16 cleanly (NO small 16:9 box over static blur, "
+            "NO university/channel bumpers like PennState or LIFE IN THE LAB, NO lecture slides, NO Arduino LCDs in biology topics, "
+            "NO unrelated animals, NO watermarks/UI). Flag mismatched clips with `revision_target: 'asset_scout'` & exact `affected_scenes`.\n"
+            "2. Science Consistency (Script vs Diagram JSON): Explicitly verify EVERY scene's narration matches its diagram (`mechanism.kind`, "
+            "`actor_a`, `actor_b`, `result`). REJECT ANY scientific contradiction (e.g. nonpolar capsaicin reacting/dissolving in plain water, "
+            "`mechanical_stress` in non-mechanics topics, `redox_reaction` without redox) OR ANY placeholder (`Molekul A`, `Molekul B`, `SOLUSI:`, `REAKSI`).\n"
+            "3. Zero Text Clipping & Contrast: Confirm 0% clipped/truncated labels (`diasi U`, `npone`, `...`), sharp subtitles in safe zone, "
+            "and mascots never blocking subtitles or diagram text.\n"
+            "4. Shorts Pacing, Audio & YouTube Closing: Confirm duration <=58s (ideal 30-48s), Gate 0 silent gaps <=0.6s, NO static reference end-card "
+            "or 'Thank you for watching', and NO TikTok/IG 'follow' CTA (must be seamless loop or YouTube 'Subscribe').\n"
+            f"Set `passed: true` ONLY if Gate 0 passed AND pre_render_gate0_ok AND overall_score >= {min_qa} AND ZERO defects above exist."
         ),
         user_payload={
             "version_audited": version,
             "min_qa_score": min_qa,
+            "pre_render_gate0_ok": ok_pre,
+            "pre_render_gate0_issues": pre_issues,
             "gate0": state.gate0.model_dump(),
             "title": state.agent3.title,
-            "references": state.render_plan.references,
             "weekly_growth_directives": (
                 __import__("src.tools.telegram_notify", fromlist=["get_agent_specific_owner_directives"])
                 .get_agent_specific_owner_directives("agent_5")
@@ -770,9 +790,10 @@ def run_agent_5_video_qa(
         image_paths=[Path(sheet_path)],
     )
 
-    # Enforce hard guardrail programmatically even if LLM was lenient
-    if not state.gate0.passed or audit.overall_score < min_qa:
+    if not ok_pre or not state.gate0.passed or audit.overall_score < min_qa:
         audit.passed = False
+        if not ok_pre:
+            audit.issues = list(dict.fromkeys([*pre_issues[:2], *(audit.issues or [])]))[:4]
 
     state.agent5_history.append(audit)
     state.revision_count = max(0, version - 1)
@@ -791,6 +812,7 @@ def run_final_hd_render(episode_id: str) -> tuple[EpisodeState, str, str]:
 
     final_plan = state.render_plan.model_copy(deep=True)
     final_plan.resolution_mode = "final_1080p"
+    final_plan.references = _collect_episode_references(state, check_http=True)
     if state.agent7 and state.agent7.thumbnail_path and Path(state.agent7.thumbnail_path).exists():
         final_plan.cover_thumbnail_path = state.agent7.thumbnail_path
     final_plan.output_video_path = str(
@@ -839,7 +861,10 @@ def run_upload(
     qa_summary: str = "",
     topic_attempts_used: int = 1,
     production_seconds: Optional[float] = None,
+    send_basic_telegram_summary: bool = False,
 ) -> EpisodeState:
+    from src.tools.topic_guard import extract_topic_keywords
+
     paths = episode_paths(episode_id)
     state = load_or_init_state(episode_id)
     url = upload_episode_to_gdrive(
@@ -847,6 +872,7 @@ def run_upload(
         episode_name=episode_id,
         allow_youtube=allow_youtube,
         qa_summary=qa_summary,
+        send_basic_telegram=send_basic_telegram_summary,
     )
     state.gdrive_folder_url = url
     yt_meta = paths["handoffs"] / "youtube_upload.json"
@@ -859,9 +885,17 @@ def run_upload(
         state.status = "uploaded"
     save_state(state)
 
-    if allow_youtube and state.agent3:
+    pub_mode = os.environ.get("PUBLISH_MODE", "draft").strip().lower()
+    # Only record to published_history immediately when already published publicly;
+    # unlisted drafts awaiting manual/AI audit are recorded upon approval!
+    if allow_youtube and state.agent3 and pub_mode == "public":
         from src.tools.weekly_growth_auditor import record_published_episode
 
+        winner = (
+            next((c for c in state.agent1.candidates if c.id == state.agent2.winner_id), None)
+            if state.agent1 and state.agent2
+            else None
+        )
         mechanisms_used = [
             {
                 "scene_id": s.scene_id,
@@ -889,6 +923,13 @@ def run_upload(
             topic_attempts_used=topic_attempts_used,
             production_seconds=production_seconds,
             mechanisms_used=mechanisms_used,
+            topic_slug=state.agent3.episode_slug,
+            source_url=winner.viral_source_url if winner else None,
+            keywords=extract_topic_keywords(
+                f"{state.agent3.title} {winner.phenomenon if winner else ''}"
+            ),
+            topic_bucket=winner.topic_bucket if winner else "everyday",
+            publish_mode="public",
         )
 
     memory = StudioMemory(BASE_DIR)
@@ -908,6 +949,8 @@ def run_upload(
 
 def prepare_episode_thumbnail(episode_id: str) -> EpisodeState:
     """Run Agent 7 copy generation (if needed) and generate 9:16 cover thumbnail BEFORE final 1080p render."""
+    from src.tools.tts_engine import sanitize_indonesian_script
+
     brand, agents_cfg = load_configs()
     paths = episode_paths(episode_id)
     state = load_or_init_state(episode_id)
@@ -922,11 +965,9 @@ def prepare_episode_thumbnail(episode_id: str) -> EpisodeState:
             f"thanking them, then ask a super easy 1-word binary poll tied to this topic so viewers immediately comment!"
             if state.requested_by
             else (
-                "COMMENT-BOOSTER PINNED COMMENT RULE (FIX 0-COMMENT BOTTLENECK): NEVER write generic 'Kamu tim baru tahu atau udah pernah dengar?'. "
-                "Instead, BOTH `caption` (closing line) AND `pinned_comment` MUST pose ONE playful, specific 1-word debate, vote, or everyday confession "
-                "tied directly to THIS video's phenomenon (e.g. 'Tim yang lidahnya langsung gatel ketik GATEL, yang kebal ketik AMAN! 🍍👇' or "
-                "'Kamu pas bakar-bakaran selalu diincer asapnya juga nggak? 🤣🔥'), followed briefly by: 'Mau bahas keanehan sehari-hari apa lagi? Tulis singkat di bawah!' "
-                "Keep `pinned_comment` under 200 chars, warm, funny, and effortless to answer in 1 word."
+                "COMMENT-BOOSTER PINNED COMMENT RULE: Pose ONE playful, specific 1-word debate or confession "
+                "tied directly to THIS video's phenomenon, followed briefly by: 'Subscribe & mau bahas keanehan sains apa lagi? Tulis di bawah!' "
+                "FORBIDDEN WORD: NEVER use 'follow' anywhere in YouTube title, caption, or pinned_comment (always use 'Subscribe')."
             )
         )
         from src.tools.telegram_notify import get_agent_specific_owner_directives
@@ -936,15 +977,13 @@ def prepare_episode_thumbnail(episode_id: str) -> EpisodeState:
             provider=a7_cfg["provider"],
             model=a7_cfg.get("model", a7_cfg["recommended_prod_model"]),
             system_prompt=(
-                "You are Agent 7 (High-CTR Shorts Packaging & Social Media Publisher) for @kimiabill. "
+                "You are Agent 7 (High-CTR Shorts Packaging & Social Media Publisher) for @kimiabill (YouTube Shorts). "
                 "Create viral, non-spoiler thumbnail copy AND platform-tailored Indonesian title, punchy caption, "
-                "hashtags, and a conversation-starting `pinned_comment` for every platform, strictly respecting any `owner_directives`.\n"
-                "PLATFORM TITLE RULE: `platform_copies[].title` MUST be **3 to 6 punchy words** (<=45 chars) with ZERO spoiler of the answer — "
-                "mirror top viral Indonesian Shorts like 'KUAT dan TAHAN LAMA', 'Sungai Ini Kasih Peringatan', 'Obat Ini Nemu Sendiri?!'.\n"
-                "COVER THUMBNAIL COPY RULE (RESEARCH TAB BENCHMARK): "
-                "Keep `thumbnail_badge` to 1-2 uppercase words (<=16 chars, e.g. 'KIMIA DAPUR', 'RISET KARAT', 'FAKTA TUBUH'), "
-                "`thumbnail_headline_top` to 1-3 short words (<=15 chars, e.g. 'ASAP BAKARAN'), and `thumbnail_headline_main` to **2-3 explosive curiosity words** "
-                "(<=14 chars, e.g. 'NGEJAR TERUS?!', 'DIMAKAN BUAH?!', 'KOK BISA TAHU?!') that create instant confusion/intrigue without spoiling! "
+                "hashtags, and a conversation-starting `pinned_comment`, strictly respecting `owner_directives`.\n"
+                "YOUTUBE RULE: NEVER use the word 'follow' anywhere; always use 'Subscribe'.\n"
+                "PLATFORM TITLE RULE: `platform_copies[].title` MUST be **3 to 6 punchy words** (<=45 chars) with ZERO spoiler.\n"
+                "COVER THUMBNAIL COPY RULE: `thumbnail_badge` 1-2 words (<=16 chars), `thumbnail_headline_top` 1-3 words (<=15 chars), "
+                "`thumbnail_headline_main` 2-3 curiosity words (<=14 chars).\n"
                 f"{req_a7_note}"
             ),
             user_payload={
@@ -960,6 +999,11 @@ def prepare_episode_thumbnail(episode_id: str) -> EpisodeState:
             response_model=Agent7Output,
             handoff_path=paths["handoffs"] / "agent7_package.json",
         )
+        for cp in state.agent7.platform_copies:
+            cp.title = sanitize_indonesian_script(cp.title)
+            cp.caption = sanitize_indonesian_script(cp.caption)
+            if cp.pinned_comment:
+                cp.pinned_comment = sanitize_indonesian_script(cp.pinned_comment)
 
     pkg = state.agent7
     thumb_path = paths["ep_dir"] / f"THUMBNAIL_{state.agent3.episode_slug}_9x16.jpg"

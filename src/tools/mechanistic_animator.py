@@ -253,6 +253,7 @@ def draw_sunburst_bg(w: int, h: int, angle_offset: float = 0.0) -> Image.Image:
 class MascotLibrary:
     def __init__(self, mascots_dir: Path) -> None:
         self.sprites: dict[str, Image.Image] = {}
+        self._resize_cache: dict[tuple[str, int, bool], Image.Image] = {}
         for name in (
             "male_curious",
             "female_curious",
@@ -281,12 +282,19 @@ class MascotLibrary:
         sp = self.sprites[key]
         p = ease_out_back((local_t - appear_at) / 0.40)
         bob = int(math.sin((local_t - appear_at) * 4.2) * 8)
-        h = max(20, int(target_h * min(p, 1.04)))
-        w = max(20, int(sp.width * (h / sp.height)))
-        resized = sp.resize((w, h), Image.Resampling.LANCZOS)
-        if flip_x:
-            resized = resized.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-        x = center_x - w // 2
+        raw_h = max(20, int(target_h * min(p, 1.04)))
+        # Snap height to 4px steps after pop-in settles so steady bobbing frames reuse cached LANCZOS sprites
+        h = target_h if abs(raw_h - target_h) <= 6 else (raw_h // 4) * 4
+        cache_k = (key, h, flip_x)
+        resized = self._resize_cache.get(cache_k)
+        if resized is None:
+            w = max(20, int(sp.width * (h / sp.height)))
+            resized = sp.resize((w, h), Image.Resampling.LANCZOS)
+            if flip_x:
+                resized = resized.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+            if len(self._resize_cache) < 96:
+                self._resize_cache[cache_k] = resized
+        x = center_x - resized.width // 2
         y = bottom_y - h + bob
         canvas.alpha_composite(resized, (x, y))
 
@@ -1008,94 +1016,42 @@ def _prepare_smart_real_footage_base(
     height: int = 1920,
     fps: int = 30,
 ) -> Path:
-    """Prepare crisp, non-overzoomed real footage base for vertical 9:16 video.
-
-    - Vertical/square clips (aspect <= 1.15): fill 9:16 cleanly with Lanczos scaling.
-    - Landscape clips (aspect > 1.15): render a softly blurred dark background fill + crisp
-      un-zoomed foreground video window in the upper-middle frame so scientific details stay sharp!
-    """
+    """Prepare full-screen 9:16 real footage base (portrait native or proportional 9:16 center-crop, never boxed over static blur)."""
     seg_dir = work_dir / f"smart_base_{width}x{height}"
     seg_dir.mkdir(parents=True, exist_ok=True)
     seg_files: list[Path] = []
 
-    # Landscape foreground window: full frame width, ~33.3% of frame height (1080x640, near 16:9).
-    # Sharp and un-zoomed, leaving y=945..1345 completely clean for the animated mechanistic simulation!
-    fg_w = width - (width % 2)
-    fg_h = int(height * 0.333)
-    fg_h -= fg_h % 2
-    fg_y = int(height * 0.15)
-
     for seg in plan.segments:
         out_seg = seg_dir / f"{seg.scene_id}.mp4"
-        src_w, src_h = _probe_video_dims(seg.footage_path)
-        aspect = (src_w / src_h) if src_h > 0 else 1.77
-
-        if aspect > 1.15:
-            # Landscape clip: blurred dark backdrop + sharp, full-frame foreground (NO brutal 3x crop!)
-            filter_complex = (
-                f"[0:v]split=2[bg0][fg0];"
-                f"[bg0]scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,"
-                f"crop={width}:{height},gblur=sigma=24,eq=brightness=-0.22:saturation=0.80[bg];"
-                f"[fg0]scale={fg_w}:{fg_h}:force_original_aspect_ratio=increase:flags=lanczos,"
-                f"crop={fg_w}:{fg_h},eq=contrast=1.05:saturation=1.08[fg];"
-                f"[bg][fg]overlay=(W-w)/2:{fg_y}:shortest=1,fps={fps},format=yuv420p[vout]"
-            )
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-stream_loop",
-                "-1",
-                "-ss",
-                f"{seg.footage_start_offset:.2f}",
-                "-i",
-                seg.footage_path,
-                "-t",
-                f"{seg.duration_sec:.3f}",
-                "-filter_complex",
-                filter_complex,
-                "-map",
-                "[vout]",
-                "-an",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "veryfast",
-                "-crf",
-                "20",
-                "-pix_fmt",
-                "yuv420p",
-                str(out_seg),
-            ]
-        else:
-            vf = (
-                f"scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,"
-                f"crop={width}:{height},fps={fps},"
-                f"eq=contrast=1.05:saturation=1.06:brightness=-0.03,format=yuv420p"
-            )
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-stream_loop",
-                "-1",
-                "-ss",
-                f"{seg.footage_start_offset:.2f}",
-                "-i",
-                seg.footage_path,
-                "-t",
-                f"{seg.duration_sec:.3f}",
-                "-vf",
-                vf,
-                "-an",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "veryfast",
-                "-crf",
-                "20",
-                "-pix_fmt",
-                "yuv420p",
-                str(out_seg),
-            ]
+        vf = (
+            f"scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,"
+            f"crop={width}:{height}:(iw-ow)/2:(ih-oh)/2,fps={fps},"
+            f"eq=contrast=1.05:saturation=1.06:brightness=-0.02,format=yuv420p"
+        )
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-stream_loop",
+            "-1",
+            "-ss",
+            f"{seg.footage_start_offset:.2f}",
+            "-i",
+            seg.footage_path,
+            "-t",
+            f"{seg.duration_sec:.3f}",
+            "-vf",
+            vf,
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "21",
+            "-pix_fmt",
+            "yuv420p",
+            str(out_seg),
+        ]
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         seg_files.append(out_seg)
 
@@ -1200,13 +1156,81 @@ def _draw_curved_arrow(
 
 
 def _smart_trim(txt: str, max_chars: int) -> str:
-    s = (txt or "").strip()
+    s = " ".join((txt or "").strip().split())
     if len(s) <= max_chars:
         return s
-    cut = s[:max_chars].rstrip()
-    if " " in cut and len(cut.rsplit(" ", 1)[0]) >= 4:
-        return cut.rsplit(" ", 1)[0]
-    return cut
+    # Never slice a word mid-syllable; return clean prefix on word boundary or full word
+    words = s.split()
+    out: list[str] = []
+    cur = 0
+    for w in words:
+        nxt = len(w) + (1 if out else 0)
+        if cur + nxt <= max_chars:
+            out.append(w)
+            cur += nxt
+        else:
+            break
+    return " ".join(out) if out else words[0]
+
+
+def _fit_text_layout(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    base_font: ImageFont.FreeTypeFont,
+    max_w: int,
+    max_lines: int = 2,
+    min_size: int = 13,
+) -> tuple[list[str], ImageFont.FreeTypeFont, int, int]:
+    """Word-wrap cleanly and shrink font size down cleanly so 0% text is clipped mid-word or overflows."""
+    txt = " ".join((text or "").strip().split())
+    if not txt:
+        return [], base_font, 0, 0
+    font_path = getattr(base_font, "path", None)
+    start_sz = int(getattr(base_font, "size", 22) or 22)
+
+    if font_path:
+        for sz in range(start_sz, min_size - 1, -2):
+            try:
+                cand_f = ImageFont.truetype(font_path, sz) if sz != start_sz else base_font
+            except Exception:
+                cand_f = base_font
+            # Try single line first, then up to max_lines
+            bb1 = draw.textbbox((0, 0), txt, font=cand_f)
+            if (bb1[2] - bb1[0]) <= max_w:
+                return [txt], cand_f, bb1[2] - bb1[0], bb1[3] - bb1[1]
+            if max_lines > 1:
+                words = txt.split()
+                lines: list[str] = []
+                cur = ""
+                overflow = False
+                for w in words:
+                    trial = f"{cur} {w}".strip()
+                    wbb = draw.textbbox((0, 0), trial, font=cand_f)
+                    if (wbb[2] - wbb[0]) <= max_w or not cur:
+                        # Check single word width too
+                        single_bb = draw.textbbox((0, 0), w, font=cand_f)
+                        if (single_bb[2] - single_bb[0]) > max_w:
+                            overflow = True
+                            break
+                        cur = trial
+                    else:
+                        lines.append(cur)
+                        cur = w
+                if cur:
+                    lines.append(cur)
+                if not overflow and len(lines) <= max_lines:
+                    max_lw = max(draw.textbbox((0, 0), ln, font=cand_f)[2] - draw.textbbox((0, 0), ln, font=cand_f)[0] for ln in lines)
+                    line_h = int(sz * 1.24)
+                    return lines, cand_f, max_lw, line_h * len(lines)
+        # At min_size, wrap cleanly across up to max_lines
+        min_f = ImageFont.truetype(font_path, min_size)
+        lines = _wrap_text(draw, txt, min_f, max_w, max_lines=max_lines)
+        max_lw = max((draw.textbbox((0, 0), ln, font=min_f)[2] - draw.textbbox((0, 0), ln, font=min_f)[0] for ln in lines), default=0)
+        return lines, min_f, min(max_w, max_lw), int(min_size * 1.24) * max(1, len(lines))
+
+    lines = _wrap_text(draw, txt, base_font, max_w, max_lines=max_lines)
+    max_lw = max((draw.textbbox((0, 0), ln, font=base_font)[2] - draw.textbbox((0, 0), ln, font=base_font)[0] for ln in lines), default=0)
+    return lines, base_font, min(max_w, max_lw), 28 * max(1, len(lines))
 
 
 _ACCENT_COLOR_MAP: dict[str, tuple[int, int, int, int]] = {
@@ -1219,103 +1243,65 @@ _ACCENT_COLOR_MAP: dict[str, tuple[int, int, int, int]] = {
     "amber": GOLD,
 }
 
+_FORBIDDEN_PARAMS_LOW: tuple[str, ...] = (
+    "molekul a", "molekul b", "actor a", "actor b", "solusi:", "placeholder", "todo", "undefined"
+)
+
 
 def _infer_mechanism_params(seg: TimelineSegment, discipline: str = "kimia") -> dict[str, str]:
-    """Return structured mechanism parameters from seg.mechanism, mechanism_bank, or smart keyword inference."""
-    from src.tools.mechanism_bank import load_mechanism_bank, resolve_preset_style
+    """Return strictly validated mechanism parameters (never substitutes raw 'Molekul A/B' placeholders)."""
+    from src.tools.mechanism_bank import resolve_preset_style
 
     if seg.mechanism is not None:
         m = seg.mechanism
         preset_meta = resolve_preset_style(getattr(m, "preset_id", None))
         accent = getattr(m, "accent_color", None) or preset_meta.get("accent_color") or ""
+        title = _smart_trim(m.title or preset_meta.get("label_title") or "", 32)
+        actor_a = _smart_trim(m.actor_a or preset_meta.get("default_actor_a") or "", 18)
+        actor_b = _smart_trim(m.actor_b or preset_meta.get("default_actor_b") or "", 18)
+        result = _smart_trim(m.result or preset_meta.get("default_result") or "", 24)
+        for val in (title, actor_a, result):
+            if not val or any(tok in val.lower() for tok in _FORBIDDEN_PARAMS_LOW):
+                raise ValueError(f"Invalid placeholder/empty mechanism field in {seg.scene_id}: '{val}'")
         return {
             "kind": m.kind,
-            "title": _smart_trim(m.title or preset_meta.get("label_title") or "MEKANISME SAINS", 34),
-            "actor_a": _smart_trim(m.actor_a or preset_meta.get("default_actor_a") or "A", 16),
-            "actor_b": _smart_trim(m.actor_b or preset_meta.get("default_actor_b") or "B", 16),
-            "result": _smart_trim(m.result or preset_meta.get("default_result") or "Hasil", 22),
-            "caption": _smart_trim(m.caption or "", 54),
+            "title": title,
+            "actor_a": actor_a,
+            "actor_b": actor_b,
+            "result": result,
+            "caption": _smart_trim(m.caption or "", 52),
             "accent_color": str(accent).strip().lower(),
         }
 
-    import re
-    blob = f"{seg.narration} {seg.overlay_badge or ''} {discipline}".lower()
-
-    # Check custom bank trigger_keywords first so Agent 8's growing bank works automatically!
-    try:
-        bank = load_mechanism_bank()
-        best_preset: dict | None = None
-        best_hits = 0
-        for pr in bank.get("custom_presets") or []:
-            kws = [str(k).lower() for k in (pr.get("trigger_keywords") or []) if str(k).strip()]
-            hits = sum(1 for k in kws if k in blob)
-            if hits >= 2 and hits > best_hits:
-                best_hits = hits
-                best_preset = pr
-        if best_preset is not None:
+    # If seg.mechanism is omitted on a neutral segment, infer strictly into safe neutral templates
+    # without touching chemistry/mechanics/redox clichés or injecting placeholder strings.
+    badge = " ".join((seg.overlay_badge or "").strip().split())
+    if badge and not any(tok in badge.lower() for tok in _FORBIDDEN_PARAMS_LOW):
+        import re as _re
+        parts = [p.strip() for p in _re.split(r"\s*(?:→|->|=>|vs\.?|\+)\s*", badge, flags=_re.IGNORECASE) if p.strip()]
+        if len(parts) >= 2:
             return {
-                "kind": str(best_preset.get("engine_kind") or "molecular_reaction"),
-                "title": _smart_trim(str(best_preset.get("label_title") or "MEKANISME SAINS"), 34),
-                "actor_a": _smart_trim(str(best_preset.get("default_actor_a") or "A"), 16),
-                "actor_b": _smart_trim(str(best_preset.get("default_actor_b") or "B"), 16),
-                "result": _smart_trim(str(best_preset.get("default_result") or "Hasil"), 22),
-                "caption": _smart_trim(seg.overlay_badge or seg.narration, 50),
-                "accent_color": str(best_preset.get("accent_color") or "").strip().lower(),
+                "kind": "concept_comparison" if "vs" in badge.lower() else "process_flow",
+                "title": "ALUR PROSES SAINS",
+                "actor_a": _smart_trim(parts[0], 18),
+                "actor_b": _smart_trim(parts[1], 18),
+                "result": _smart_trim(parts[-1], 24) if len(parts) >= 3 else _smart_trim(parts[1], 24),
+                "caption": _smart_trim(badge, 52),
+                "accent_color": "cyan",
             }
-    except Exception:
-        pass
+        return {
+            "kind": "minimal_formula_badge",
+            "title": "KONSEP KUNCI",
+            "actor_a": _smart_trim(badge, 18),
+            "actor_b": "",
+            "result": _smart_trim(badge, 24),
+            "caption": _smart_trim(seg.narration, 48),
+            "accent_color": "blue",
+        }
 
-    if any(k in blob for k in ("bromelain", "protease", "nanas", "kolagen", "memotong", "pemecah", "daging", "peptida")):
-        kind = "protein_cleavage"
-        default_title = "PEMOTONGAN RANTAI PROTEIN"
-    elif any(k in blob for k in ("osmosis", "keriput", "membran", "epidermis", "hipotonik", "hipertonik", "berendam")):
-        kind = "osmosis_membrane"
-        default_title = "ALIRAN AIR & OSMOSIS"
-    elif any(k in blob for k in ("surfaktan", "sabun", "deterjen", "emulsi", "misel", "lemak")):
-        kind = "surface_surfactant"
-        default_title = "SURFAKTAN & EMULSI MINYAK"
-    elif any(k in blob for k in ("mendidih", "uap", "1600", "meledak", "karamel", "maillard", "mencair", "penguapan", "fase", "kalor")):
-        kind = "phase_transition"
-        default_title = "TRANSISI FASE & KALOR"
-    elif any(k in blob for k in ("cuka", "asam", "basa", "soda", "karbonat", "gelembung", "co2", "lambung")):
-        kind = "acid_base_bubble"
-        default_title = "REAKSI ASAM-BASA & GAS"
-    elif any(k in blob for k in ("kristal", "kisi", "beku", "salju", "es batu")):
-        kind = "crystal_lattice"
-        default_title = "STRUKTUR KISI KRISTAL"
-    elif any(k in blob for k in ("polimer", "hidrogel", "tekuk", "elastis", "rigid", "silang", "crosslink", "plastik")):
-        kind = "polymer_crosslink"
-        default_title = "PENGUATAN STRUKTUR POLIMER"
-    elif any(k in blob for k in ("elektron", "redoks", "oksidasi", "karat", "ion", "baterai", "arus", "muatan")):
-        kind = "electron_transfer"
-        default_title = "ARAH TRANSFER ELEKTRON"
-    elif any(k in blob for k in ("reseptor", "obat", "hormon", "antibodi", "virus", "saraf", "nyeri")):
-        kind = "receptor_binding"
-        default_title = "IKATAN MOLEKUL & RESEPTOR"
-    elif any(k in blob for k in ("gelombang", "gaya", "energi", "cahaya", "suara", "frekuensi", "tekanan", "gravitasi")):
-        kind = "force_wave"
-        default_title = "MEKANISME GAYA & GELOMBANG"
-    elif any(k in blob for k in ("matematika", "grafik", "eksponensial", "pola", "kurva", "probabilitas", "fraktal", "geometri")):
-        kind = "math_geometry"
-        default_title = "POLA & KURVA MATEMATIKA"
-    else:
-        kind = "molecular_reaction"
-        default_title = "MEKANISME REAKSI KIMIA"
-
-    badge = (seg.overlay_badge or "").strip()
-    parts = [p.strip() for p in re.split(r"\s*(?:→|->|=>|=|\+)\s*", badge) if p.strip()]
-    actor_a = _smart_trim(parts[0], 16) if len(parts) >= 1 else "Molekul A"
-    actor_b = _smart_trim(parts[1], 16) if len(parts) >= 2 else "Molekul B"
-    result = _smart_trim(parts[-1], 22) if len(parts) >= 3 else (_smart_trim(parts[1], 22) if len(parts) == 2 else "Struktur Baru")
-    return {
-        "kind": kind,
-        "title": default_title,
-        "actor_a": actor_a,
-        "actor_b": actor_b,
-        "result": result,
-        "caption": _smart_trim(badge, 54) if badge else _smart_trim(seg.narration, 50),
-        "accent_color": "",
-    }
+    raise ValueError(
+        f"Segment {seg.scene_id} has no valid `mechanism` schema or concrete `overlay_badge`; refusing placeholder fallback."
+    )
 
 
 def _draw_label_pill(
@@ -1330,40 +1316,33 @@ def _draw_label_pill(
     pad_x: int = 16,
     pad_y: int = 8,
     max_w: int = 860,
+    max_lines: int = 2,
 ) -> None:
-    """Draw a high-contrast auto-sized rounded pill behind text so labels NEVER spill or truncate needlessly."""
-    txt = text.strip()
+    """Draw a high-contrast auto-sized pill with automatic word-wrap and font-shrink (zero mid-word clipping)."""
+    txt = " ".join((text or "").strip().split())
     if not txt:
         return
-    use_font = font
-    bbox = draw.textbbox((0, 0), txt, font=use_font)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
-    # Shrink font down gently before falling back to ellipsis truncation
-    if tw + pad_x * 2 > max_w and getattr(font, "path", None) and getattr(font, "size", 0) > 17:
-        for sz in (int(font.size) - 3, int(font.size) - 6):
-            if sz >= 16:
-                try:
-                    cand_f = ImageFont.truetype(font.path, sz)
-                    bb2 = draw.textbbox((0, 0), txt, font=cand_f)
-                    use_font = cand_f
-                    tw, th = bb2[2] - bb2[0], bb2[3] - bb2[1]
-                    if tw + pad_x * 2 <= max_w:
-                        break
-                except Exception:
-                    pass
-    while tw + pad_x * 2 > max_w and len(txt) > 6:
-        txt = txt[:-2].rstrip() + "…"
-        bbox = draw.textbbox((0, 0), txt, font=use_font)
-        tw = bbox[2] - bbox[0]
-    pw = min(max_w, tw + pad_x * 2)
-    ph = max(34, th + pad_y * 2)
+    inner_max_w = max(80, max_w - pad_x * 2)
+    lines, use_font, max_lw, total_th = _fit_text_layout(
+        draw, txt, font, inner_max_w, max_lines=max_lines, min_size=13
+    )
+    if not lines:
+        return
+    pw = min(max_w, max_lw + pad_x * 2)
+    ph = max(34, total_th + pad_y * 2)
     x0 = cx - pw // 2
     y0 = cy - ph // 2
     x1 = cx + pw // 2
     y1 = cy + ph // 2
-    draw.rounded_rectangle([x0, y0, x1, y1], radius=ph // 2, fill=bg, outline=outline, width=3)
-    draw.text((cx, cy), txt, font=use_font, fill=fg, anchor="mm")
+    radius = min(22, ph // 2)
+    draw.rounded_rectangle([x0, y0, x1, y1], radius=radius, fill=bg, outline=outline, width=3)
+    if len(lines) == 1:
+        draw.text((cx, cy), lines[0], font=use_font, fill=fg, anchor="mm")
+    else:
+        line_h = total_th / len(lines)
+        start_y = cy - (total_th / 2.0) + (line_h / 2.0)
+        for idx, ln in enumerate(lines):
+            draw.text((cx, int(round(start_y + idx * line_h))), ln, font=use_font, fill=fg, anchor="mm")
 
 
 def _anim_polymer_crosslink(
@@ -1374,7 +1353,7 @@ def _anim_polymer_crosslink(
     params: dict[str, str],
     fonts: dict,
 ) -> None:
-    """Animate polymer chains flexing under bending force -> crosslinks snapping -> rigid lattice!"""
+    """Animate polymer chains flexing under mechanical load -> crosslinks snapping -> strengthened structure."""
     x0, y0, x1, y1 = box
     cx = (x0 + x1) // 2
     prog = clamp(t / max(dur * 0.78, 1.8))
@@ -1394,9 +1373,9 @@ def _anim_polymer_crosslink(
             ay1 = y0 + 76 + pulse
             draw.line([(fx, ay0), (fx, ay1)], fill=RED, width=8)
             draw.polygon([(fx, ay1 + 14), (fx - 13, ay1 - 4), (fx + 13, ay1 - 4)], fill=RED, outline=INK)
-        _draw_label_pill(draw, cx, y0 + 26, "GAYA TEKUK / TEKANAN", fonts["micro_bold"], bg=RED, fg=WHITE)
+        _draw_label_pill(draw, cx, y0 + 26, params["actor_a"].upper(), fonts["micro_bold"], bg=RED, fg=WHITE, max_w=(x1 - x0) - 180)
     elif rigid_prog > 0.2:
-        _draw_label_pill(draw, cx, y0 + 26, f"✓ {params['result'].upper()}", fonts["micro_bold"], bg=(18, 132, 74, 255), fg=WHITE)
+        _draw_label_pill(draw, cx, y0 + 26, f"✓ {params['result'].upper()}", fonts["micro_bold"], bg=(18, 132, 74, 255), fg=WHITE, max_w=(x1 - x0) - 180)
 
     grid_pts: list[list[tuple[int, int]]] = []
     for r_idx, base_y in enumerate(row_ys):
@@ -1432,18 +1411,25 @@ def _anim_polymer_crosslink(
             node_col = GREEN if rigid_prog > 0.75 else (ORANGE if bend_phase > 0.35 else BLUE)
             draw.ellipse([px - 14, py - 14, px + 14, py + 14], fill=node_col, outline=INK, width=3)
 
-    # High-contrast progress bar at bottom
     bar_x0, bar_y0, bar_x1, bar_y1 = x0 + 36, y1 - 42, x1 - 36, y1 - 8
     draw.rounded_rectangle([bar_x0, bar_y0, bar_x1, bar_y1], radius=14, fill=CARD_DARK, outline=INK, width=3)
     pct = int(22 + 76 * clamp(crosslink_prog * 0.6 + rigid_prog * 0.4))
     fill_x1 = bar_x0 + int((bar_x1 - bar_x0) * (pct / 100.0))
     bar_col = (210, 95, 20, 255) if pct < 55 else (18, 132, 74, 255)
     draw.rounded_rectangle([bar_x0 + 3, bar_y0 + 3, max(bar_x0 + 24, fill_x1 - 3), bar_y1 - 3], radius=11, fill=bar_col)
+    status_lines, status_font, _, _ = _fit_text_layout(
+        draw,
+        f"{params['actor_b'].upper()} • {params['result'].upper()}: {pct}%",
+        fonts["micro_bold"],
+        (bar_x1 - bar_x0) - 24,
+        max_lines=1,
+        min_size=13,
+    )
     draw_outlined_text(
         draw,
         ((bar_x0 + bar_x1) // 2, (bar_y0 + bar_y1) // 2),
-        f"{params['actor_b'].upper()} → KEKUATAN / RIGIDITAS: {pct}%",
-        fonts["micro_bold"],
+        status_lines[0] if status_lines else f"{pct}%",
+        status_font,
         fill=WHITE,
         outline_color=INK,
         stroke_w=3,
@@ -1464,29 +1450,25 @@ def _anim_electron_transfer(
     cx = (x0 + x1) // 2
     cy = y0 + 124
 
-    # Left Donor cluster
     donor_x = x0 + 185
     donor_col = RUST_LIGHT if prog > 0.55 else IRON_GRAY
     for dy_off in (-44, 0, 44):
         draw.ellipse([donor_x - 30, cy + dy_off - 26, donor_x + 30, cy + dy_off + 26], fill=donor_col, outline=INK, width=4)
-    _draw_label_pill(draw, donor_x, cy, params["actor_a"], fonts["micro_bold"], bg=CARD_DARK, fg=YELLOW, max_w=280)
-    _draw_label_pill(draw, donor_x, cy + 88, "DONOR (Oksidasi)", fonts["micro_bold"], bg=RUST_DARK, fg=WHITE, max_w=310)
+    _draw_label_pill(draw, donor_x, cy, params["actor_a"], fonts["micro_bold"], bg=CARD_DARK, fg=YELLOW, max_w=270)
+    _draw_label_pill(draw, donor_x, cy + 88, "DONOR (Oksidasi)", fonts["micro_bold"], bg=RUST_DARK, fg=WHITE, max_w=290)
 
-    # Right Acceptor cluster
     acc_x = x1 - 185
     acc_col = (18, 132, 74, 255) if prog > 0.65 else BLUE
     for dy_off in (-44, 0, 44):
         draw.ellipse([acc_x - 30, cy + dy_off - 26, acc_x + 30, cy + dy_off + 26], fill=acc_col, outline=INK, width=4)
-    _draw_label_pill(draw, acc_x, cy, params["actor_b"], fonts["micro_bold"], bg=CARD_DARK, fg=CYAN, max_w=280)
-    _draw_label_pill(draw, acc_x, cy + 88, "AKSEPTOR (Reduksi)", fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=310)
+    _draw_label_pill(draw, acc_x, cy, params["actor_b"], fonts["micro_bold"], bg=CARD_DARK, fg=CYAN, max_w=270)
+    _draw_label_pill(draw, acc_x, cy + 88, "AKSEPTOR (Reduksi)", fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=290)
 
-    # Curved mechanistic reaction arrow arching from Donor -> Acceptor
     p0 = (donor_x + 56, cy - 30)
     ctrl = (cx, y0 + 12)
     p2 = (acc_x - 56, cy - 30)
     arc_pts = _draw_curved_arrow(draw, p0, ctrl, p2, ORANGE, width=7, steps=30)
 
-    # 3 glowing yellow electrons (e⁻) flying along the curved reaction arrow!
     for k in range(3):
         u = (t * 0.65 + k * 0.33) % 1.0
         idx = min(len(arc_pts) - 1, int(u * (len(arc_pts) - 1)))
@@ -1494,9 +1476,9 @@ def _anim_electron_transfer(
         draw.ellipse([ex - 19, ey - 19, ex + 19, ey + 19], fill=YELLOW, outline=INK, width=3)
         draw.text((ex, ey), "e⁻", font=fonts["micro_bold"], fill=INK, anchor="mm")
 
-    if prog > 0.25:
+    if prog > 0.20:
         _draw_label_pill(
-            draw, cx, y1 - 24, f"HASIL: {params['result']}", fonts["tiny_bold"],
+            draw, cx, y1 - 24, params["result"], fonts["tiny_bold"],
             bg=(18, 132, 74, 255), fg=WHITE, max_w=(x1 - x0) - 40,
         )
 
@@ -1509,7 +1491,7 @@ def _anim_molecular_reaction(
     params: dict[str, str],
     fonts: dict,
 ) -> None:
-    """Animate two ball-and-stick molecules approaching -> curved arrow -> new covalent bond & product."""
+    """Animate two concrete molecular actors approaching -> curved arrow -> formed product."""
     x0, y0, x1, y1 = box
     prog = clamp(t / max(dur * 0.78, 1.8))
     cx = (x0 + x1) // 2
@@ -1520,14 +1502,12 @@ def _anim_molecular_reaction(
     ax = int((x0 + 210) + approach * 135)
     bx = int((x1 - 210) - approach * 135)
 
-    # Molecule A (ball-and-stick cluster)
     for ox, oy in ((-46, -34), (-46, 34)):
         draw.line([(ax, cy), (ax + ox, cy + oy)], fill=INK, width=6)
         draw.ellipse([ax + ox - 16, cy + oy - 16, ax + ox + 16, cy + oy + 16], fill=CYAN, outline=INK, width=3)
     draw.ellipse([ax - 34, cy - 34, ax + 34, cy + 34], fill=BLUE, outline=INK, width=4)
     _draw_label_pill(draw, ax - 18, cy + 68, params["actor_a"], fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=270)
 
-    # Molecule B (ball-and-stick cluster)
     for ox, oy in ((46, -34), (46, 34)):
         draw.line([(bx, cy), (bx + ox, cy + oy)], fill=INK, width=6)
         draw.ellipse([bx + ox - 16, cy + oy - 16, bx + ox + 16, cy + oy + 16], fill=ORANGE, outline=INK, width=3)
@@ -1545,12 +1525,155 @@ def _anim_molecular_reaction(
         r_pulse = int(26 + 14 * math.sin(t * 8))
         draw.ellipse([cx - r_pulse, cy - r_pulse, cx + r_pulse, cy + r_pulse], outline=ORANGE, width=5)
 
-    lbl = f"IKATAN TERBENTUK: {params['result']}" if bonded else f"{params['actor_a']} + {params['actor_b']} → REAKSI"
+    lbl = f"HASIL: {params['result']}" if bonded else f"{params['actor_a']} + {params['actor_b']}"
     _draw_label_pill(
         draw, cx, y1 - 24, lbl, fonts["tiny_bold"],
         bg=(18, 132, 74, 255) if bonded else CARD_DARK, fg=WHITE if bonded else YELLOW,
         max_w=(x1 - x0) - 40,
     )
+
+
+def _anim_concept_comparison(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Clean A vs B scientific comparison panel (ideal for polarity/solubility, myth vs fact, or dual mechanisms)."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    prog = ease_out_cubic(clamp(t / max(dur * 0.72, 1.5)))
+
+    mid_gap = 24
+    col_w = (x1 - x0 - 40 - mid_gap) // 2
+    lx0, lx1 = x0 + 20, x0 + 20 + col_w
+    rx0, rx1 = lx1 + mid_gap, x1 - 20
+    panel_y0, panel_y1 = y0 + 18, y1 - 66
+
+    # Left card (Option / Factor A)
+    draw.rounded_rectangle([lx0, panel_y0, lx1, panel_y1], radius=20, fill=(255, 240, 240, 255), outline=RED, width=4)
+    _draw_label_pill(draw, (lx0 + lx1) // 2, panel_y0 + 36, params["actor_a"], fonts["tiny_bold"], bg=RED, fg=WHITE, max_w=col_w - 24)
+    # Animated gauge bar A
+    bar_w_l = max(24, int((col_w - 60) * 0.28 * prog))
+    draw.rounded_rectangle([lx0 + 30, panel_y0 + 106, lx1 - 30, panel_y0 + 142], radius=14, fill=WHITE, outline=INK, width=3)
+    draw.rounded_rectangle([lx0 + 34, panel_y0 + 110, lx0 + 34 + bar_w_l, panel_y0 + 138], radius=10, fill=RED)
+    draw.line([((lx0 + lx1) // 2 - 14, panel_y1 - 44), ((lx0 + lx1) // 2 + 14, panel_y1 - 18)], fill=RED, width=6)
+    draw.line([((lx0 + lx1) // 2 + 14, panel_y1 - 44), ((lx0 + lx1) // 2 - 14, panel_y1 - 18)], fill=RED, width=6)
+
+    # Center VS badge
+    _draw_label_pill(draw, cx, (panel_y0 + panel_y1) // 2, "VS", fonts["micro_bold"], bg=CARD_DARK, fg=YELLOW, pad_x=14, pad_y=8, max_w=90)
+
+    # Right card (Option / Factor B)
+    draw.rounded_rectangle([rx0, panel_y0, rx1, panel_y1], radius=20, fill=(234, 252, 243, 255), outline=(18, 132, 74, 255), width=4)
+    _draw_label_pill(draw, (rx0 + rx1) // 2, panel_y0 + 36, params["actor_b"] or params["result"], fonts["tiny_bold"], bg=(18, 132, 74, 255), fg=WHITE, max_w=col_w - 24)
+    bar_w_r = max(24, int((col_w - 60) * 0.92 * prog))
+    draw.rounded_rectangle([rx0 + 30, panel_y0 + 106, rx1 - 30, panel_y0 + 142], radius=14, fill=WHITE, outline=INK, width=3)
+    draw.rounded_rectangle([rx0 + 34, panel_y0 + 110, rx0 + 34 + bar_w_r, panel_y0 + 138], radius=10, fill=(18, 132, 74, 255))
+    draw.text(((rx0 + rx1) // 2, panel_y1 - 31), "EFEK OPTIMAL ✓", font=fonts["micro_bold"], fill=(18, 132, 74, 255), anchor="mm")
+
+    _draw_label_pill(draw, cx, y1 - 26, params["result"], fonts["tiny_bold"], bg=CARD_DARK, fg=YELLOW, max_w=(x1 - x0) - 40)
+
+
+def _anim_process_flow(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Clean 3-stage sequential cause-and-effect process flow (Step 1 -> Step 2 -> Step 3 Result)."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    cy = y0 + 122
+    prog = clamp(t / max(dur * 0.78, 1.5))
+
+    stages = [
+        (x0 + 150, params["actor_a"], BLUE, 0.0),
+        (cx, params["actor_b"] or "Proses", ORANGE, 0.30),
+        (x1 - 150, params["result"], (18, 132, 74, 255), 0.60),
+    ]
+    # Directional connecting arrows
+    for s_idx in range(2):
+        ax0 = stages[s_idx][0] + 108
+        ax1 = stages[s_idx + 1][0] - 108
+        if ax1 > ax0:
+            active = prog >= stages[s_idx + 1][3]
+            arr_col = ORANGE if active else (190, 200, 215, 255)
+            draw.line([(ax0, cy), (ax1, cy)], fill=arr_col, width=7)
+            draw.polygon([(ax1 + 12, cy), (ax1 - 6, cy - 11), (ax1 - 6, cy + 11)], fill=arr_col, outline=INK)
+
+    for idx, (sx, lbl, col, appear_p) in enumerate(stages, start=1):
+        is_lit = prog >= appear_p
+        box_col = col if is_lit else (210, 218, 228, 255)
+        fg_col = WHITE if is_lit else INK
+        draw.rounded_rectangle([sx - 102, cy - 66, sx + 102, cy + 66], radius=22, fill=box_col, outline=INK, width=4)
+        _draw_label_pill(draw, sx, cy - 52, f"TAHAP {idx}", fonts["micro_bold"], bg=CARD_DARK, fg=YELLOW, pad_x=12, pad_y=4, max_w=150)
+        lines, used_f, _, total_h = _fit_text_layout(draw, lbl, fonts["tiny_bold"], 180, max_lines=2, min_size=14)
+        if lines:
+            lh = total_h / len(lines)
+            ty = cy + 12 - (total_h / 2.0) + (lh / 2.0)
+            for l_i, ln in enumerate(lines):
+                draw.text((sx, int(round(ty + l_i * lh))), ln, font=used_f, fill=fg_col, anchor="mm")
+
+    if params.get("caption"):
+        _draw_label_pill(draw, cx, y1 - 26, params["caption"], fonts["micro_bold"], bg=CARD_DARK, fg=WHITE, max_w=(x1 - x0) - 40)
+
+
+def _anim_highlight_stat(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Clean animated numerical/key-fact spotlight panel."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    cy = y0 + 124
+    prog = ease_out_back(clamp(t / 0.65))
+
+    _draw_label_pill(draw, cx, y0 + 30, params["actor_a"].upper(), fonts["tiny_bold"], bg=BLUE, fg=WHITE, max_w=(x1 - x0) - 80)
+
+    # Central kinetic badge highlighting key figure/result
+    w_box = int(((x1 - x0) - 120) * min(prog, 1.0))
+    if w_box > 100:
+        bx0, bx1 = cx - w_box // 2, cx + w_box // 2
+        draw.rounded_rectangle([bx0, cy - 54, bx1, cy + 54], radius=26, fill=CARD_DARK, outline=YELLOW, width=5)
+        lines, fnt, _, _ = _fit_text_layout(draw, params["result"], fonts["big_kw"], max(200, w_box - 40), max_lines=1, min_size=18)
+        if lines:
+            draw_outlined_text(draw, (cx, cy), lines[0], fnt, fill=YELLOW, outline_color=INK, stroke_w=5)
+
+    sub = params.get("caption") or params.get("actor_b") or ""
+    if sub:
+        _draw_label_pill(draw, cx, y1 - 26, sub, fonts["micro_bold"], bg=(18, 132, 74, 255), fg=WHITE, max_w=(x1 - x0) - 40)
+
+
+def _anim_minimal_formula_badge(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Clean minimal compound/concept badge showing compound identity + short scientific effect."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    cy = y0 + 114
+    pulse = int(4 * math.sin(t * 5.0))
+
+    draw.rounded_rectangle([x0 + 90, cy - 62 + pulse, x1 - 90, cy + 62 + pulse], radius=28, fill=CARD_DARK, outline=CYAN, width=5)
+    lines, fnt, _, _ = _fit_text_layout(draw, params["actor_a"], fonts["header"], (x1 - x0) - 240, max_lines=1, min_size=18)
+    if lines:
+        draw_outlined_text(draw, (cx, cy - 12 + pulse), lines[0], fnt, fill=CYAN, outline_color=INK, stroke_w=4)
+    if params.get("actor_b"):
+        draw.text((cx, cy + 32 + pulse), params["actor_b"], font=fonts["micro_bold"], fill=WHITE, anchor="mm")
+
+    _draw_label_pill(draw, cx, y1 - 26, params["result"], fonts["tiny_bold"], bg=BLUE, fg=WHITE, max_w=(x1 - x0) - 40)
 
 
 def _anim_receptor_binding(
@@ -1887,7 +2010,9 @@ def _anim_acid_base_bubble(
     # Eroding solid reactant block at bottom
     base_y0 = y1 - 92 + int(18 * prog)
     draw.rounded_rectangle([x0 + 130, base_y0, x1 - 130, y1 - 54], radius=14, fill=IRON_GRAY, outline=INK, width=4)
-    draw.text((cx, (base_y0 + y1 - 54) // 2), params["actor_b"].upper(), font=fonts["micro_bold"], fill=INK, anchor="mm")
+    b_lines, b_font, _, _ = _fit_text_layout(draw, params["actor_b"].upper(), fonts["micro_bold"], (x1 - x0) - 300, max_lines=1, min_size=13)
+    if b_lines:
+        draw.text((cx, (base_y0 + y1 - 54) // 2), b_lines[0], font=b_font, fill=INK, anchor="mm")
 
     # Dropping acid/ion spheres + rising gas bubbles
     for k in range(4):
@@ -1903,7 +2028,7 @@ def _anim_acid_base_bubble(
         br = 10 + (b % 3) * 5
         draw.ellipse([bx - br, by - br, bx + br, by + br], fill=CYAN, outline=INK, width=2)
 
-    _draw_label_pill(draw, cx, y1 - 24, f"REAKSI GAS: {params['result']}", fonts["tiny_bold"], bg=(18, 132, 74, 255), fg=WHITE, max_w=(x1 - x0) - 40)
+    _draw_label_pill(draw, cx, y1 - 24, f"GAS: {params['result']}", fonts["tiny_bold"], bg=(18, 132, 74, 255), fg=WHITE, max_w=(x1 - x0) - 40)
 
 
 def _anim_crystal_lattice(
@@ -1923,7 +2048,6 @@ def _anim_crystal_lattice(
     _draw_label_pill(draw, x0 + 160, y0 + 26, params["actor_a"], fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=240)
     _draw_label_pill(draw, x1 - 160, y0 + 26, params["actor_b"], fonts["micro_bold"], bg=CYAN, fg=INK, max_w=240)
 
-    # Hexagonal / cubic lattice nodes centered around (cx, cy)
     offsets = [
         (0, 0), (-74, 0), (74, 0),
         (-37, -56), (37, -56), (-37, 56), (37, 56),
@@ -1932,7 +2056,6 @@ def _anim_crystal_lattice(
     visible_n = max(1, int(clamp(prog * 1.15) * len(offsets)))
     nodes = [(cx + ox, cy + oy) for ox, oy in offsets[:visible_n]]
 
-    # Draw crystal bonds between neighboring lattice points
     for i in range(len(nodes)):
         for j in range(i + 1, len(nodes)):
             d = math.hypot(nodes[i][0] - nodes[j][0], nodes[i][1] - nodes[j][1])
@@ -1945,7 +2068,7 @@ def _anim_crystal_lattice(
         col = GOLD if idx == 0 else (BLUE if idx % 2 == 1 else CYAN)
         draw.ellipse([nx - 14 - pulse, ny - 14 - pulse, nx + 14 + pulse, ny + 14 + pulse], fill=col, outline=INK, width=3)
 
-    _draw_label_pill(draw, cx, y1 - 24, f"STRUKTUR KRISTAL: {params['result']}", fonts["tiny_bold"], bg=BLUE, fg=WHITE, max_w=(x1 - x0) - 40)
+    _draw_label_pill(draw, cx, y1 - 24, f"KRISTAL: {params['result']}", fonts["tiny_bold"], bg=BLUE, fg=WHITE, max_w=(x1 - x0) - 40)
 
 
 def _draw_mechanistic_diagram_card(
@@ -1956,7 +2079,7 @@ def _draw_mechanistic_diagram_card(
     fonts: dict,
     discipline: str = "kimia",
 ) -> None:
-    """Draw a genuine 30fps comic-science mechanistic visual simulation (12 distinct engines + dynamic bank presets)."""
+    """Draw 30fps comic-science mechanistic visual simulation (neutral safe templates + domain engines)."""
     p = ease_out_back(local_t / 0.35)
     if p <= 0.05:
         return
@@ -1978,22 +2101,32 @@ def _draw_mechanistic_diagram_card(
     if p < 0.65:
         return
 
-    # Header bar inside simulation box
+    # Fitted header bar inside simulation box (never clips edges)
     header_fg = _ACCENT_COLOR_MAP.get(params.get("accent_color") or "", YELLOW)
     draw.rounded_rectangle([card_x0 + 18, card_y0 + 14, card_x1 - 18, card_y0 + 62], radius=16, fill=CARD_DARK)
+    hdr_txt = params["title"].upper()
+    hdr_lines, hdr_font, _, _ = _fit_text_layout(draw, hdr_txt, fonts["tiny_bold"], (card_x1 - card_x0) - 72, max_lines=1, min_size=14)
     draw.text(
         ((card_x0 + card_x1) // 2, card_y0 + 38),
-        f"SIMULASI MEKANISME • {params['title'].upper()}",
-        font=fonts["tiny_bold"],
+        hdr_lines[0] if hdr_lines else hdr_txt,
+        font=hdr_font,
         fill=header_fg,
         anchor="mm",
     )
 
     sim_box = (card_x0 + 18, card_y0 + 68, card_x1 - 18, card_y1 - 14)
     kind = params["kind"]
-    if kind == "polymer_crosslink":
+    if kind == "concept_comparison":
+        _anim_concept_comparison(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "process_flow":
+        _anim_process_flow(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "highlight_stat":
+        _anim_highlight_stat(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "minimal_formula_badge":
+        _anim_minimal_formula_badge(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind in ("polymer_crosslink", "mechanical_stress"):
         _anim_polymer_crosslink(draw, sim_box, local_t, seg.duration_sec, params, fonts)
-    elif kind == "electron_transfer":
+    elif kind in ("electron_transfer", "redox_reaction"):
         _anim_electron_transfer(draw, sim_box, local_t, seg.duration_sec, params, fonts)
     elif kind == "receptor_binding":
         _anim_receptor_binding(draw, sim_box, local_t, seg.duration_sec, params, fonts)
@@ -2017,59 +2150,29 @@ def _draw_mechanistic_diagram_card(
         _anim_molecular_reaction(draw, sim_box, local_t, seg.duration_sec, params, fonts)
 
 
-def _draw_references_card(
+def _draw_loop_subscribe_pill(
     draw: ImageDraw.ImageDraw,
-    references: list[str],
     fonts: dict,
     local_t: float,
-    appear_at: float,
+    seg_dur: float,
     requested_by: Optional[str] = None,
 ) -> None:
-    """Draw animated 'THANK YOU FOR WATCHING!' + Follow @kimiabill CTA + Referensi & Sumber end-card."""
-    if local_t < appear_at:
+    """Zero-dead-air seamless Shorts CTA banner shown briefly (<=1.4s) near end without static cards or 'follow'."""
+    cta_start = max(0.2, seg_dur - 1.45)
+    if local_t < cta_start:
         return
-    ot = local_t - appear_at
-    p = ease_out_back(ot / 0.35)
-    if p <= 0.05:
+    p = ease_out_back((local_t - cta_start) / 0.25)
+    if p <= 0.1:
         return
-
-    x0, y0, x1, y1 = 56, 955, 1024, 1375
-    cx = (x0 + x1) // 2
-    cy = (y0 + y1) // 2
-    hh = int(((y1 - y0) // 2) * min(p, 1.02))
-    draw_comic_box(draw, (x0, cy - hh, x1, cy + hh), fill=CARD_DARK, outline=YELLOW, radius=28, border_w=6, shadow_offset=10)
-    if p < 0.65:
-        return
-
-    # 1. Animated "THANK YOU FOR WATCHING!" banner with twinkling sparkles
-    bob = int(4 * math.sin(ot * 6.0))
-    draw_outlined_text(
-        draw,
-        (cx, y0 + 44 + bob),
-        "THANK YOU FOR WATCHING!",
-        fonts["summary"],
-        fill=YELLOW,
-        outline_color=INK,
-        stroke_w=5,
-    )
-    # Animated star/sparkle dots flanking the title
-    for side in (-1, 1):
-        sx = cx + side * 375
-        sy = y0 + 44 + int(6 * math.cos(ot * 7.0 + side))
-        sr = 8 + int(4 * math.sin(ot * 9.0 + side))
-        draw.ellipse([sx - sr, sy - sr, sx + sr, sy + sr], fill=CYAN, outline=WHITE, width=2)
-
-    # 2. Animated pulsing Follow & Comment-Request CTA pill
-    cta_pulse = int(3 * math.sin(ot * 8.0))
     cta_txt = (
-        f"★ MAKASIH {requested_by[:16].upper()}! YUK REQUEST LAGI! ★"
+        f"★ MAKASIH {requested_by[:16].upper()} • SUBSCRIBE @KIMIABILL! ★"
         if requested_by
-        else "★ FOLLOW @KIMIABILL • REQUEST TOPIK DI KOMEN! ★"
+        else "▶ SUBSCRIBE @KIMIABILL • REQUEST TOPIK DI KOMEN!"
     )
     _draw_label_pill(
         draw,
-        cx,
-        y0 + 106 - cta_pulse,
+        540,
+        1255,
         cta_txt,
         fonts["tiny_bold"],
         bg=RED,
@@ -2077,23 +2180,8 @@ def _draw_references_card(
         outline=YELLOW,
         pad_x=22,
         pad_y=10,
-        max_w=(x1 - x0) - 48,
+        max_w=920,
     )
-
-    # 3. Divider + Referensi & Sumber bibliography
-    draw.line([(x0 + 34, y0 + 148), (x1 - 34, y0 + 148)], fill=(255, 255, 255, 95), width=2)
-    draw.text((x0 + 34, y0 + 162), "REFERENSI & SUMBER:", font=fonts["tiny_bold"], fill=YELLOW, anchor="lt")
-
-    ty = y0 + 198
-    refs_to_show = references[:3] if references else ["Kimiabill Pure Science Editorial & Wikimedia Commons (CC)"]
-    for idx, ref in enumerate(refs_to_show, start=1):
-        wrapped = _wrap_text(draw, f"{idx}. {ref}", fonts["micro_bold"], (x1 - x0) - 72, max_lines=2)
-        for ln in wrapped:
-            if ty + 24 > y1 - 14:
-                break
-            draw.text((x0 + 36, ty), ln, font=fonts["micro_bold"], fill=WHITE, anchor="lt")
-            ty += 26
-        ty += 4
 
 
 def render_hybrid_science_video(
@@ -2104,7 +2192,7 @@ def render_hybrid_science_video(
     mascots_dir: Optional[Path] = None,
     use_mascot: bool = True,
 ) -> tuple[str, str]:
-    """Universal hybrid comic-science renderer (works for ANY pure-science topic & both 480p proxy / 1080p HD)."""
+    """Universal hybrid comic-science renderer (full-screen 9:16 real footage + 30fps overlays)."""
     is_final = plan.resolution_mode == "final_1080p"
     out_w, out_h, fps = (1080, 1920, 30) if is_final else (480, 854, 15)
     canvas_w, canvas_h = 1080, 1920
@@ -2140,12 +2228,16 @@ def render_hybrid_science_video(
         except Exception:
             cover_overlay_img = None
 
-    # Pre-render bottom gradient scrim at 1080x1920
-    bot_scrim = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
-    bsd = ImageDraw.Draw(bot_scrim)
+    # Pre-render static chrome ONCE per render (bottom scrim + brand pill + mascot watermark + discipline pill)
+    base_hud = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+    bsd = ImageDraw.Draw(base_hud)
     for y in range(1240, canvas_h, 4):
         a = int(190 * ((y - 1240) / (canvas_h - 1240)) ** 1.3)
         bsd.rectangle([0, y, canvas_w, y + 4], fill=(10, 14, 26, a))
+    wm_pill_icon, wm_corner_stamp = _load_watermark_badges()
+    draw_brand_pill(bsd, fonts)
+    draw_mascot_watermark(base_hud, wm_pill_icon, wm_corner_stamp)
+    _draw_discipline_pill(bsd, plan.discipline, fonts, section_tag=getattr(plan, "section_tag", "REGULER"))
 
     escaped_ass = str(ass_path.resolve()).replace("\\", "/").replace(":", "\\:")
     if is_final:
@@ -2159,6 +2251,8 @@ def render_hybrid_science_video(
     cmd = [
         "ffmpeg",
         "-y",
+        "-threads",
+        "0",
         "-i",
         str(stitched_base_mp4),
         "-f",
@@ -2183,7 +2277,7 @@ def render_hybrid_science_video(
         "-c:v",
         "libx264",
         "-preset",
-        "medium" if is_final else "veryfast",
+        "veryfast",
         "-crf",
         "22" if is_final else "24",
         *(["-maxrate", "3200k", "-bufsize", "6400k"] if is_final else []),
@@ -2208,12 +2302,11 @@ def render_hybrid_science_video(
     segs = plan.segments
     num_segs = len(segs)
     header_colors = [RED, BLUE, PURPLE, ORANGE, GREEN, BLUE]
-    wm_pill_icon, wm_corner_stamp = _load_watermark_badges()
 
     try:
         for f_idx in range(total_frames):
             t_global = f_idx / fps
-            if cover_overlay_img is not None and t_global < 0.32:
+            if cover_overlay_img is not None and t_global < 0.25:
                 proc.stdin.write(cover_overlay_img.tobytes())
                 continue
 
@@ -2226,7 +2319,7 @@ def render_hybrid_science_video(
                     break
             local_t = max(0.0, t_global - seg.start_sec)
 
-            canvas = bot_scrim.copy()
+            canvas = base_hud.copy()
             draw = ImageDraw.Draw(canvas)
 
             is_first = seg_idx == 0
@@ -2237,7 +2330,6 @@ def render_hybrid_science_video(
                 is_karat = sec_tag == "KARAT"
                 is_kitchen = sec_tag == "DAPUR"
                 req_by = getattr(plan, "requested_by", None)
-                # Ensure frame 0 (t=0.0) already displays a full-contrast visual cover hook
                 cover_t = local_t + 0.45
                 draw_header_pill(
                     draw,
@@ -2262,7 +2354,6 @@ def render_hybrid_science_video(
                         max_w=860,
                     )
                 if plan.title:
-                    # Show crisp, bold curiosity title prominently right from frame 0
                     box_y0, box_y1 = 990, 1260
                     draw_comic_box(draw, (80, box_y0, 1000, box_y1), fill=CARD_BG, outline=INK, radius=28, border_w=6, shadow_offset=10)
                     eyebrow = (
@@ -2283,10 +2374,9 @@ def render_hybrid_science_video(
                         pad_y=7,
                         max_w=780,
                     )
-                    title_font = fonts["header"]
-                    t_lines = _wrap_text(draw, plan.title, title_font, 840, max_lines=3)
-                    line_step = 50
-                    ty = box_y0 + 105 + max(0, (3 - len(t_lines)) * 18)
+                    t_lines, title_font, _, _ = _fit_text_layout(draw, plan.title, fonts["header"], 840, max_lines=3, min_size=22)
+                    line_step = 48
+                    ty = box_y0 + 108 + max(0, (3 - len(t_lines)) * 16)
                     for ln in t_lines:
                         draw.text((540, ty), ln, font=title_font, fill=INK, anchor="mm")
                         ty += line_step
@@ -2294,22 +2384,21 @@ def render_hybrid_science_video(
                     mascots.paste(canvas, "male_curious", center_x=135, bottom_y=1530, target_h=220, local_t=cover_t, appear_at=0.0)
                     mascots.paste(canvas, "female_curious", center_x=945, bottom_y=1530, target_h=220, local_t=cover_t, appear_at=0.0)
             elif is_last:
-                # Final scene: TERJAWAB! + celebrating duo mascots + Thank You / Follow / Referensi end-card
-                outro_start = max(0.15, seg.duration_sec - 4.5)
+                # Zero dead-air seamless loop ending: kinetic real footage + TERJAWAB! + crisp <=1.4s Subscribe CTA
                 draw_header_pill(draw, "TERJAWAB!", GREEN, fonts, local_t, y_center=225)
-                _draw_references_card(
+                if getattr(seg, "mechanism", None) is not None or getattr(seg, "overlay_badge", None):
+                    _draw_mechanistic_diagram_card(draw, seg, seg_idx, local_t, fonts, discipline=plan.discipline)
+                _draw_loop_subscribe_pill(
                     draw,
-                    plan.references,
                     fonts,
                     local_t,
-                    appear_at=outro_start,
+                    seg.duration_sec,
                     requested_by=getattr(plan, "requested_by", None),
                 )
                 if mascots:
-                    mascots.paste(canvas, "male_celebrate", center_x=170, bottom_y=960, target_h=235, local_t=local_t, appear_at=0.1)
-                    mascots.paste(canvas, "female_celebrate", center_x=910, bottom_y=960, target_h=235, local_t=local_t, appear_at=0.2)
+                    mascots.paste(canvas, "male_celebrate", center_x=150, bottom_y=1530, target_h=215, local_t=local_t, appear_at=0.1)
+                    mascots.paste(canvas, "female_celebrate", center_x=930, bottom_y=1530, target_h=215, local_t=local_t, appear_at=0.2)
             else:
-                # Middle scenes: Genuine 30fps scientific mechanistic simulation + alternating mascot
                 h_col = header_colors[seg_idx % len(header_colors)]
                 draw_header_pill(draw, f"TAHAP {seg_idx} • PROSES SAINS", h_col, fonts, local_t, y_center=225)
                 _draw_mechanistic_diagram_card(draw, seg, seg_idx, local_t, fonts, discipline=plan.discipline)
@@ -2319,19 +2408,12 @@ def render_hybrid_science_video(
                     else:
                         mascots.paste(canvas, "female_explain", center_x=945, bottom_y=1530, target_h=215, local_t=local_t, appear_at=0.12)
 
-            # Diagonal comic wipe transition between scenes
-            if seg_idx > 0 and local_t < 0.30:
+            if seg_idx > 0 and local_t < 0.28:
                 draw = ImageDraw.Draw(canvas)
-                draw_diagonal_wipe(draw, local_t / 0.30, canvas_w, canvas_h)
+                draw_diagonal_wipe(draw, local_t / 0.28, canvas_w, canvas_h)
 
-            # Persistent top brand + Kimiabill Mascot watermark & discipline pills
-            draw = ImageDraw.Draw(canvas)
-            draw_brand_pill(draw, fonts)
-            draw_mascot_watermark(canvas, wm_pill_icon, wm_corner_stamp)
-            _draw_discipline_pill(draw, plan.discipline, fonts, section_tag=getattr(plan, "section_tag", "REGULER"))
-
-            if cover_overlay_img is not None and 0.32 <= t_global < 0.45:
-                fade_alpha = max(0.0, min(1.0, (0.45 - t_global) / 0.13))
+            if cover_overlay_img is not None and 0.25 <= t_global < 0.36:
+                fade_alpha = max(0.0, min(1.0, (0.36 - t_global) / 0.11))
                 canvas = Image.blend(canvas, cover_overlay_img, fade_alpha)
 
             proc.stdin.write(canvas.tobytes())
@@ -2346,4 +2428,5 @@ def render_hybrid_science_video(
     sheet_path = output_mp4.with_name(f"{output_mp4.stem}_contact_sheet.jpg")
     _build_contact_sheet(output_mp4, plan.segments, sheet_path)
     return str(output_mp4), str(sheet_path)
+
 

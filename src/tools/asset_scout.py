@@ -47,9 +47,23 @@ DISALLOWED_TITLE_TOKENS = (
     "podcast",
     "webinar",
     "slideshow",
+    "slide",
     "trailer",
     "logo",
     "intro",
+    "outro",
+    "bumper",
+    "university",
+    "pennstate",
+    "life in the lab",
+    "seminar",
+    "arduino",
+    "demo",
+    "department",
+    "institute",
+    "faculty",
+    "course",
+    "hyrax",
     "music video",
     "album",
     "karaoke",
@@ -492,7 +506,7 @@ def _try_match_flow_bank_clip(
             if not ok:
                 raw_path.unlink(missing_ok=True)
                 continue
-            chosen_info = _transcode_to_mp4(raw_path, raw_info, dest_mp4)
+            chosen_info = _transcode_to_mp4(raw_path, raw_info, dest_mp4, source="google_flow")
             if not chosen_info:
                 raw_path.unlink(missing_ok=True)
                 continue
@@ -518,8 +532,8 @@ def _try_match_flow_bank_clip(
     return None
 
 
-def search_wikimedia_videos(query: str, limit: int = 12) -> list[VideoCandidate]:
-    """Search Wikimedia Commons for real video files (.webm / .mp4 / .ogv)."""
+def search_wikimedia_videos(query: str, limit: int = 10) -> list[VideoCandidate]:
+    """Last-resort Wikimedia Commons video search with strict lecture/university/bumper filtering and <=3 min cap."""
     headers = {"User-Agent": USER_AGENT}
     params = {
         "action": "query",
@@ -530,14 +544,17 @@ def search_wikimedia_videos(query: str, limit: int = 12) -> list[VideoCandidate]
         "gsrlimit": str(limit),
         "prop": "videoinfo",
         "viprop": "url|size|mime|extmetadata",
-        "viurlwidth": "640",
+        "viurlwidth": "720",
     }
-    resp = requests.get(
-        "https://commons.wikimedia.org/w/api.php",
-        headers=headers,
-        params=params,
-        timeout=25,
-    )
+    try:
+        resp = requests.get(
+            "https://commons.wikimedia.org/w/api.php",
+            headers=headers,
+            params=params,
+            timeout=20,
+        )
+    except requests.RequestException:
+        return []
     if resp.status_code != 200:
         return []
     pages = resp.json().get("query", {}).get("pages", {})
@@ -556,7 +573,8 @@ def search_wikimedia_videos(query: str, limit: int = 12) -> list[VideoCandidate]
         dur = float(vi.get("duration") or 0.0)
         w = int(vi.get("width") or 0)
         h = int(vi.get("height") or 0)
-        if dur < 3.0 or dur > 600.0 or w < 320 or h < 240:
+        # Strictly reject clips > 3 minutes (180s) or low resolution
+        if dur < 3.5 or dur > 180.0 or w < 480 or h < 360:
             continue
         url = vi.get("url")
         if not url:
@@ -566,7 +584,7 @@ def search_wikimedia_videos(query: str, limit: int = 12) -> list[VideoCandidate]
             str(meta.get(k, {}).get("value", ""))
             for k in ("Categories", "ImageDescription", "ObjectName", "Restrictions")
         )
-        if not _is_family_safe_text(title, meta_text):
+        if not _is_real_video_title(f"{title} {meta_text}") or not _is_family_safe_text(title, meta_text):
             continue
         lic = meta.get("LicenseShortName", {}).get("value", "Wikimedia Commons")
         lic = re.sub(r"<[^>]+>", "", str(lic)).strip()
@@ -583,8 +601,7 @@ def search_wikimedia_videos(query: str, limit: int = 12) -> list[VideoCandidate]
                 thumb_url=vi.get("thumburl"),
             )
         )
-    # Prefer HD, shorter focused clips (5s - 90s)
-    out.sort(key=lambda c: (0 if 5 <= c.duration_sec <= 90 else 1, -min(c.width, 1920)))
+    out.sort(key=lambda c: (0 if 5 <= c.duration_sec <= 60 else 1, -min(c.width, 1920)))
     return out
 
 
@@ -618,10 +635,29 @@ def _download_raw_clip(
         return None
 
 
-def _transcode_to_mp4(raw_path: Path, info: dict, dest_mp4: Path) -> Optional[dict]:
-    """Transcode approved raw clip (up to 25s slice) into clean yuv420p H.264 MP4."""
+def _transcode_to_mp4(
+    raw_path: Path,
+    info: dict,
+    dest_mp4: Path,
+    *,
+    source: str = "pexels",
+) -> Optional[dict]:
+    """Transcode approved raw clip into clean yuv420p H.264 MP4, trimming 2s start+end on all non-Pexels clips."""
     try:
-        start_at = 1.5 if info["duration"] > 18.0 else 0.0
+        dur = float(info.get("duration") or 0.0)
+        src_low = (source or "").lower()
+        is_pexels_or_flow = src_low in ("pexels", "google_flow")
+        if not is_pexels_or_flow and dur > 6.5:
+            # Mandatory 2.0s head + 2.0s tail crop to eliminate foreign university/channel bumpers & logos
+            start_at = 2.0
+            slice_dur = min(22.0, max(2.5, dur - 4.0))
+        elif not is_pexels_or_flow and dur > 4.2:
+            trim_each = min(1.5, max(0.5, (dur - 2.5) / 2.0))
+            start_at = trim_each
+            slice_dur = max(2.4, dur - 2.0 * trim_each)
+        else:
+            start_at = 0.0
+            slice_dur = min(24.0, max(2.0, dur))
         subprocess.run(
             [
                 "ffmpeg",
@@ -631,7 +667,7 @@ def _transcode_to_mp4(raw_path: Path, info: dict, dest_mp4: Path) -> Optional[di
                 "-i",
                 str(raw_path),
                 "-t",
-                "25",
+                f"{slice_dur:.2f}",
                 "-an",
                 "-c:v",
                 "libx264",
@@ -661,13 +697,13 @@ def download_and_normalize_clip(
     dest_mp4: Path,
     max_download_mb: int = 32,
 ) -> Optional[dict]:
-    """Download candidate video and normalize to clean H.264 MP4 (max 25s slice) for fast rendering."""
+    """Download candidate video and normalize to clean H.264 MP4 (max 24s slice) for fast rendering."""
     dest_mp4.parent.mkdir(parents=True, exist_ok=True)
     raw_path = dest_mp4.with_suffix(".raw_dl")
     info = _download_raw_clip(candidate, raw_path, max_download_mb=max_download_mb)
     if not info:
         return None
-    return _transcode_to_mp4(raw_path, info, dest_mp4)
+    return _transcode_to_mp4(raw_path, info, dest_mp4, source=candidate.source)
 
 
 def _build_frame_strip(clip: Path, out_jpg: Path) -> Optional[Path]:
@@ -719,8 +755,8 @@ def vision_screen_clip(clip: Path, scene: SceneSpec) -> tuple[bool, bool, str]:
         return False, False, "could not extract frames"
     import time
 
-    # Gentle spacing keeps Vision screening below free-tier per-minute RPM bursts
-    time.sleep(1.2)
+    # Gentle spacing keeps Vision screening below free-tier RPM bursts while staying fast
+    time.sleep(0.25)
     try:
         from pydantic import BaseModel, Field
 
@@ -728,13 +764,12 @@ def vision_screen_clip(clip: Path, scene: SceneSpec) -> tuple[bool, bool, str]:
 
         class ClipScreen(BaseModel):
             family_safe: bool = Field(description="False if ANY nudity, sexual/suggestive content, gore, violence, or otherwise inappropriate imagery for a kids/teen science channel")
-            relevance_score: float = Field(ge=0, le=10, description="How well the frames visually match the scene narration and visual query")
-            has_watermark_or_ui: bool = Field(description="True if frames show music-player/album art, app UI, big logos, text slides, or channel watermarks")
-            is_real_footage: bool = Field(description="True if real camera footage (not cartoon/animation/slide)")
+            relevance_score: float = Field(ge=0, le=10, description="Strict score 0-10: how directly the frames visually show what the scene narration & visual_query describe (score <=3 if unrelated animal, random lab LCD/Arduino, or abstract filler)")
+            has_watermark_or_ui: bool = Field(description="True if frames show ANY university/lab bumper (e.g. PennState, LIFE IN THE LAB), intro/outro logo, presentation slide, PowerPoint text, Arduino LCD readout, music player, or watermark")
+            is_real_footage: bool = Field(description="True if real camera footage (not cartoon/animation/slide/title card)")
             is_scientific_visualization: bool = Field(
                 default=False,
-                description="True if it is a serious scientific visualization (molecular/protein model, microscopy, "
-                "research simulation render) - NOT a cartoon, fractal screensaver, or text slide",
+                description="True only if serious scientific visualization (molecular/protein model, microscopy) - NEVER text slides or logos",
             )
             reason: str = ""
 
@@ -742,9 +777,10 @@ def vision_screen_clip(clip: Path, scene: SceneSpec) -> tuple[bool, bool, str]:
             provider="auto",
             model=os.environ.get("GEMINI_SCREEN_MODEL", "gemini-3.5-flash-lite"),
             system_prompt=(
-                "You are a strict visual safety & relevance screener for 'Kimiabill', a family-friendly "
-                "Indonesian pure-science short-video channel watched by students. The attached image shows "
-                "3 frames sampled from a candidate stock clip. Judge it strictly."
+                "You are a ruthless visual safety & relevance screener for 'Kimiabill', a family-friendly "
+                "Indonesian pure-science short-video channel. The attached image shows 3 frames sampled from a stock clip. "
+                "REJECT immediately (`has_watermark_or_ui=true` or low relevance_score <=3) if you see ANY foreign channel/university "
+                "bumper or logo, presentation text slide, Arduino LCD/breadboard unrelated to biology/DNA, or unrelated animals."
             ),
             user_payload={
                 "scene_narration": scene.narration,
@@ -1054,26 +1090,32 @@ def scout_assets_for_scenes(
                     seen_q.add(q_norm.lower())
                     queries.append(q_norm)
 
-            source_rank = {"pexels": 0, "pixabay": 1, "wikimedia": 2, "nasa": 3}
+            source_rank = {"pexels": 0, "pixabay": 1, "nasa": 2, "wikimedia_commons": 3}
             for q in queries:
-                stock_cands = search_pexels(q, orientation="portrait") + search_pixabay(q)
+                is_generic_q = q in generic_fallbacks
+                # Priority 1: Pexels Portrait (native 9:16)
+                stock_cands = search_pexels(q, orientation="portrait")
+                # Priority 2: Pixabay + Pexels Landscape only when portrait hits are sparse
+                if len(stock_cands) < 3:
+                    stock_cands += search_pixabay(q)
                 if len(stock_cands) < 3:
                     stock_cands += search_pexels(q, orientation="landscape")
-                is_generic_q = q in generic_fallbacks
-                wiki_cands = search_wikimedia_videos(q) if (len(stock_cands) < 3 or is_generic_q) else []
-                q_terms = [w for w in re.findall(r"[a-z]+", q.lower()) if len(w) >= 3 and w not in _FILLER_AND_ADJECTIVES]
-                if wiki_cands and not is_generic_q and q_terms:
-                    matched_wiki = [
-                        wc for wc in wiki_cands
-                        if any(t in wc.title.lower() for t in q_terms)
-                    ]
-                    wiki_cands = matched_wiki
                 nasa_cands = (
                     search_nasa_videos(q, limit=3)
-                    if (not is_kitchen and len(stock_cands) < 2 and len(wiki_cands) < 2)
+                    if (not is_kitchen and len(stock_cands) < 2)
                     else []
                 )
-                cands = stock_cands + wiki_cands + nasa_cands
+                # Priority 4 (Last-resort fallback only when Pexels + Pixabay + NASA return 0)
+                wiki_cands: list[VideoCandidate] = []
+                if len(stock_cands) == 0 and len(nasa_cands) == 0:
+                    wiki_cands = search_wikimedia_videos(q)
+                    q_terms = [w for w in re.findall(r"[a-z]+", q.lower()) if len(w) >= 3 and w not in _FILLER_AND_ADJECTIVES]
+                    if wiki_cands and not is_generic_q and q_terms:
+                        wiki_cands = [
+                            wc for wc in wiki_cands
+                            if any(t in wc.title.lower() for t in q_terms)
+                        ]
+                cands = stock_cands + nasa_cands + wiki_cands
                 scored_cands: list[tuple[int, VideoCandidate]] = []
                 for cand in cands:
                     m_score = _metadata_relevance_score(cand, scene, topic_terms)
@@ -1087,6 +1129,7 @@ def scout_assets_for_scenes(
                 scored_cands.sort(
                     key=lambda pair: (
                         -pair[0],
+                        0 if pair[1].height > pair[1].width else 1,
                         source_rank.get(pair[1].source, 9),
                         0 if pair[1].width >= 720 else 1,
                         -min(pair[1].width, 1920),
@@ -1116,7 +1159,7 @@ def scout_assets_for_scenes(
                         ok = True
                         print(f"[asset_scout] {scene.scene_id}: menerima kecocokan leksikal kuat (meta={m_score}) saat Vision limit")
                     if ok:
-                        chosen_info = _transcode_to_mp4(raw_path, raw_info, dest_mp4)
+                        chosen_info = _transcode_to_mp4(raw_path, raw_info, dest_mp4, source=cand.source)
                         if chosen_info:
                             chosen_cand = cand
                             if fallback_raw is not None:
@@ -1137,7 +1180,7 @@ def scout_assets_for_scenes(
                     break
 
             if chosen_cand is None and fallback_cand is not None and fallback_raw is not None:
-                norm_info = _transcode_to_mp4(fallback_raw, fallback_info or {}, dest_mp4)
+                norm_info = _transcode_to_mp4(fallback_raw, fallback_info or {}, dest_mp4, source=fallback_cand.source)
                 if norm_info:
                     chosen_cand, chosen_info = fallback_cand, norm_info
                     print(f"[asset_scout] {scene.scene_id}: memakai fallback aman (meta={fallback_meta_score})")

@@ -140,8 +140,15 @@ def record_published_episode(
     topic_attempts_used: int = 1,
     production_seconds: Optional[float] = None,
     mechanisms_used: Optional[list[dict[str, Any]]] = None,
+    topic_slug: Optional[str] = None,
+    source_url: Optional[str] = None,
+    keywords: Optional[list[str]] = None,
+    topic_bucket: Optional[str] = None,
+    publish_mode: Optional[str] = None,
 ) -> None:
     """Persist each published episode + 0-token efficiency & mechanism telemetry into data/published_history.json."""
+    from src.tools.topic_guard import extract_topic_keywords, normalize_source_url, slugify_topic
+
     HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
     items: list[dict[str, Any]] = []
     if HISTORY_PATH.exists():
@@ -157,10 +164,21 @@ def record_published_episode(
     except Exception:
         agent_models = {}
 
+    now_iso = datetime.now(WIB).isoformat(timespec="seconds")
+    resolved_slug = (topic_slug or "").strip() or slugify_topic(title)
+    resolved_kws = keywords or extract_topic_keywords(f"{title} {hook_line}")
+    resolved_bucket = topic_bucket or ("research" if str(section).upper() == "KARAT" else "everyday")
+    resolved_mode = (publish_mode or os.environ.get("PUBLISH_MODE", "public")).strip().lower()
+
     record = {
         "episode_id": episode_id,
-        "published_at_wib": datetime.now(WIB).isoformat(timespec="seconds"),
+        "published_at": now_iso,
+        "published_at_wib": now_iso,
         "title": title,
+        "topic_slug": resolved_slug,
+        "source_url": normalize_source_url(source_url) or None,
+        "keywords": resolved_kws,
+        "topic_bucket": resolved_bucket,
         "discipline": discipline,
         "section": section,
         "youtube_url": youtube_url,
@@ -171,7 +189,7 @@ def record_published_episode(
         "revisions_used": revisions_used,
         "topic_attempts_used": topic_attempts_used,
         "production_seconds": round(production_seconds, 1) if production_seconds is not None else None,
-        "publish_mode": os.environ.get("PUBLISH_MODE", "public"),
+        "publish_mode": resolved_mode,
         "agent_models": agent_models,
         "mechanisms_used": mechanisms_used or [],
     }

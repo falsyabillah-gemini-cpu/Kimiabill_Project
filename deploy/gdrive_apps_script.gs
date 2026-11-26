@@ -57,6 +57,153 @@ function _replyTg(botToken, chatId, replyText) {
   }
 }
 
+function _answerCallbackQuery(botToken, callbackQueryId, text) {
+  try {
+    UrlFetchApp.fetch("https://api.telegram.org/bot" + botToken + "/answerCallbackQuery", {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({ callback_query_id: String(callbackQueryId), text: String(text || ""), show_alert: false }),
+      muteHttpExceptions: true,
+    });
+  } catch (e) {}
+}
+
+function _editMessageReplyMarkup(botToken, chatId, messageId, replyMarkup) {
+  try {
+    UrlFetchApp.fetch("https://api.telegram.org/bot" + botToken + "/editMessageReplyMarkup", {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({
+        chat_id: String(chatId),
+        message_id: Number(messageId),
+        reply_markup: replyMarkup || { inline_keyboard: [] },
+      }),
+      muteHttpExceptions: true,
+    });
+  } catch (e) {}
+}
+
+function _dispatchGithubEvent(githubRepo, githubPat, eventType, clientPayload) {
+  return UrlFetchApp.fetch(
+    "https://api.github.com/repos/" + githubRepo + "/dispatches",
+    {
+      method: "post",
+      contentType: "application/json",
+      headers: {
+        Authorization: "Bearer " + githubPat,
+        Accept: "application/vnd.github+json",
+      },
+      payload: JSON.stringify({
+        event_type: eventType,
+        client_payload: clientPayload || {},
+      }),
+      muteHttpExceptions: true,
+    }
+  );
+}
+
+function _processCallbackQuery(cb, botToken, allowedChatId, githubRepo, githubPat, props) {
+  const fromChat = cb.message && cb.message.chat ? String(cb.message.chat.id) : (cb.from ? String(cb.from.id) : "");
+  const messageId = cb.message ? Number(cb.message.message_id || 0) : 0;
+  const data = String(cb.data || "").trim();
+  if (fromChat !== allowedChatId || !data) {
+    _answerCallbackQuery(botToken, cb.id, "Akses ditolak.");
+    return { ok: true, ignored: true };
+  }
+
+  const colonIdx = data.indexOf(":");
+  const action = colonIdx >= 0 ? data.slice(0, colonIdx) : data;
+  const epId = colonIdx >= 0 ? data.slice(colonIdx + 1).trim() : "";
+
+  if (action === "revise" && messageId) {
+    _answerCallbackQuery(botToken, cb.id, "Pilih fokus revisi atau balas teks!");
+    props.setProperty("PENDING_REVISE_EPISODE_ID", epId);
+    _editMessageReplyMarkup(botToken, allowedChatId, messageId, {
+      inline_keyboard: [
+        [
+          { text: "🎥 Revisi B-Roll", callback_data: "revise_broll:" + epId },
+          { text: "📊 Revisi Diagram", callback_data: "revise_diagram:" + epId },
+        ],
+        [
+          { text: "🗣️ Revisi Naskah/Audio", callback_data: "revise_script:" + epId },
+          { text: "⬅️ Kembali", callback_data: "revise_back:" + epId },
+        ],
+      ],
+    });
+    _replyTg(
+      botToken,
+      allowedChatId,
+      "✏️ Pilih tombol fokus revisi di atas untuk `" + epId + "`, ATAU balas pesan teks singkat (catatan revisi khusus) sekarang."
+    );
+    return { ok: true, action: "revise_menu" };
+  }
+
+  if (action === "revise_back" && messageId) {
+    props.deleteProperty("PENDING_REVISE_EPISODE_ID");
+    _answerCallbackQuery(botToken, cb.id, "Kembali ke menu audit.");
+    _editMessageReplyMarkup(botToken, allowedChatId, messageId, {
+      inline_keyboard: [
+        [{ text: "✅ Upload / Jadwalkan", callback_data: "approve:" + epId }],
+        [{ text: "🔄 Revisi Video Ini", callback_data: "revise:" + epId }],
+        [{ text: "❌ Tolak & Buat Topik Baru", callback_data: "reject:" + epId }],
+        [{ text: "🤖 Serahkan ke AI", callback_data: "ai_audit:" + epId }],
+      ],
+    });
+    return { ok: true, action: "revise_back" };
+  }
+
+  // Anti double-click: strip inline buttons IMMEDIATELY before dispatching workflow
+  if (messageId) {
+    _editMessageReplyMarkup(botToken, allowedChatId, messageId, { inline_keyboard: [] });
+  }
+  props.deleteProperty("PENDING_REVISE_EPISODE_ID");
+
+  if (!githubPat) {
+    _answerCallbackQuery(botToken, cb.id, "GITHUB_PAT belum diset di Apps Script!");
+    _replyTg(botToken, allowedChatId, "⚠️ GITHUB_PAT belum diisi di Apps Script Properties.");
+    return { ok: false, error: "GITHUB_PAT missing" };
+  }
+
+  let eventType = "";
+  let payload = { episode_id: epId };
+  let confirmMsg = "";
+  if (action === "approve") {
+    eventType = "telegram_approve";
+    confirmMsg = "✅ Disetujui! Memproses penjadwalan/publish YouTube untuk `" + epId + "`...";
+  } else if (action === "revise_broll") {
+    eventType = "telegram_rerender";
+    payload.feedback = "Ganti B-roll agar lebih relevan dengan narasi, full-screen 9:16 bersih, tanpa bumper asing.";
+    confirmMsg = "🔄 Siap! Memulai revisi B-Roll untuk `" + epId + "`...";
+  } else if (action === "revise_diagram") {
+    eventType = "telegram_rerender";
+    payload.feedback = "Perbaiki diagram mekanistik agar cocok akurat dengan konsep sains dan bebas clipping/placeholder.";
+    confirmMsg = "🔄 Siap! Memulai revisi Diagram untuk `" + epId + "`...";
+  } else if (action === "revise_script") {
+    eventType = "telegram_rerender";
+    payload.feedback = "Perbaiki naskah/pelafalan audio agar padat 30-48 detik, tanpa typo, dan CTA Subscribe/loop.";
+    confirmMsg = "🔄 Siap! Memulai revisi Naskah/Audio untuk `" + epId + "`...";
+  } else if (action === "reject") {
+    eventType = "telegram_reject_next";
+    confirmMsg = "❌ Topik `" + epId + "` ditolak & masuk blacklist. Memproduksi topik baru sekarang...";
+  } else if (action === "ai_audit") {
+    eventType = "telegram_ai_audit";
+    confirmMsg = "🤖 Menyerahkan `" + epId + "` ke AI Chief Editor untuk audit video+audio native MP4...";
+  } else {
+    _answerCallbackQuery(botToken, cb.id, "Aksi tidak dikenal.");
+    return { ok: true, ignored: true };
+  }
+
+  _answerCallbackQuery(botToken, cb.id, "Diproses!");
+  const dispResp = _dispatchGithubEvent(githubRepo, githubPat, eventType, payload);
+  const code = dispResp.getResponseCode();
+  if (code >= 200 && code < 300) {
+    _replyTg(botToken, allowedChatId, confirmMsg);
+  } else {
+    _replyTg(botToken, allowedChatId, "⚠️ Gagal memicu GitHub Actions (`" + eventType + "`, HTTP " + code + ").");
+  }
+  return { ok: code >= 200 && code < 300, event_type: eventType, status: code };
+}
+
 function _processTelegramUpdate(payload) {
   const props = PropertiesService.getScriptProperties();
   const botToken = String(props.getProperty("TELEGRAM_BOT_TOKEN") || "").trim();
@@ -64,17 +211,9 @@ function _processTelegramUpdate(payload) {
   const githubPat = String(props.getProperty("GITHUB_PAT") || "").trim();
   const githubRepo = String(props.getProperty("GITHUB_REPO") || "falsyabillah-gemini-cpu/Kimiabill_Project").trim();
 
-  const msg = payload.message || payload.edited_message || {};
-  const chatId = msg.chat && msg.chat.id !== undefined ? String(msg.chat.id) : "";
-  const text = String(msg.text || msg.caption || "").trim();
-
   if (!botToken || !allowedChatId) {
-    console.log("[tg_webhook] ignored: Script Properties belum lengkap (botTokenSet=" + Boolean(botToken) + ", allowedChatIdSet=" + Boolean(allowedChatId) + ")");
+    console.log("[tg_webhook] ignored: Script Properties belum lengkap");
     return { ok: true, ignored: true, reason: "missing_script_properties" };
-  }
-  if (chatId !== allowedChatId || !text) {
-    console.log("[tg_webhook] ignored: chatId mismatch or empty text (incoming=" + chatId + ", expected=" + allowedChatId + ")");
-    return { ok: true, ignored: true, reason: "chat_mismatch_or_empty" };
   }
 
   // Deduplicate update_id across retries / webhook+poll overlap
@@ -88,14 +227,28 @@ function _processTelegramUpdate(payload) {
     cache.put(dedupeKey, "1", 600);
   }
 
+  if (payload.callback_query) {
+    return _processCallbackQuery(payload.callback_query, botToken, allowedChatId, githubRepo, githubPat, props);
+  }
+
+  const msg = payload.message || payload.edited_message || {};
+  const chatId = msg.chat && msg.chat.id !== undefined ? String(msg.chat.id) : "";
+  const text = String(msg.text || msg.caption || "").trim();
+
+  if (chatId !== allowedChatId || !text) {
+    console.log("[tg_webhook] ignored: chatId mismatch or empty text (incoming=" + chatId + ", expected=" + allowedChatId + ")");
+    return { ok: true, ignored: true, reason: "chat_mismatch_or_empty" };
+  }
+
   const low = text.toLowerCase();
   if (low === "/start" || low === "/help") {
     _replyTg(
       botToken,
       allowedChatId,
-      "🤖 Kimiabill Bot Aktif (Pola B — Langsung ke Semua Agent).\n" +
-      "• Kirim pesan apa saja = otomatis dikompilasi ke Agent 1, 2, 3, 5, 6, 7, 8 & Engine untuk VIDEO BERIKUTNYA.\n" +
-      "• Kirim `/rerender <catatan>` = langsung produksi & render ulang video pengganti sekarang!\n" +
+      "🤖 Kimiabill Bot Aktif (Audit Manual + Pola B).\n" +
+      "• Tekan tombol audit inline untuk Approve/Jadwalkan, Revisi, Tolak Topik, atau Serahkan ke AI.\n" +
+      "• Kirim pesan apa saja = otomatis dikompilasi untuk VIDEO BERIKUTNYA.\n" +
+      "• Kirim `/rerender <catatan>` = langsung revisi & render ulang episode aktif.\n" +
       "• Kirim `/rules` = cek aturan aktif | `/clear_rules` = reset aturan tambahan."
     );
     return { ok: true };
@@ -105,42 +258,43 @@ function _processTelegramUpdate(payload) {
     _replyTg(
       botToken,
       allowedChatId,
-      "⚠️ Feedback terbaca, tetapi GITHUB_PAT belum diisi di Apps Script Properties. Tanpa GITHUB_PAT, feedback tetap otomatis ditarik saat jadwal produksi berikutnya jika webhook dimatikan."
+      "⚠️ Feedback terbaca, tetapi GITHUB_PAT belum diisi di Apps Script Properties."
     );
     return { ok: true, warning: "GITHUB_PAT missing" };
   }
 
+  const pendingReviseEp = String(props.getProperty("PENDING_REVISE_EPISODE_ID") || "").trim();
   const isRulesCmd = low.indexOf("/rules") === 0 || low === "/aturan";
   const isClearCmd = low.indexOf("/clear_rules") === 0 || low.indexOf("/clear") === 0;
   const isCeoAuditCmd = low.indexOf("/audit_ceo") === 0 || low.indexOf("/audit_all") === 0;
-  const isRerender = low.indexOf("/rerender") === 0;
-  const cleanNote = isRerender
-    ? text.slice(9).trim()
-    : (isRulesCmd || isClearCmd || isCeoAuditCmd ? text : (low.indexOf("/feedback") === 0 ? text.slice(9).trim() : text));
+  const isRerender = low.indexOf("/rerender") === 0 || (Boolean(pendingReviseEp) && low.indexOf("/") !== 0);
+
+  let cleanNote = text;
+  let targetEpId = "";
+  if (low.indexOf("/rerender") === 0) {
+    cleanNote = text.slice(9).trim();
+  } else if (Boolean(pendingReviseEp) && low.indexOf("/") !== 0) {
+    targetEpId = pendingReviseEp;
+    props.deleteProperty("PENDING_REVISE_EPISODE_ID");
+  } else if (isRulesCmd || isClearCmd || isCeoAuditCmd) {
+    cleanNote = text;
+  } else if (low.indexOf("/feedback") === 0) {
+    cleanNote = text.slice(9).trim();
+  }
 
   const eventType = isCeoAuditCmd
     ? "telegram_ceo_audit"
     : (isRerender ? "telegram_rerender" : "telegram_feedback");
-  const dispatchResp = UrlFetchApp.fetch(
-    "https://api.github.com/repos/" + githubRepo + "/dispatches",
-    {
-      method: "post",
-      contentType: "application/json",
-      headers: {
-        Authorization: "Bearer " + githubPat,
-        Accept: "application/vnd.github+json",
-      },
-      payload: JSON.stringify({
-        event_type: eventType,
-        client_payload: {
-          text: cleanNote,
-          feedback: cleanNote,
-          mode: isRerender ? "rerender" : "next_video",
-        },
-      }),
-      muteHttpExceptions: true,
-    }
-  );
+  const dispatchPayload = {
+    text: cleanNote,
+    feedback: cleanNote,
+    mode: isRerender ? "rerender" : "next_video",
+  };
+  if (targetEpId) {
+    dispatchPayload.episode_id = targetEpId;
+  }
+
+  const dispatchResp = _dispatchGithubEvent(githubRepo, githubPat, eventType, dispatchPayload);
   const code = dispatchResp.getResponseCode();
   console.log("[tg_webhook] GitHub dispatch HTTP " + code);
   if (code >= 200 && code < 300) {
@@ -155,8 +309,8 @@ function _processTelegramUpdate(payload) {
         botToken,
         allowedChatId,
         isRerender
-          ? "🔄 Siap! Mulai produksi & render ulang video baru dengan catatan:\n" + (cleanNote || "(tanpa catatan tambahan)")
-          : "⏳ Masukan diterima! Sedang dikompilasi otomatis ke Agent 1, 2, 3, 5, 6, 7, 8 + Engine (~10 detik)..."
+          ? "🔄 Siap! Mulai revisi video " + (targetEpId || "terbaru") + " dengan catatan:\n" + (cleanNote || "(tanpa catatan tambahan)")
+          : "⏳ Masukan diterima! Sedang dikompilasi otomatis ke Agent 1-8 + Engine (~10 detik)..."
       );
     }
   } else {
@@ -245,7 +399,7 @@ function pollTelegram() {
   try {
     let offset = Number(props.getProperty("TG_OFFSET") || "0");
     const resp = UrlFetchApp.fetch(
-      "https://api.telegram.org/bot" + botToken + "/getUpdates?offset=" + offset + "&timeout=0&allowed_updates=%5B%22message%22%2C%22edited_message%22%5D",
+      "https://api.telegram.org/bot" + botToken + "/getUpdates?offset=" + offset + "&timeout=0&allowed_updates=%5B%22message%22%2C%22edited_message%22%2C%22callback_query%22%5D",
       { method: "get", muteHttpExceptions: true }
     );
     const data = JSON.parse(resp.getContentText() || "{}");
@@ -292,14 +446,14 @@ function enableTelegramPollingMode() {
   });
   ScriptApp.newTrigger("pollTelegram").timeBased().everyMinutes(1).create();
   pollTelegram();
-  _replyTg(botToken, allowedChatId, "✅ Mode Polling 1-menit Apps Script aktif! Bot sekarang bebas error 302 — silakan kirim /start atau masukan kapan saja (dibalas maksimal dalam 1 menit).");
+  _replyTg(botToken, allowedChatId, "✅ Mode Polling 1-menit Apps Script aktif (pesan & tombol audit inline aktif)!");
 }
 
 function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents || "{}");
 
-    if (payload.update_id && (payload.message || payload.edited_message)) {
+    if (payload.update_id && (payload.message || payload.edited_message || payload.callback_query)) {
       return _handleTelegramWebhook(payload);
     }
 
@@ -358,7 +512,14 @@ function doPost(e) {
       }
       const videoFile = DriveApp.getFileById(payload.video_file_id);
       const videoBlob = videoFile.getBlob();
-      const privacy = payload.privacy === "public" ? "public" : "unlisted";
+      const privacy = payload.privacy === "public" ? "public" : (payload.privacy === "private" ? "private" : "unlisted");
+      const statusObj = {
+        privacyStatus: privacy,
+        selfDeclaredMadeForKids: false,
+      };
+      if (privacy === "private" && payload.publish_at) {
+        statusObj.publishAt = String(payload.publish_at);
+      }
       const resource = {
         snippet: {
           title: String(payload.title || "Video Sains Kimiabill").slice(0, 95),
@@ -367,10 +528,7 @@ function doPost(e) {
           categoryId: "27", // Education
           defaultLanguage: "id",
         },
-        status: {
-          privacyStatus: privacy,
-          selfDeclaredMadeForKids: false,
-        },
+        status: statusObj,
       };
       const inserted = YouTube.Videos.insert(resource, "snippet,status", videoBlob);
       const videoId = inserted.id;
@@ -406,7 +564,7 @@ function doPost(e) {
         if (channelId) cBody.snippet.channelId = channelId;
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
-            Utilities.sleep(attempt === 0 ? 5000 : 6000);
+            Utilities.sleep(attempt === 0 ? 4000 : 5000);
             YouTube.CommentThreads.insert(cBody, "snippet");
             commentPosted = true;
             commentError = "";
@@ -448,6 +606,50 @@ function doPost(e) {
         comment_error: commentError || null,
         replied_requester: repliedRequester,
       });
+    }
+
+    if (action === "update_youtube_status") {
+      if (typeof YouTube === "undefined") {
+        return _jsonResponse({ ok: false, error: "YouTube Data API v3 belum ditambahkan di Services (+)." });
+      }
+      const vid = String(payload.video_id || "").trim();
+      const priv = payload.privacy_status === "public" ? "public" : (payload.privacy_status === "private" ? "private" : "unlisted");
+      if (!vid) {
+        return _jsonResponse({ ok: false, error: "video_id wajib diisi." });
+      }
+      const updStatus = { privacyStatus: priv, selfDeclaredMadeForKids: false };
+      if (priv === "private" && payload.publish_at) {
+        updStatus.publishAt = String(payload.publish_at);
+      }
+      const updated = YouTube.Videos.update({ id: vid, status: updStatus }, "status");
+      let commentPosted = false;
+      if (priv === "public" && payload.first_comment) {
+        try {
+          YouTube.CommentThreads.insert({
+            snippet: { videoId: vid, topLevelComment: { snippet: { textOriginal: String(payload.first_comment).slice(0, 800) } } }
+          }, "snippet");
+          commentPosted = true;
+        } catch (fcErr) {}
+      }
+      return _jsonResponse({
+        ok: true,
+        video_id: vid,
+        privacy_status: (updated.status && updated.status.privacyStatus) || priv,
+        publish_at: (updated.status && updated.status.publishAt) || payload.publish_at || null,
+        comment_posted: commentPosted,
+      });
+    }
+
+    if (action === "delete_youtube_video") {
+      if (typeof YouTube === "undefined") {
+        return _jsonResponse({ ok: false, error: "YouTube Data API v3 belum ditambahkan di Services (+)." });
+      }
+      const vid = String(payload.video_id || "").trim();
+      if (!vid) {
+        return _jsonResponse({ ok: false, error: "video_id wajib diisi." });
+      }
+      YouTube.Videos.remove(vid);
+      return _jsonResponse({ ok: true, video_id: vid, deleted: true });
     }
 
     if (action === "set_thumbnail") {

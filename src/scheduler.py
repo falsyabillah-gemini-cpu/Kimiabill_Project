@@ -10,6 +10,7 @@ import re
 import time
 import traceback
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.pipeline import (
@@ -90,8 +91,48 @@ def run_one_automated_episode() -> None:
         "Sunscreen Rahasia DNA yang Bikin Kehidupan Purba Selamat dari Radiasi!",
     ]
     try:
+        from src.tools.topic_guard import load_rejected_topics
+        for rrow in load_rejected_topics():
+            rt = str(rrow.get("title") or "").strip()
+            if rt and rt not in avoid_titles:
+                avoid_titles.append(rt)
+    except Exception:
+        pass
+
+    try:
         from src.tools.weekly_growth_auditor import HISTORY_PATH
+        from src.tools.review_manager import load_pending_review_store
         import json as _json
+
+        now_wib = datetime.now(WIB)
+        today_str = now_wib.strftime("%Y-%m-%d")
+        target_pub_env = (
+            os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
+            or os.environ.get("PUBLISH_TIME_WIB", "").strip()
+        )
+        slot_evening = (
+            int(target_pub_env.split(":", 1)[0]) >= 16
+            if ":" in target_pub_env
+            else now_wib.hour >= 16
+        )
+
+        if os.environ.get("SKIP_IF_SLOT_PUBLISHED", "").lower() == "true":
+            pr_state = load_pending_review_store()
+            curr = pr_state.get("current")
+            if isinstance(curr, dict) and curr.get("status") in ("awaiting_review", "approved", "approved_by_ai"):
+                created_at = str(curr.get("created_at") or "")
+                ref_ts = str(curr.get("target_publish_iso") or created_at)
+                if created_at.startswith(today_str):
+                    try:
+                        curr_evening = datetime.fromisoformat(ref_ts).hour >= 16
+                    except Exception:
+                        curr_evening = slot_evening
+                    if curr_evening == slot_evening:
+                        print(
+                            f"[scheduler] Slot hari ini ({'malam' if slot_evening else 'siang'}) sudah memiliki draft audit aktif "
+                            f"({curr.get('episode_id')} | status={curr.get('status')}) — melewati duplikasi cron."
+                        )
+                        return
 
         if HISTORY_PATH.exists():
             hist_items = _json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
@@ -100,13 +141,6 @@ def run_one_automated_episode() -> None:
                 if t and t not in avoid_titles:
                     avoid_titles.append(t)
             if os.environ.get("SKIP_IF_SLOT_PUBLISHED", "").lower() == "true":
-                now_wib = datetime.now(WIB)
-                target_pub_env = os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
-                slot_evening = (
-                    int(target_pub_env.split(":", 1)[0]) >= 16
-                    if ":" in target_pub_env
-                    else now_wib.hour >= 16
-                )
                 for row in reversed(hist_items):
                     pub_at = row.get("published_at_wib") or ""
                     has_slot_proof = (
@@ -115,7 +149,7 @@ def run_one_automated_episode() -> None:
                         else bool(row.get("gdrive_folder_url"))
                     )
                     if (
-                        pub_at.startswith(now_wib.strftime("%Y-%m-%d"))
+                        pub_at.startswith(today_str)
                         and row.get("publish_mode", "public") == "public"
                         and has_slot_proof
                     ):
@@ -305,40 +339,43 @@ def run_one_automated_episode() -> None:
                 print(f"[scheduler] Agent 7 selesai: {[r.model_dump() for r in (state.agent7.publish_results if state.agent7 else [])]}")
 
                 prod_elapsed = time.monotonic() - run_t0
+                pub_mode_now = os.environ.get("PUBLISH_MODE", "draft").strip().lower()
 
-                # Wait for prime-time publish window (uses Agent 8's optimal weekend hours on Sat/Sun when available)
-                target_pub = os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
-                if target_pub and datetime.now(WIB).weekday() in (5, 6):
-                    try:
-                        from src.tools.weekly_growth_auditor import load_latest_agent_directives
+                # Wait for prime-time publish window ONLY in immediate 'public' mode.
+                # In 'draft' mode (default v2), upload unlisted immediately so owner gets ≥90m manual audit lead!
+                if pub_mode_now == "public":
+                    target_pub = os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
+                    if target_pub and datetime.now(WIB).weekday() in (5, 6):
+                        try:
+                            from src.tools.weekly_growth_auditor import load_latest_agent_directives
 
-                        rec_hours = load_latest_agent_directives().get("recommended_weekend_hours_wib") or []
-                        is_evening_slot = int(target_pub.split(":", 1)[0]) >= 16
-                        picked = [h for h in rec_hours if ":" in h and (int(h.split(":", 1)[0]) >= 16) == is_evening_slot]
-                        if picked:
-                            target_pub = picked[0].strip()
-                            print(f"[scheduler] Edisi Weekend KARAT memakai jam ter-rame hasil audit Agent 8: {target_pub} WIB")
-                    except Exception:
-                        pass
-                if target_pub and ":" in target_pub:
-                    try:
-                        th, tm = (int(x) for x in target_pub.split(":", 1))
-                        now_wib = datetime.now(WIB)
-                        target_dt = now_wib.replace(hour=th, minute=tm, second=0, microsecond=0)
-                        # Start upload ~90s early so Drive+YouTube completes right on target HH:MM WIB
-                        wait_sec = (target_dt - now_wib).total_seconds() - 90.0
-                        if 0 < wait_sec <= 9000:
-                            print(
-                                f"[scheduler] Video sudah siap & lolos QA! Menunggu jendela upload {target_pub} WIB "
-                                f"({int(wait_sec // 60)}m {int(wait_sec % 60)}s lagi)..."
-                            )
-                            _tg_status(
-                                f"⏳ [Kimiabill] Video \"{title}\" lolos QA ({last_audit.overall_score if last_audit else 9.0}/10)! "
-                                f"Menunggu jendela tayang {target_pub} WIB ({int(wait_sec // 60)} menit lagi)..."
-                            )
-                            time.sleep(wait_sec)
-                    except Exception as exc:
-                        print(f"[scheduler] Mengabaikan TARGET_PUBLISH_TIME_WIB='{target_pub}': {exc}")
+                            rec_hours = load_latest_agent_directives().get("recommended_weekend_hours_wib") or []
+                            is_evening_slot = int(target_pub.split(":", 1)[0]) >= 16
+                            picked = [h for h in rec_hours if ":" in h and (int(h.split(":", 1)[0]) >= 16) == is_evening_slot]
+                            if picked:
+                                target_pub = picked[0].strip()
+                                print(f"[scheduler] Edisi Weekend KARAT memakai jam ter-rame hasil audit Agent 8: {target_pub} WIB")
+                        except Exception:
+                            pass
+                    if target_pub and ":" in target_pub:
+                        try:
+                            th, tm = (int(x) for x in target_pub.split(":", 1))
+                            now_wib = datetime.now(WIB)
+                            target_dt = now_wib.replace(hour=th, minute=tm, second=0, microsecond=0)
+                            # Start upload ~90s early so Drive+YouTube completes right on target HH:MM WIB
+                            wait_sec = (target_dt - now_wib).total_seconds() - 90.0
+                            if 0 < wait_sec <= 9000:
+                                print(
+                                    f"[scheduler] Video sudah siap & lolos QA! Menunggu jendela upload {target_pub} WIB "
+                                    f"({int(wait_sec // 60)}m {int(wait_sec % 60)}s lagi)..."
+                                )
+                                _tg_status(
+                                    f"⏳ [Kimiabill] Video \"{title}\" lolos QA ({last_audit.overall_score if last_audit else 9.0}/10)! "
+                                    f"Menunggu jendela tayang {target_pub} WIB ({int(wait_sec // 60)} menit lagi)..."
+                                )
+                                time.sleep(wait_sec)
+                        except Exception as exc:
+                            print(f"[scheduler] Mengabaikan TARGET_PUBLISH_TIME_WIB='{target_pub}': {exc}")
 
                 if os.environ.get("AUTO_UPLOAD_GDRIVE", "true").lower() == "true":
                     if can_upload_to_gdrive():
@@ -348,13 +385,27 @@ def run_one_automated_episode() -> None:
                             qa_summary=qa_summary,
                             topic_attempts_used=total_attempts_done,
                             production_seconds=prod_elapsed,
+                            send_basic_telegram_summary=(pub_mode_now == "public"),
                         )
                         print(f"[scheduler] Uploaded ke Google Drive & YouTube Shorts: {state.gdrive_folder_url} | YouTube: {state.youtube_url}")
-                        pub_mode_now = os.environ.get("PUBLISH_MODE", "public").strip().lower()
                         if pub_mode_now in ("public", "draft") and not state.youtube_url:
                             raise RuntimeError(
                                 f"Video '{episode_id}' berhasil masuk Google Drive ({state.gdrive_folder_url}), "
                                 f"tetapi auto-upload YouTube GAGAL (youtube_url kosong). Cek log [gdrive]/[youtube] di atas."
+                            )
+                        if pub_mode_now == "draft":
+                            from src.tools.review_manager import compute_target_publish_iso, send_audit_review_message
+
+                            target_iso = compute_target_publish_iso()
+                            rec = send_audit_review_message(
+                                state,
+                                Path(final_video),
+                                qa_summary=qa_summary,
+                                target_publish_iso=target_iso,
+                            )
+                            print(
+                                f"[scheduler] Audit Manual Telegram terkirim! episode_id={rec.episode_id} | "
+                                f"target_publish={rec.target_publish_iso} | yt={rec.youtube_url}"
                             )
                         if (
                             state.request_id

@@ -5,16 +5,41 @@ to avoid chat-history bloat and keep token usage minimal.
 """
 from __future__ import annotations
 
+import re
 from typing import Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 Discipline = Literal["kimia", "fisika", "matematika", "medisinal", "biologi"]
+
+FORBIDDEN_VISUAL_PLACEHOLDERS: tuple[str, ...] = (
+    "molekul a",
+    "molekul b",
+    "actor a",
+    "actor b",
+    "solusi:",
+    "placeholder",
+    "todo",
+    "undefined",
+)
+
+
+def _has_forbidden_placeholder(text: str, allow_empty: bool = False) -> bool:
+    s = " ".join((text or "").strip().lower().split())
+    if not s:
+        return not allow_empty
+    if s in {"a", "b", "produk", "hasil", "none", "null", "n/a", "-", "struktur baru", "mekanisme sains"}:
+        return True
+    return any(tok in s for tok in FORBIDDEN_VISUAL_PLACEHOLDERS)
 
 
 class IdeaCandidate(BaseModel):
     id: str
     discipline: Discipline = "kimia"
+    topic_bucket: Literal["everyday", "research"] = Field(
+        default="everyday",
+        description="everyday = sains kehidupan sehari-hari (70% target), research = berita riset sains murni unik (30% target)",
+    )
     source_mode: Literal["viral_trend", "idea_bank"] = "idea_bank"
     viral_source_url: Optional[str] = None
     title: str
@@ -48,40 +73,46 @@ class Agent2Output(BaseModel):
     )
 
 
+MechanismKind = Literal[
+    "concept_comparison",
+    "process_flow",
+    "highlight_stat",
+    "minimal_formula_badge",
+    "mechanical_stress",
+    "redox_reaction",
+    "electron_transfer",
+    "polymer_crosslink",
+    "molecular_reaction",
+    "receptor_binding",
+    "force_wave",
+    "math_geometry",
+    "osmosis_membrane",
+    "protein_cleavage",
+    "phase_transition",
+    "surface_surfactant",
+    "acid_base_bubble",
+    "crystal_lattice",
+]
+
+
 class MechanismVisual(BaseModel):
-    kind: Literal[
-        "electron_transfer",
-        "polymer_crosslink",
-        "molecular_reaction",
-        "receptor_binding",
-        "force_wave",
-        "math_geometry",
-        "osmosis_membrane",
-        "protein_cleavage",
-        "phase_transition",
-        "surface_surfactant",
-        "acid_base_bubble",
-        "crystal_lattice",
-    ] = "molecular_reaction"
+    kind: MechanismKind = "process_flow"
     title: str = Field(
-        default="MEKANISME SAINS",
-        description="Short Indonesian simulation title, e.g. 'TRANSFER ELEKTRON' or 'OSMOSIS MEMBRAN SEL'",
+        description="Concise Indonesian header <= 28 chars (NO placeholders like MEKANISME SAINS)",
     )
     actor_a: str = Field(
-        default="A",
-        description="Short formula/actor label (max 14 chars), e.g. 'Fe', 'Enzim Bromelain', 'Air (H2O)'",
+        description="Concrete short label <= 16 chars (e.g. 'Kapsaisin', 'Gelombang Otak', 'Bromelain')",
     )
     actor_b: str = Field(
-        default="B",
-        description="Second formula/actor/force label (max 14 chars), e.g. 'O2', 'Serat Daging', 'Membran Sel'",
+        default="",
+        description="Concrete second label <= 16 chars (required for two-actor diagrams; optional for highlight_stat/minimal_formula_badge)",
     )
     result: str = Field(
-        default="Produk",
-        description="Outcome label (max 18 chars), e.g. 'Fe2O3 (Karat)', 'Protein Terpotong', 'Sel Mengerut'",
+        description="Concrete outcome/stat <= 22 chars (NEVER 'Produk' or 'REAKSI')",
     )
     caption: str = Field(
         default="",
-        description="Concise Indonesian caption under the animation (max 48 chars)",
+        description="Concise Indonesian caption under the animation (<= 48 chars)",
     )
     preset_id: Optional[str] = Field(
         default=None,
@@ -92,11 +123,34 @@ class MechanismVisual(BaseModel):
         description="Optional color theme hint (blue, green, orange, purple, cyan, red, amber)",
     )
 
+    @model_validator(mode="after")
+    def validate_no_placeholders_and_limits(self) -> "MechanismVisual":
+        if _has_forbidden_placeholder(self.title):
+            raise ValueError(f"MechanismVisual.title uses forbidden placeholder/empty text: '{self.title}'")
+        if _has_forbidden_placeholder(self.actor_a):
+            raise ValueError(f"MechanismVisual.actor_a uses forbidden placeholder/empty text: '{self.actor_a}'")
+        needs_actor_b = self.kind not in ("highlight_stat", "minimal_formula_badge")
+        if _has_forbidden_placeholder(self.actor_b, allow_empty=not needs_actor_b):
+            raise ValueError(f"MechanismVisual.actor_b uses forbidden placeholder/missing text: '{self.actor_b}'")
+        if _has_forbidden_placeholder(self.result):
+            raise ValueError(f"MechanismVisual.result uses forbidden placeholder/empty text: '{self.result}'")
+        if self.caption and any(tok in self.caption.lower() for tok in FORBIDDEN_VISUAL_PLACEHOLDERS):
+            raise ValueError(f"MechanismVisual.caption contains forbidden placeholder: '{self.caption}'")
+        if len(self.title.strip()) > 32:
+            raise ValueError(f"MechanismVisual.title exceeds 32 chars ({len(self.title)}): '{self.title}'")
+        if len(self.actor_a.strip()) > 20:
+            raise ValueError(f"MechanismVisual.actor_a exceeds 20 chars ({len(self.actor_a)}): '{self.actor_a}'")
+        if len(self.actor_b.strip()) > 20:
+            raise ValueError(f"MechanismVisual.actor_b exceeds 20 chars ({len(self.actor_b)}): '{self.actor_b}'")
+        if len(self.result.strip()) > 24:
+            raise ValueError(f"MechanismVisual.result exceeds 24 chars ({len(self.result)}): '{self.result}'")
+        return self
+
 
 class SceneSpec(BaseModel):
     scene_id: str
-    narration: str = Field(description="Indonesian spoken line for this scene")
-    visual_query: str = Field(description="English search query for REAL video footage")
+    narration: str = Field(description="Clean baku Indonesian spoken line for this scene (NO 'follow')")
+    visual_query: str = Field(description="Concrete 2-4 word English search query for REAL video footage")
     fallback_queries: list[str] = Field(default_factory=list)
     overlay_badge: Optional[str] = Field(
         default=None,
@@ -317,28 +371,15 @@ class NextWeekTopicMapOutput(BaseModel):
 class MechanismBankPresetProposal(BaseModel):
     preset_id: str = Field(description="Lowercase snake_case unique preset ID, e.g. 'maillard_caramel_browning'")
     label_title: str = Field(description="Concise Indonesian header (<= 28 chars), e.g. 'REAKSI MAILLARD & AROMA'")
-    engine_kind: Literal[
-        "electron_transfer",
-        "polymer_crosslink",
-        "molecular_reaction",
-        "receptor_binding",
-        "force_wave",
-        "math_geometry",
-        "osmosis_membrane",
-        "protein_cleavage",
-        "phase_transition",
-        "surface_surfactant",
-        "acid_base_bubble",
-        "crystal_lattice",
-    ] = "molecular_reaction"
+    engine_kind: MechanismKind = "process_flow"
     accent_color: Literal["blue", "green", "orange", "purple", "cyan", "red", "amber"] = "cyan"
     trigger_keywords: list[str] = Field(
         default_factory=list,
         description="3-6 Indonesian/English topic keywords triggering this preset",
     )
-    default_actor_a: str = Field(default="A", description="Short default actor A (<= 14 chars)")
-    default_actor_b: str = Field(default="B", description="Short default actor B (<= 14 chars)")
-    default_result: str = Field(default="Hasil", description="Short default result label (<= 20 chars)")
+    default_actor_a: str = Field(default="Zat Utama", description="Short default actor A (<= 14 chars)")
+    default_actor_b: str = Field(default="Target", description="Short default actor B (<= 14 chars)")
+    default_result: str = Field(default="Efek Utama", description="Short default result label (<= 20 chars)")
     rationale: str = Field(default="", description="Brief Indonesian reason why this preset expands the bank")
 
 
@@ -429,3 +470,56 @@ class Agent8WeeklyAuditOutput(BaseModel):
         default="",
         description="Indonesian assessment of non-Indonesian viewer share, foreign-language comments, and which science topics/KARAT themes show global appeal for a future English channel",
     )
+
+
+PendingReviewStatus = Literal[
+    "awaiting_review",
+    "approved",
+    "approved_by_ai",
+    "revising",
+    "rejected",
+    "held_by_ai",
+]
+
+
+class PendingReviewRecord(BaseModel):
+    episode_id: str
+    topic_title: str
+    topic_slug: str
+    source_url: Optional[str] = None
+    keywords: list[str] = Field(default_factory=list)
+    topic_bucket: Literal["everyday", "research"] = "everyday"
+    discipline: str = "kimia"
+    section: str = "REGULER"
+    duration_sec: float = 0.0
+    references: list[str] = Field(default_factory=list)
+    youtube_video_id: Optional[str] = None
+    youtube_url: Optional[str] = None
+    drive_url: Optional[str] = None
+    artifact_path_or_url: Optional[str] = None
+    revision_count: int = 0
+    qa_summary: str = ""
+    target_publish_iso: str = ""
+    telegram_message_id: Optional[int] = None
+    status: PendingReviewStatus = "awaiting_review"
+    reminder_sent: bool = False
+    created_at: str = ""
+    updated_at: str = ""
+    decision_note: str = ""
+
+
+class ChiefEditorChecks(BaseModel):
+    science_accuracy_and_diagram_match: Literal["PASS", "FAIL"]
+    no_placeholder_or_clipping: Literal["PASS", "FAIL"]
+    broll_relevance_and_no_foreign_bumper: Literal["PASS", "FAIL"]
+    audio_consistency_and_pronunciation: Literal["PASS", "FAIL"]
+    shorts_pacing_and_youtube_cta: Literal["PASS", "FAIL"]
+
+
+class ChiefEditorAuditOutput(BaseModel):
+    decision: Literal["APPROVE", "REVISE", "HOLD"]
+    overall_score: float = Field(ge=0, le=10)
+    fatal_flaws: list[str] = Field(default_factory=list)
+    checks: ChiefEditorChecks
+    revision_instruction: str = ""
+

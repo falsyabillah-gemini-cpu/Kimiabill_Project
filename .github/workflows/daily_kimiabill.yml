@@ -2,28 +2,25 @@ name: Kimiabill Daily Auto-Video
 
 on:
   schedule:
-    # Primary cron di menit off-peak (:11) 109 menit sebelum tayang agar antrean GitHub tidak pernah bikin telat >15 menit:
-    # Slot 1 (12:00 WIB): primary 10:11 WIB (03:11 UTC) + watchdog cadangan 11:37 WIB (04:37 UTC)
-    - cron: "11 3 * * *"
-    - cron: "37 4 * * *"
-    # Slot 2 (19:00 WIB): primary 17:11 WIB (10:11 UTC) + watchdog cadangan 18:37 WIB (11:37 UTC)
-    - cron: "11 10 * * *"
-    - cron: "37 11 * * *"
+    # Slot Siang (target tayang 12:00 WIB): produksi 10:30 WIB (03:30 UTC) -> lead audit 90 menit
+    - cron: "30 3 * * *"
+    # Slot Malam (target tayang 19:00 WIB): produksi 17:30 WIB (10:30 UTC) -> lead audit 90 menit
+    - cron: "30 10 * * *"
   repository_dispatch:
-    types: [telegram_feedback, telegram_rerender]
+    types: [telegram_feedback, telegram_rerender, telegram_reject_next]
   workflow_dispatch:
     inputs:
       publish_mode:
-        description: "Mode upload YouTube (public = langsung tayang / draft = Unlisted / dry_run = Drive saja)"
+        description: "Mode upload YouTube (draft = Unlisted + Audit Telegram | public = langsung tayang | dry_run = Drive saja)"
         required: false
-        default: "public"
+        default: "draft"
         type: choice
         options:
-          - public
           - draft
+          - public
           - dry_run
       target_publish_time_wib:
-        description: "Opsional: tahan upload hingga jam WIB tertentu (mis. 19:00 atau 12:00)"
+        description: "Opsional: target jam tayang WIB (kosong = otomatis 12:00 siang / 19:00 malam sesuai jam)"
         required: false
         default: ""
         type: string
@@ -63,14 +60,16 @@ jobs:
           fi
           echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: ${{ steps.guard.outputs.skip != 'true' }}
 
-      - name: Setup Python 3.12
+      - name: Setup Python 3.12 (Cached)
         if: ${{ steps.guard.outputs.skip != 'true' }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "requirements.txt"
 
       - name: Compile & Apply Telegram Feedback Directly to All Agents (Next Video Mode)
         if: ${{ steps.guard.outputs.skip != 'true' && github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback' }}
@@ -82,7 +81,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          pip install -q pydantic pyyaml requests python-dotenv
+          pip install -q -r requirements.txt
           python - <<'PY'
           import os
           from src.tools.telegram_notify import handle_telegram_dispatch_feedback
@@ -96,26 +95,36 @@ jobs:
           git config user.email "bot@kimiabill.local"
           git add data/owner_feedback.json 2>/dev/null || true
           if ! git diff --cached --quiet; then
+            BRANCH=$(git rev-parse --abbrev-ref HEAD)
             git commit -m "chore: compile owner Telegram feedback to Agents 1-8 & engine [skip ci]"
-            git pull --rebase origin main || true
+            git pull --rebase origin "$BRANCH" || true
             git push
           fi
 
-      - name: Install FFmpeg & Dependencies
+      - name: Install FFmpeg & Python Dependencies
         if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-liberation
-          pip install -r requirements.txt
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! fc-list | grep -qi "DejaVuSans-Bold"; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends ffmpeg fonts-dejavu-core fonts-liberation
+          fi
+          pip install -q -r requirements.txt
 
       - name: Rescue Upload from Existing Artifact (Optional)
         if: ${{ steps.guard.outputs.skip != 'true' && inputs.resume_artifact_run_id != '' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
         env:
           PYTHONUNBUFFERED: "1"
           GH_TOKEN: ${{ github.token }}
-          PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'public' }}
+          PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'draft' }}
+          PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || vars.PUBLISH_TIME_WIB || '' }}
+          TARGET_PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || vars.PUBLISH_TIME_WIB || '' }}
+          AUDIT_LEAD_MINUTES: "90"
+          ENABLE_AI_FALLBACK_AUDIT: "true"
           GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
           GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           NOTIFY_EMAIL_TO: ${{ vars.NOTIFY_EMAIL_TO || 'researchfalsyabillah@gmail.com' }}
           NOTIFY_EMAIL_ALSO: ${{ vars.NOTIFY_EMAIL_ALSO || 'true' }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -129,11 +138,11 @@ jobs:
           from pathlib import Path
           from src.pipeline import run_upload
           from src.state import EpisodeState
+          from src.tools.review_manager import compute_target_publish_iso, send_audit_review_message
 
           art_root = Path("_rescue_art")
           mp4 = next(art_root.rglob("FINAL_*.mp4"))
           src_dir = mp4.parent
-          # Detect episode_id from folder name or latest un-uploaded published_history entry
           ep_id = src_dir.name if src_dir.name.startswith("ep_") else ""
           if not ep_id:
               hist_p = Path("data/published_history.json")
@@ -163,15 +172,24 @@ jobs:
               st = EpisodeState(episode_id=ep_id, status="rendered_final", agent3=a3, agent5_history=a5_list, agent7=a7)
               st_path.write_text(st.model_dump_json(indent=2), encoding="utf-8")
 
-          state = run_upload(ep_id, allow_youtube=True, qa_summary="Rescue Upload Video Lolos QA (Auto-Compress <34MB)")
-          shutil.rmtree(art_root, ignore_errors=True)
+          pub_mode = os.environ.get("PUBLISH_MODE", "draft").strip().lower()
+          state = run_upload(
+              ep_id,
+              allow_youtube=True,
+              qa_summary="Rescue Upload Video Lolos QA (Auto-Compress <34MB)",
+              send_basic_telegram_summary=(pub_mode == "public"),
+          )
           if not state.youtube_url:
               raise SystemExit(f"Rescue upload gagal: youtube_url kosong (Drive: {state.gdrive_folder_url})")
+          if pub_mode == "draft":
+              res_mp4 = ep_dir / mp4.name
+              send_audit_review_message(state, res_mp4, qa_summary="Rescue Upload Draft", target_publish_iso=compute_target_publish_iso())
+          shutil.rmtree(art_root, ignore_errors=True)
           print(f"[rescue] Berhasil upload YouTube Shorts: {state.youtube_url}")
           PY
 
-      - name: Run Automated Episode Pipeline
-        if: ${{ steps.guard.outputs.skip != 'true' && inputs.resume_artifact_run_id == '' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
+      - name: Run Telegram Rerender or Reject-and-New-Topic Action
+        if: ${{ steps.guard.outputs.skip != 'true' && github.event_name == 'repository_dispatch' && (github.event.action == 'telegram_rerender' || github.event.action == 'telegram_reject_next') }}
         env:
           PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -179,11 +197,51 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID || vars.ELEVENLABS_VOICE_ID }}
-          ELEVENLABS_MODEL_ID: ${{ vars.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2' }}
-          PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'public' }}
-          TARGET_PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || ((github.event.schedule == '11 3 * * *' || github.event.schedule == '37 4 * * *') && '12:00' || ((github.event.schedule == '11 10 * * *' || github.event.schedule == '37 11 * * *') && '19:00' || '')) }}
+          PUBLISH_MODE: "draft"
+          PUBLISH_TIME_WIB: ${{ vars.PUBLISH_TIME_WIB || '' }}
+          TARGET_PUBLISH_TIME_WIB: ${{ vars.PUBLISH_TIME_WIB || '' }}
+          AUDIT_LEAD_MINUTES: "90"
+          ENABLE_AI_FALLBACK_AUDIT: "true"
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
+          GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DISPATCH_ACTION: ${{ github.event.action }}
+          EPISODE_ID_OVERRIDE: ${{ github.event.client_payload.episode_id || '' }}
+          OWNER_FEEDBACK_OVERRIDE: ${{ github.event.client_payload.feedback || github.event.client_payload.text || '' }}
+          AUTO_UPLOAD_GDRIVE: "true"
+        run: |
+          python - <<'PY'
+          import json, os
+          from src.tools.review_manager import handle_telegram_reject_next, handle_telegram_rerender
+
+          act = os.environ.get("DISPATCH_ACTION", "")
+          ep_id = os.environ.get("EPISODE_ID_OVERRIDE", "").strip()
+          fb = os.environ.get("OWNER_FEEDBACK_OVERRIDE", "").strip()
+          if act == "telegram_reject_next":
+              res = handle_telegram_reject_next(ep_id)
+          else:
+              res = handle_telegram_rerender(ep_id, feedback=fb)
+          print(f"[telegram_dispatch] {act}: {json.dumps(res, ensure_ascii=False)}")
+          PY
+
+      - name: Run Automated Episode Pipeline
+        if: ${{ steps.guard.outputs.skip != 'true' && inputs.resume_artifact_run_id == '' && github.event_name != 'repository_dispatch' }}
+        env:
+          PYTHONUNBUFFERED: "1"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'draft' }}
+          PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || (github.event.schedule == '30 3 * * *' && '12:00') || (github.event.schedule == '30 10 * * *' && '19:00') || vars.PUBLISH_TIME_WIB || '' }}
+          TARGET_PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || (github.event.schedule == '30 3 * * *' && '12:00') || (github.event.schedule == '30 10 * * *' && '19:00') || vars.PUBLISH_TIME_WIB || '' }}
+          AUDIT_LEAD_MINUTES: "90"
+          ENABLE_AI_FALLBACK_AUDIT: "true"
           SKIP_IF_SLOT_PUBLISHED: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
@@ -200,7 +258,7 @@ jobs:
           NOTIFY_EMAIL_ALSO: ${{ vars.NOTIFY_EMAIL_ALSO || 'true' }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          OWNER_FEEDBACK_OVERRIDE: ${{ github.event.inputs.owner_feedback || github.event.client_payload.feedback || '' }}
+          OWNER_FEEDBACK_OVERRIDE: ${{ github.event.inputs.owner_feedback || '' }}
           AUTO_UPLOAD_GDRIVE: "true"
         run: |
           if [ -n "$OWNER_FEEDBACK_OVERRIDE" ]; then
@@ -208,21 +266,22 @@ jobs:
           fi
           python -c "from src.scheduler import run_one_automated_episode; run_one_automated_episode()"
 
-      - name: Save Published Episode History for Weekly Audit
+      - name: Save Pipeline State, History & Pending Review
         if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
         run: |
           git config user.name "Kimiabill Studio Bot"
           git config user.email "bot@kimiabill.local"
-          git add data/published_history.json data/audience_requests.json data/memory.db data/owner_feedback.json 2>/dev/null || true
+          git add data/published_history.json data/pending_review.json data/rejected_topics.json data/audience_requests.json data/memory.db data/owner_feedback.json 2>/dev/null || true
           if ! git diff --cached --quiet; then
-            git commit -m "chore: record published episode for weekly growth audit [skip ci]"
-            git pull --rebase origin main || true
+            BRANCH=$(git rev-parse --abbrev-ref HEAD)
+            git commit -m "chore: update pipeline state & audit queue [skip ci]"
+            git pull --rebase origin "$BRANCH" || true
             git push
           fi
 
       - name: Upload Rendered Video Artifact
         if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kimiabill-episode-${{ github.run_number }}
           path: |
@@ -231,3 +290,4 @@ jobs:
             episodes/*/CAPTION_SIAP_UPLOAD.txt
             episodes/*/*_contact_sheet.jpg
             episodes/*/handoffs/*.json
+          if-no-files-found: ignore

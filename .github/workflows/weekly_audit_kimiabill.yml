@@ -23,16 +23,18 @@ jobs:
   weekly-growth-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "requirements.txt"
 
       - name: Install Dependencies
         run: |
-          pip install -r requirements.txt
+          pip install -q -r requirements.txt
 
       - name: Run Agent 8 Weekly Audit or Send Google AI Flow Prompts Email
         env:
@@ -61,7 +63,8 @@ jobs:
           git config user.email "bot@kimiabill.local"
           git add data/weekly_agent_directives.json data/mechanism_bank.json data/weekly_audits/ data/audience_requests.json data/memory.db data/KIMIABILL_MASTER_DATABASE.csv data/published_history.json data/FLOW_PROMPTS_LATEST.txt 2>/dev/null || true
           if ! git diff --cached --quiet; then
+            BRANCH=$(git rev-parse --abbrev-ref HEAD)
             git commit -m "chore: Agent 8 weekly engagement audit & agent directives [skip ci]"
-            git pull --rebase origin main || true
+            git pull --rebase origin "$BRANCH" || true
             git push
           fi
