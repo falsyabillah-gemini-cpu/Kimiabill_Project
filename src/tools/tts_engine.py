@@ -1,23 +1,30 @@
-"""Cheerful Indonesian male voiceover engine (Edge-TTS id-ID-ArdiNeural)
-with exact scene duration tracking and kinetic subtitle chunk timing.
+"""Locked Indonesian male voiceover engine (Edge-TTS id-ID-ArdiNeural).
+
+Features:
+- Separates clean Indonesian baku subtitle text from phonetic TTS text via `config/pronunciation_dict.json`.
+- Locks ONE voice (`id-ID-ArdiNeural`), rate, pitch, and volume across every scene in an episode
+  (zero silent fallback to any other voice/engine mid-video; uses retry + exponential backoff).
+- Aggressive FFmpeg silence trimming (max 0.15-0.20s gaps and zero tail dead-air) for crisp Shorts pacing.
+- Concurrent Edge-TTS generation across scenes for fast execution.
 """
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
-import os
+import re
 import subprocess
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import edge_tts
-import requests
 
 from src.state import SceneSpec, SubtitleChunk
 
-DEFAULT_ELEVENLABS_VOICE_ID = "pNInz6obpgDQGcFmaJgB"  # Adam (clear, expressive male voice)
-DEFAULT_ELEVENLABS_MODEL_ID = "eleven_multilingual_v2"
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+PRONUNCIATION_DICT_PATH = BASE_DIR / "config" / "pronunciation_dict.json"
+LOCKED_DEFAULT_VOICE = "id-ID-ArdiNeural"
 
 
 @dataclass
@@ -28,6 +35,58 @@ class SceneVoiceResult:
     end_sec: float
     duration_sec: float
     subtitles: list[SubtitleChunk]
+
+
+@lru_cache(maxsize=4)
+def load_pronunciation_dict(dict_path: str = "") -> dict[str, Any]:
+    path = Path(dict_path) if dict_path else PRONUNCIATION_DICT_PATH
+    if not path.exists():
+        return {"phonetic_map": {}, "typo_fixes": []}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            data.setdefault("phonetic_map", {})
+            data.setdefault("typo_fixes", [])
+            return data
+    except Exception:
+        pass
+    return {"phonetic_map": {}, "typo_fixes": []}
+
+
+def sanitize_indonesian_script(text: str) -> str:
+    """Apply deterministic Indonesian proofreading & typo cleanup for subtitles/narration."""
+    s = " ".join((text or "").strip().split())
+    if not s:
+        return ""
+    pdict = load_pronunciation_dict()
+    for rule in pdict.get("typo_fixes") or []:
+        pat = rule.get("pattern")
+        rep = rule.get("replacement", "")
+        if pat:
+            flags = 0 if rule.get("case_sensitive") else re.IGNORECASE
+            s = re.sub(pat, rep, s, flags=flags)
+    # Remove accidental repeated spaces/punctuation left by deletions
+    s = re.sub(r"\s+([,.;:!?])", r"\1", s)
+    s = re.sub(r"([!?.])\s+([!?.])", r"\1", s)
+    s = re.sub(r"\s{2,}", " ", s).strip()
+    return s
+
+
+def to_tts_phonetic(text: str) -> str:
+    """Convert clean baku Indonesian text into Edge-TTS id-ID-ArdiNeural phonetic pronunciation."""
+    s = sanitize_indonesian_script(text)
+    if not s:
+        return ""
+    pdict = load_pronunciation_dict()
+    pmap: dict[str, str] = pdict.get("phonetic_map") or {}
+    # Sort longest tokens first to match multi-char scientific terms accurately
+    for term in sorted(pmap.keys(), key=len, reverse=True):
+        phonetic = str(pmap[term]).strip()
+        if not term or not phonetic:
+            continue
+        pattern = re.compile(rf"\b{re.escape(term)}\b", flags=re.IGNORECASE)
+        s = pattern.sub(phonetic, s)
+    return re.sub(r"\s{2,}", " ", s).strip()
 
 
 def probe_duration(media_path: Path) -> float:
@@ -65,7 +124,7 @@ def _group_words_to_chunks(
         start = round(offset_sec + buf[0][0], 3)
         end = round(offset_sec + buf[-1][1], 3)
         if end <= start:
-            end = round(start + 0.25, 3)
+            end = round(start + 0.22, 3)
         chunks.append(SubtitleChunk(start=start, end=end, text=text))
         buf = []
         cur_chars = 0
@@ -73,7 +132,7 @@ def _group_words_to_chunks(
     for w_start, w_end, word in word_events:
         pause_gap = (w_start - buf[-1][1]) if buf else 0.0
         if buf and (
-            pause_gap > 0.20
+            pause_gap > 0.18
             or len(buf) >= max_words
             or cur_chars + len(word) + 1 > max_chars
             or buf[-1][2].endswith((".", "!", "?", ","))
@@ -85,20 +144,21 @@ def _group_words_to_chunks(
     return chunks
 
 
-def _fallback_proportional_chunks(
-    text: str,
+def _aligned_baku_subtitles(
+    baku_text: str,
     offset_sec: float,
     speech_duration: float,
     max_words: int = 4,
     max_chars: int = 24,
 ) -> list[SubtitleChunk]:
-    words = [w for w in text.strip().split() if w]
+    """Generate tight, synced subtitle chunks strictly from clean baku Indonesian text."""
+    words = [w for w in baku_text.strip().split() if w]
     if not words:
         return []
-    weights = [max(len(w), 2) + (3 if w.endswith((".", "!", "?", ",")) else 0) for w in words]
+    weights = [max(len(w), 2) + (2.5 if w.endswith((".", "!", "?", ",")) else 0.0) for w in words]
     total_w = sum(weights)
-    usable_dur = max(0.3, speech_duration - 0.08)
-    cursor = 0.03
+    usable_dur = max(0.25, speech_duration - 0.04)
+    cursor = 0.02
     word_events: list[tuple[float, float, str]] = []
     for w, wt in zip(words, weights):
         dur = usable_dur * (wt / total_w)
@@ -107,132 +167,78 @@ def _fallback_proportional_chunks(
     return _group_words_to_chunks(word_events, offset_sec, max_words=max_words, max_chars=max_chars)
 
 
-def _chars_alignment_to_words(alignment: dict) -> list[tuple[float, float, str]]:
-    """Convert ElevenLabs character-level timestamps into (start, end, word) tuples."""
-    chars = alignment.get("characters") or []
-    starts = alignment.get("character_start_times_seconds") or []
-    ends = alignment.get("character_end_times_seconds") or []
-    n = min(len(chars), len(starts), len(ends))
-    words: list[tuple[float, float, str]] = []
-    cur_chars: list[str] = []
-    w_start: float | None = None
-    w_end: float = 0.0
-
-    for i in range(n):
-        ch = chars[i]
-        if ch.isspace():
-            if cur_chars and w_start is not None:
-                words.append((w_start, max(w_end, w_start + 0.05), "".join(cur_chars)))
-                cur_chars = []
-                w_start = None
-        else:
-            if w_start is None:
-                w_start = float(starts[i])
-            w_end = float(ends[i])
-            cur_chars.append(ch)
-    if cur_chars and w_start is not None:
-        words.append((w_start, max(w_end, w_start + 0.05), "".join(cur_chars)))
-    return words
-
-
-def _synth_one_scene_elevenlabs(
-    text: str,
-    out_mp3: Path,
-    api_key: str,
-    voice_id: str,
-    model_id: str,
-) -> list[tuple[float, float, str]]:
-    """Synthesize natural Indonesian voiceover via ElevenLabs API with word alignment."""
-    headers = {
-        "xi-api-key": api_key,
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "text": text,
-        "model_id": model_id,
-        "voice_settings": {
-            "stability": 0.48,
-            "similarity_boost": 0.78,
-            "style": 0.25,
-            "use_speaker_boost": True,
-        },
-    }
-    ts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps"
-    resp = requests.post(ts_url, headers=headers, json=payload, timeout=60)
-    if resp.status_code == 200:
-        data = resp.json()
-        audio_bytes = base64.b64decode(data["audio_base64"])
-        out_mp3.write_bytes(audio_bytes)
-        alignment = data.get("alignment") or data.get("normalized_alignment") or {}
-        return _chars_alignment_to_words(alignment)
-
-    # Fallback to standard audio-only endpoint if /with-timestamps isn't supported for this plan/voice
-    raw_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-    resp2 = requests.post(
-        raw_url,
-        headers={**headers, "Accept": "audio/mpeg"},
-        json=payload,
-        timeout=60,
-    )
-    resp2.raise_for_status()
-    out_mp3.write_bytes(resp2.content)
-    return []
-
-
-async def _synth_one_scene_edge(
-    text: str,
+async def _synth_one_scene_edge_locked(
+    tts_text: str,
     out_mp3: Path,
     voice: str,
     rate: str,
     pitch: str,
+    volume: str,
+    max_attempts: int = 5,
 ) -> list[tuple[float, float, str]]:
-    communicate = edge_tts.Communicate(
-        text=text,
-        voice=voice,
-        rate=rate,
-        pitch=pitch,
-        boundary="WordBoundary",
+    """Synthesize a single scene strictly with the locked voice + exponential backoff (never switches voices)."""
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            communicate = edge_tts.Communicate(
+                text=tts_text,
+                voice=voice,
+                rate=rate,
+                pitch=pitch,
+                volume=volume,
+                boundary="WordBoundary",
+            )
+            word_events: list[tuple[float, float, str]] = []
+            with open(out_mp3, "wb") as fh:
+                async for chunk in communicate.stream():
+                    if chunk["type"] == "audio":
+                        fh.write(chunk["data"])
+                    elif chunk["type"] == "WordBoundary":
+                        start_s = chunk["offset"] / 10_000_000.0
+                        dur_s = chunk["duration"] / 10_000_000.0
+                        word_events.append((start_s, start_s + dur_s, chunk["text"]))
+            if out_mp3.exists() and out_mp3.stat().st_size > 512:
+                return word_events
+            raise RuntimeError(f"Empty Edge-TTS output file for {out_mp3.name}")
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_attempts - 1:
+                backoff = min(16.0, float(2 ** attempt))
+                print(
+                    f"[tts] Edge-TTS ({voice}) percobaan {attempt + 1}/{max_attempts} gagal ({exc}); "
+                    f"retry voice yang sama dalam {backoff:.0f}s..."
+                )
+                await asyncio.sleep(backoff)
+    raise RuntimeError(
+        f"TTS gagal permanen pada locked voice '{voice}' setelah {max_attempts} percobaan: {last_exc}"
     )
-    word_events: list[tuple[float, float, str]] = []
-    with open(out_mp3, "wb") as fh:
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                fh.write(chunk["data"])
-            elif chunk["type"] == "WordBoundary":
-                start_s = chunk["offset"] / 10_000_000.0
-                dur_s = chunk["duration"] / 10_000_000.0
-                word_events.append((start_s, start_s + dur_s, chunk["text"]))
-    return word_events
 
 
-def generate_episode_voiceover(
-    scenes: list[SceneSpec],
-    out_dir: Path,
-    voice: str = "id-ID-ArdiNeural",
-    rate: str = "+2%",
-    pitch: str = "+4Hz",
-    inter_scene_pause_sec: float = 0.24,
-) -> tuple[str, list[SceneVoiceResult], list[SubtitleChunk], float]:
-    """Generate professional voiceover per scene (ElevenLabs if configured, else Edge-TTS), stitch smoothly."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    voice_parts_dir = out_dir / "voice_parts"
-    voice_parts_dir.mkdir(parents=True, exist_ok=True)
+async def _synth_all_scenes_concurrently(
+    tts_texts: list[str],
+    raw_mp3_paths: list[Path],
+    voice: str,
+    rate: str,
+    pitch: str,
+    volume: str,
+) -> list[list[tuple[float, float, str]]]:
+    sem = asyncio.Semaphore(3)
 
-    el_key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
-    el_voice = os.environ.get("ELEVENLABS_VOICE_ID", "").strip() or DEFAULT_ELEVENLABS_VOICE_ID
-    el_model = os.environ.get("ELEVENLABS_MODEL_ID", "").strip() or DEFAULT_ELEVENLABS_MODEL_ID
-    use_elevenlabs = bool(el_key)
-    if use_elevenlabs:
-        print(f"[tts] Menggunakan ElevenLabs (voice_id={el_voice}, model={el_model})")
-    else:
-        print(f"[tts] ELEVENLABS_API_KEY belum diisi — menggunakan fallback Edge-TTS ({voice})")
+    async def _worker(txt: str, path: Path) -> list[tuple[float, float, str]]:
+        async with sem:
+            return await _synth_one_scene_edge_locked(
+                tts_text=txt,
+                out_mp3=path,
+                voice=voice,
+                rate=rate,
+                pitch=pitch,
+                volume=volume,
+            )
 
-    scene_results: list[SceneVoiceResult] = []
-    all_subtitles: list[SubtitleChunk] = []
-    concat_inputs: list[Path] = []
+    return await asyncio.gather(*(_worker(t, p) for t, p in zip(tts_texts, raw_mp3_paths)))
 
-    # Generate tiny silence WAV for natural breath between scenes
-    pause_wav = voice_parts_dir / "pause.wav"
+
+def _make_silence_wav(path: Path, duration_sec: float) -> None:
     subprocess.run(
         [
             "ffmpeg",
@@ -242,42 +248,72 @@ def generate_episode_voiceover(
             "-i",
             "anullsrc=r=44100:cl=mono",
             "-t",
-            f"{inter_scene_pause_sec:.3f}",
+            f"{duration_sec:.3f}",
             "-c:a",
             "pcm_s16le",
-            str(pause_wav),
+            str(path),
         ],
         check=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
 
+
+def generate_episode_voiceover(
+    scenes: list[SceneSpec],
+    out_dir: Path,
+    voice: str = LOCKED_DEFAULT_VOICE,
+    rate: str = "+4%",
+    pitch: str = "+4Hz",
+    volume: str = "+0%",
+    inter_scene_pause_sec: float = 0.15,
+    tail_pause_sec: float = 0.15,
+) -> tuple[str, list[SceneVoiceResult], list[SubtitleChunk], float]:
+    """Synthesize locked `id-ID-ArdiNeural` voiceover, trim dead silence <=0.16s, and build clean baku subtitles."""
+    locked_voice = (voice or LOCKED_DEFAULT_VOICE).strip()
+    locked_rate = (rate or "+4%").strip()
+    locked_pitch = (pitch or "+4Hz").strip()
+    locked_volume = (volume or "+0%").strip()
+    inter_pause = max(0.08, min(0.20, float(inter_scene_pause_sec)))
+    end_tail = max(0.10, min(0.20, float(tail_pause_sec)))
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    voice_parts_dir = out_dir / "voice_parts"
+    voice_parts_dir.mkdir(parents=True, exist_ok=True)
+
+    baku_texts = [sanitize_indonesian_script(sc.narration) for sc in scenes]
+    tts_texts = [to_tts_phonetic(baku) for baku in baku_texts]
+    raw_mp3s = [voice_parts_dir / f"{sc.scene_id}.mp3" for sc in scenes]
+
+    print(
+        f"[tts] Locked Edge-TTS voice='{locked_voice}' rate='{locked_rate}' "
+        f"pitch='{locked_pitch}' volume='{locked_volume}' ({len(scenes)} scenes)"
+    )
+
+    asyncio.run(
+        _synth_all_scenes_concurrently(
+            tts_texts=tts_texts,
+            raw_mp3_paths=raw_mp3s,
+            voice=locked_voice,
+            rate=locked_rate,
+            pitch=locked_pitch,
+            volume=locked_volume,
+        )
+    )
+
+    pause_wav = voice_parts_dir / "pause.wav"
+    _make_silence_wav(pause_wav, inter_pause)
+    tail_wav = voice_parts_dir / "tail_pause.wav"
+    _make_silence_wav(tail_wav, end_tail)
+
+    scene_results: list[SceneVoiceResult] = []
+    all_subtitles: list[SubtitleChunk] = []
+    concat_inputs: list[Path] = []
     cursor = 0.0
-    for idx, scene in enumerate(scenes):
-        raw_mp3 = voice_parts_dir / f"{scene.scene_id}.mp3"
+
+    for idx, (scene, baku_txt, raw_mp3) in enumerate(zip(scenes, baku_texts, raw_mp3s)):
         clean_wav = voice_parts_dir / f"{scene.scene_id}.wav"
-
-        word_events: list[tuple[float, float, str]] = []
-        if use_elevenlabs:
-            try:
-                word_events = _synth_one_scene_elevenlabs(
-                    scene.narration,
-                    raw_mp3,
-                    api_key=el_key,
-                    voice_id=el_voice,
-                    model_id=el_model,
-                )
-            except Exception as exc:
-                print(f"[tts] Peringatan ElevenLabs gagal ({exc}), fallback ke Edge-TTS untuk {scene.scene_id}.")
-                word_events = asyncio.run(
-                    _synth_one_scene_edge(scene.narration, raw_mp3, voice=voice, rate=rate, pitch=pitch)
-                )
-        else:
-            word_events = asyncio.run(
-                _synth_one_scene_edge(scene.narration, raw_mp3, voice=voice, rate=rate, pitch=pitch)
-            )
-
-        # Convert to clean 44.1kHz mono WAV and trim excessive trailing silence
+        # Trim leading/trailing silence AND cap intra-sentence pauses to max 0.16s
         subprocess.run(
             [
                 "ffmpeg",
@@ -289,8 +325,11 @@ def generate_episode_voiceover(
                 "-ac",
                 "1",
                 "-af",
-                "silenceremove=start_periods=1:start_threshold=-45dB:detection=peak,"
-                "areverse,silenceremove=start_periods=1:start_threshold=-45dB:detection=peak,areverse",
+                (
+                    "silenceremove=start_periods=1:start_threshold=-42dB:detection=peak,"
+                    "areverse,silenceremove=start_periods=1:start_threshold=-42dB:detection=peak,areverse,"
+                    "silenceremove=stop_periods=-1:stop_duration=0.16:stop_threshold=-42dB"
+                ),
                 "-c:a",
                 "pcm_s16le",
                 str(clean_wav),
@@ -301,18 +340,14 @@ def generate_episode_voiceover(
         )
 
         speech_dur = probe_duration(clean_wav)
-        if word_events:
-            max_ev = max(e[1] for e in word_events)
-            scale = speech_dur / max_ev if max_ev > 0 else 1.0
-            scaled = [(s * scale, e * scale, w) for s, e, w in word_events]
-            subs = _group_words_to_chunks(scaled, offset_sec=cursor)
-        else:
-            subs = _fallback_proportional_chunks(
-                scene.narration, offset_sec=cursor, speech_duration=speech_dur
-            )
+        subs = _aligned_baku_subtitles(
+            baku_text=baku_txt,
+            offset_sec=cursor,
+            speech_duration=speech_dur,
+        )
 
         is_last = idx == len(scenes) - 1
-        tail_sec = 2.0 if is_last else inter_scene_pause_sec
+        tail_sec = end_tail if is_last else inter_pause
         seg_dur = speech_dur + tail_sec
         scene_results.append(
             SceneVoiceResult(
@@ -326,32 +361,9 @@ def generate_episode_voiceover(
         )
         all_subtitles.extend(subs)
         concat_inputs.append(clean_wav)
-        if not is_last:
-            concat_inputs.append(pause_wav)
-        else:
-            tail_wav = voice_parts_dir / "tail_pause.wav"
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-f",
-                    "lavfi",
-                    "-i",
-                    "anullsrc=r=44100:cl=mono",
-                    "-t",
-                    f"{tail_sec:.3f}",
-                    "-c:a",
-                    "pcm_s16le",
-                    str(tail_wav),
-                ],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            concat_inputs.append(tail_wav)
+        concat_inputs.append(tail_wav if is_last else pause_wav)
         cursor += seg_dur
 
-    # Stitch all voice parts cleanly into one normalized narration track
     concat_list = voice_parts_dir / "concat.txt"
     concat_list.write_text(
         "\n".join(f"file '{p.resolve()}'" for p in concat_inputs), encoding="utf-8"

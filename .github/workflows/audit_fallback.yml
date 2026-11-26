@@ -1,0 +1,107 @@
+name: Kimiabill Audit Reminder & AI Chief Editor Fallback
+
+on:
+  schedule:
+    # 18:00 WIB (11:00 UTC): Pengingat Audit jika belum direspons
+    - cron: "0 11 * * *"
+    # 18:15 WIB (11:15 UTC): AI Chief Editor Blind Audit Fallback jika tetap tidak ada respon
+    - cron: "15 11 * * *"
+  repository_dispatch:
+    types: [telegram_approve, telegram_ai_audit]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Aksi audit (ai_audit / approve / reminder)"
+        required: false
+        default: "ai_audit"
+        type: choice
+        options:
+          - ai_audit
+          - approve
+          - reminder
+      episode_id:
+        description: "Opsional: Episode ID spesifik (kosong = draft aktif terbaru)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  audit-action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Python 3.12 (Cached)
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "requirements.txt"
+
+      - name: Install FFmpeg & Python Dependencies
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! fc-list | grep -qi "DejaVuSans-Bold"; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends ffmpeg fonts-dejavu-core fonts-liberation
+          fi
+          pip install -q -r requirements.txt
+
+      - name: Execute Audit Action or AI Chief Editor Fallback
+        env:
+          PYTHONUNBUFFERED: "1"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
+          GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PUBLISH_TIME_WIB: ${{ vars.PUBLISH_TIME_WIB || '18:30' }}
+          ENABLE_AI_FALLBACK_AUDIT: "true"
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action || '' }}
+          CRON_EXPR: ${{ github.event.schedule || '' }}
+          DISPATCH_ACTION: ${{ inputs.action || '' }}
+          EPISODE_ID: ${{ github.event.client_payload.episode_id || inputs.episode_id || '' }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from src.chief_editor_audit import run_chief_editor_audit
+          from src.tools.review_manager import handle_telegram_approve, send_pending_review_reminder
+
+          ev = os.environ.get("EVENT_NAME", "")
+          ev_action = os.environ.get("EVENT_ACTION", "")
+          cron = os.environ.get("CRON_EXPR", "")
+          manual_action = os.environ.get("DISPATCH_ACTION", "ai_audit")
+          ep_id = os.environ.get("EPISODE_ID", "").strip()
+
+          if (ev == "schedule" and cron == "0 11 * * *") or (ev == "workflow_dispatch" and manual_action == "reminder"):
+              res = send_pending_review_reminder()
+          elif (ev == "repository_dispatch" and ev_action == "telegram_approve") or (ev == "workflow_dispatch" and manual_action == "approve"):
+              res = handle_telegram_approve(ep_id, by_ai=False)
+          else:
+              force = (ev != "schedule")
+              res = run_chief_editor_audit(ep_id, force=force)
+          print("[audit_fallback]", json.dumps(res, ensure_ascii=False))
+          PY
+
+      - name: Commit Updated Audit & Published History State
+        run: |
+          git config user.name "Kimiabill Audit Bot"
+          git config user.email "bot@kimiabill.local"
+          git add data/pending_review.json data/published_history.json data/rejected_topics.json data/audience_requests.json data/memory.db data/owner_feedback.json 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            BRANCH=$(git rev-parse --abbrev-ref HEAD)
+            git commit -m "chore: update audit decision & published history [skip ci]"
+            git pull --rebase origin "$BRANCH" || true
+            git push
+          fi

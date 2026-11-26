@@ -32,16 +32,20 @@ jobs:
   portfolio-ceo-assistant:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "requirements.txt"
 
       - name: Install Dependencies
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq fonts-dejavu-core fonts-liberation
+          if ! fc-list | grep -qi "DejaVuSans-Bold"; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends fonts-dejavu-core fonts-liberation
+          fi
           pip install -q pillow pyyaml requests pydantic python-dotenv
 
       - name: Run CEO Assistant (Daily Watchdog or Weekly Big Visual Audit)
@@ -93,13 +97,14 @@ jobs:
           git config user.email "bot@kimiabill.local"
           git add data/portfolio_audits/ 2>/dev/null || true
           if ! git diff --cached --quiet; then
+            BRANCH=$(git rev-parse --abbrev-ref HEAD)
             git commit -m "chore: save portfolio CEO assistant audit & watchdog state [skip ci]"
-            git pull --rebase origin main || true
+            git pull --rebase origin "$BRANCH" || true
             git push
           fi
 
       - name: Upload Visual Audit Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: ${{ github.event.schedule == '30 13 * * 0' || github.event_name != 'schedule' }}
         with:
           name: portfolio-ceo-audit-${{ github.run_number }}
@@ -107,3 +112,4 @@ jobs:
             data/portfolio_audits/*.png
             data/portfolio_audits/*.pdf
             data/portfolio_audits/*.json
+          if-no-files-found: ignore

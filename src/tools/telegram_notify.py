@@ -639,8 +639,18 @@ def notify_production_started(
     else:
         trigger_label = "Scheduler Lokal"
 
-    target_pub = os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
-    target_line = f"⏰ Target Tayang: {target_pub} WIB" if target_pub else "⚡ Publish segera setelah lolos QA"
+    target_pub = (
+        os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
+        or os.environ.get("PUBLISH_TIME_WIB", "").strip()
+    )
+    pub_mode_now = os.environ.get("PUBLISH_MODE", "draft").strip().lower()
+    if pub_mode_now == "draft":
+        pub_label = target_pub or "18:30"
+        target_line = f"🔍 Mode Audit Manual (Draft Unlisted ~17:06 WIB → Target Tayang {pub_label} WIB)"
+    elif target_pub:
+        target_line = f"⏰ Target Tayang: {target_pub} WIB"
+    else:
+        target_line = "⚡ Publish segera setelah lolos QA"
 
     req_line = ""
     if pending_request and pending_request.get("topic_title"):

@@ -182,39 +182,56 @@ class StudioMemory:
                 counts[d] = cnt
         return counts
 
-    def get_balanced_unused_ideas(self, count: int = 5) -> list[dict]:
-        """Pick unused ideas from idea_bank prioritizing underrepresented pure-science disciplines."""
+    def get_balanced_unused_ideas(
+        self,
+        count: int = 5,
+        avoid_titles: Optional[list[str]] = None,
+    ) -> list[dict]:
+        """Pick unused ideas from idea_bank prioritizing underrepresented pure-science disciplines, filtering duplicates."""
+        from src.tools.topic_guard import check_topic_duplication
+
         counts = self.discipline_counts()
         ordered_disciplines = sorted(counts.keys(), key=lambda d: counts[d])
         picked: list[dict] = []
         picked_ids: set[str] = set()
 
+        def _is_ok(title: str, phenom: str) -> bool:
+            is_dup, _ = check_topic_duplication(
+                title,
+                phenomenon=phenom,
+                avoid_titles=avoid_titles,
+                base_dir=self.base_dir,
+            )
+            return not is_dup
+
         with sqlite3.connect(self.db_path) as conn:
-            # First pass: 1 unused idea from each least-covered discipline
+            # First pass: 1 unused non-duplicate idea from each least-covered discipline
             for disc in ordered_disciplines:
                 if len(picked) >= count:
                     break
-                row = conn.execute(
+                rows = conn.execute(
                     """
                     SELECT id, discipline, title, phenomenon, hook_3s, real_footage_keywords
                     FROM idea_bank
                     WHERE used_by_episode IS NULL AND discipline = ?
-                    ORDER BY id ASC LIMIT 1
+                    ORDER BY id ASC
                     """,
                     (disc,),
-                ).fetchone()
-                if row and row[0] not in picked_ids:
-                    picked_ids.add(row[0])
-                    picked.append(
-                        {
-                            "id": row[0],
-                            "discipline": row[1],
-                            "title": row[2],
-                            "phenomenon": row[3],
-                            "hook_3s": row[4],
-                            "real_footage_keywords": json.loads(row[5]),
-                        }
-                    )
+                ).fetchall()
+                for row in rows:
+                    if row[0] not in picked_ids and _is_ok(row[2], row[3]):
+                        picked_ids.add(row[0])
+                        picked.append(
+                            {
+                                "id": row[0],
+                                "discipline": row[1],
+                                "title": row[2],
+                                "phenomenon": row[3],
+                                "hook_3s": row[4],
+                                "real_footage_keywords": json.loads(row[5]),
+                            }
+                        )
+                        break
             # Fill remaining slots if needed
             if len(picked) < count:
                 rows = conn.execute(
@@ -228,7 +245,7 @@ class StudioMemory:
                 for row in rows:
                     if len(picked) >= count:
                         break
-                    if row[0] not in picked_ids:
+                    if row[0] not in picked_ids and _is_ok(row[2], row[3]):
                         picked_ids.add(row[0])
                         picked.append(
                             {
@@ -242,8 +259,14 @@ class StudioMemory:
                         )
         return picked
 
-    def get_kitchen_chemistry_ideas(self, count: int = 5) -> list[dict]:
-        """Pick unused everyday kitchen chemistry ideas (kit_*) for daily noon Kitchen Chemistry slot."""
+    def get_kitchen_chemistry_ideas(
+        self,
+        count: int = 5,
+        avoid_titles: Optional[list[str]] = None,
+    ) -> list[dict]:
+        """Pick unused everyday kitchen chemistry ideas (kit_*) filtering duplicates against published/rejected history."""
+        from src.tools.topic_guard import check_topic_duplication
+
         picked: list[dict] = []
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(
@@ -251,32 +274,30 @@ class StudioMemory:
                 SELECT id, discipline, title, phenomenon, hook_3s, real_footage_keywords
                 FROM idea_bank
                 WHERE used_by_episode IS NULL AND id LIKE 'kit_%'
-                ORDER BY id ASC LIMIT ?
+                ORDER BY id ASC
                 """,
-                (count,),
             ).fetchall()
-            if len(rows) < count:
-                extra = conn.execute(
-                    """
-                    SELECT id, discipline, title, phenomenon, hook_3s, real_footage_keywords
-                    FROM idea_bank
-                    WHERE id LIKE 'kit_%' AND used_by_episode IS NOT NULL
-                    ORDER BY RANDOM() LIMIT ?
-                    """,
-                    (count - len(rows),),
-                ).fetchall()
-                rows = list(rows) + list(extra)
-        for row in rows:
-            picked.append(
-                {
-                    "id": row[0],
-                    "discipline": row[1],
-                    "title": row[2],
-                    "phenomenon": row[3],
-                    "hook_3s": row[4],
-                    "real_footage_keywords": json.loads(row[5]),
-                }
-            )
+            for row in rows:
+                is_dup, _ = check_topic_duplication(
+                    row[2],
+                    phenomenon=row[3],
+                    avoid_titles=avoid_titles,
+                    base_dir=self.base_dir,
+                )
+                if is_dup:
+                    continue
+                picked.append(
+                    {
+                        "id": row[0],
+                        "discipline": row[1],
+                        "title": row[2],
+                        "phenomenon": row[3],
+                        "hook_3s": row[4],
+                        "real_footage_keywords": json.loads(row[5]),
+                    }
+                )
+                if len(picked) >= count:
+                    break
         return picked
 
     def list_past_topics(self, limit: int = 30) -> list[dict]:

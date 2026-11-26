@@ -208,6 +208,7 @@ def fetch_viral_science_topics(
                         "source": feed["name"],
                         "lang": feed["lang"],
                         "discipline": disc,
+                        "topic_bucket": "everyday" if everyday_hits > 0 else "research",
                         "everyday_relatable": everyday_hits > 0,
                         "title": title,
                         "summary": desc[:320],
@@ -229,25 +230,45 @@ def build_agent1_brief(
     min_viral_matches: int = 2,
     weekend_paper_mode: bool = False,
     kitchen_chemistry_mode: bool = False,
+    extra_avoid_titles: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Build the viral-first brief for Agent 1, including daily Kitchen Chemistry, everyday KARAT, and YT viral benchmarks."""
+    """Build the viral-first brief for Agent 1 with strict history/blacklist deduplication and 70/30 ratio guidance."""
+    from src.tools.topic_guard import (
+        check_topic_duplication,
+        compute_topic_bucket_guidance,
+        load_published_history,
+        load_rejected_topics,
+    )
+
     memory = StudioMemory(base_dir)
     past = memory.list_past_topics(limit=50)
-    past_titles = {p["title"].lower() for p in past}
+    past_titles = [p["title"] for p in past if p.get("title")] + list(extra_avoid_titles or [])
 
     effective_lookback = 72 if weekend_paper_mode else lookback_hours
     viral_raw = fetch_viral_science_topics(
         lookback_hours=effective_lookback,
-        max_items=14,
+        max_items=24,
         weekend_paper_mode=weekend_paper_mode,
     )
-    viral_fresh = [v for v in viral_raw if v["title"].lower() not in past_titles]
+    viral_fresh: list[dict[str, Any]] = []
+    for cand in viral_raw:
+        is_dup, _reason = check_topic_duplication(
+            cand.get("title", ""),
+            source_url=cand.get("url"),
+            phenomenon=cand.get("summary", ""),
+            avoid_titles=past_titles,
+            base_dir=base_dir,
+        )
+        if not is_dup:
+            viral_fresh.append(cand)
+    viral_fresh = viral_fresh[:10]
+
     id_inspo = fetch_indonesian_science_inspiration(max_per_channel=3)
 
     fallback_ideas = (
-        memory.get_kitchen_chemistry_ideas(count=5)
+        memory.get_kitchen_chemistry_ideas(count=5, avoid_titles=past_titles)
         if kitchen_chemistry_mode
-        else memory.get_balanced_unused_ideas(count=5)
+        else memory.get_balanced_unused_ideas(count=5, avoid_titles=past_titles)
     )
 
     if weekend_paper_mode:
@@ -267,10 +288,15 @@ def build_agent1_brief(
         if weekend_paper_mode
         else ("KIMIA DAPUR • Sains Sehari-hari di Rumah" if kitchen_chemistry_mode else "")
     )
+    ratio_guidance = compute_topic_bucket_guidance(base_dir)
+    recent_hist_titles = [str(r.get("title") or "") for r in load_published_history(base_dir)[-20:] if r.get("title")]
+    rejected_titles = [str(r.get("title") or "") for r in load_rejected_topics(base_dir)[-20:] if r.get("title")]
+
     return {
         "mode_recommended": mode,
         "section": section,
         "section_tagline": tagline,
+        "topic_ratio_guidance": ratio_guidance,
         "viral_count": len(viral_fresh),
         "viral_candidates": viral_fresh[:8],
         "idea_bank_fallback_candidates": fallback_ideas,
@@ -278,4 +304,6 @@ def build_agent1_brief(
         "inspiration_channel_titles": id_inspo[:9],
         "discipline_balance_so_far": memory.discipline_counts(),
         "past_topics_to_avoid": past[:15],
+        "recent_published_titles": recent_hist_titles,
+        "rejected_topics_blacklist": rejected_titles,
     }
