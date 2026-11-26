@@ -1451,26 +1451,57 @@ def scout_assets_for_scenes(
                     chosen_cand, chosen_info = fallback_cand, norm_info
                     print(f"[asset_scout] {scene.scene_id}: memakai fallback aman (meta={fallback_meta_score})")
 
-            # Final 100% real-camera monetization-safe fallback: Real Photography (Pexels / Openverse CC0 / Wikimedia) + Ken Burns motion
+            # Final 100% real-camera monetization-safe fallback: Real Photography (Pexels Image API / Wikimedia / Openverse) + Ken Burns motion
             if chosen_cand is None:
+                photo_screens = 0
+                photo_fb_cand: Optional[VideoCandidate] = None
+                photo_fb_info: Optional[dict] = None
+                photo_fb_path: Optional[Path] = None
                 for pq in (queries[:3] + generic_fallbacks[:2]):
+                    if photo_screens >= 2:
+                        break
                     p_cands = search_pexels_photos(pq, per_page=4)
                     if not p_cands:
-                        p_cands = search_openverse_photos(pq, limit=5)
-                    if not p_cands:
-                        p_cands = search_wikimedia_photos(pq, limit=5)
-                    for pc in p_cands:
+                        p_cands = search_wikimedia_photos(pq, limit=4) + search_openverse_photos(pq, limit=4)
+                    p_cands.sort(
+                        key=lambda pc: (
+                            -_metadata_relevance_score(pc, scene, topic_terms),
+                            0 if pc.source == "pexels_photo" else (1 if pc.source == "wikimedia_photo" else 2),
+                        )
+                    )
+                    for pc in p_cands[:2]:
+                        if photo_screens >= 2:
+                            break
                         if pc.download_url in used_urls or pc.page_url in used_urls:
                             continue
-                        kb_info = _render_photo_ken_burns_mp4(pc, dest_mp4, duration_sec=max(5.5, min(10.0, float(scene.duration_sec or 7.0))))
+                        if _metadata_relevance_score(pc, scene, topic_terms) < 0:
+                            continue
+                        cand_mp4 = dest_mp4.with_name(f"{dest_mp4.stem}_kb{photo_screens}.mp4")
+                        kb_info = _render_photo_ken_burns_mp4(pc, cand_mp4, duration_sec=max(5.5, min(10.0, float(scene.duration_sec or 7.0))))
                         used_urls.add(pc.download_url)
                         used_urls.add(pc.page_url)
-                        if kb_info:
+                        if not kb_info:
+                            cand_mp4.unlink(missing_ok=True)
+                            continue
+                        photo_screens += 1
+                        ok, clean, reason = vision_screen_clip(cand_mp4, scene)
+                        print(f"[asset_scout] {scene.scene_id} photo-KB ({pc.source}) '{pc.title[:45]}': ok={ok} ({reason[:120]})")
+                        if ok:
+                            cand_mp4.replace(dest_mp4)
                             chosen_cand, chosen_info = pc, kb_info
-                            print(f"[asset_scout] {scene.scene_id}: memakai fallback Real Photo Ken Burns ({pc.source}: '{pc.title[:48]}')")
+                            if photo_fb_path and photo_fb_path.exists():
+                                photo_fb_path.unlink(missing_ok=True)
                             break
+                        if clean and photo_fb_cand is None:
+                            photo_fb_cand, photo_fb_info, photo_fb_path = pc, kb_info, cand_mp4
+                        else:
+                            cand_mp4.unlink(missing_ok=True)
                     if chosen_cand:
                         break
+                if chosen_cand is None and photo_fb_cand is not None and photo_fb_path and photo_fb_path.exists():
+                    photo_fb_path.replace(dest_mp4)
+                    chosen_cand, chosen_info = photo_fb_cand, photo_fb_info
+                    print(f"[asset_scout] {scene.scene_id}: memakai fallback aman Real Photo Ken Burns ('{chosen_cand.title[:45]}')")
 
         if fallback_raw is not None and fallback_raw.exists():
             fallback_raw.unlink(missing_ok=True)
