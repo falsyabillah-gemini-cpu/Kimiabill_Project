@@ -424,6 +424,11 @@ class TestAssetScoutAndAnimator(unittest.TestCase):
             self.assertEqual(probed["height"], 1920)
             self.assertGreaterEqual(probed["duration"], 2.8)
 
+        from src.tools.asset_scout import _resolve_pexels_api_key, _resolve_pixabay_api_key
+        with patch.dict(os.environ, {"PIXABAY_API_KEY": "", "PEXELS_API_KEY": "41234567-abcdef1234567890abcd"}, clear=False):
+            self.assertEqual(_resolve_pixabay_api_key(), "41234567-abcdef1234567890abcd")
+            self.assertEqual(_resolve_pexels_api_key(), "")
+
     def test_animator_neutral_templates_and_text_fit(self) -> None:
         fonts = _load_fonts()
         canvas = Image.new("RGBA", (1080, 1920), (20, 28, 44, 255))

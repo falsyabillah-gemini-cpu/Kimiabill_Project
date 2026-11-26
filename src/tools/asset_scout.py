@@ -201,7 +201,7 @@ def _extract_pexels_slug(page_url: str, fallback: str) -> str:
 
 
 def search_pexels(query: str, per_page: int = 8, orientation: Optional[str] = "portrait") -> list[VideoCandidate]:
-    api_key = os.environ.get("PEXELS_API_KEY")
+    api_key = _resolve_pexels_api_key()
     if not api_key:
         return []
     q_clean = _clean_stock_query(query)
@@ -255,7 +255,7 @@ def search_pexels(query: str, per_page: int = 8, orientation: Optional[str] = "p
 
 def search_pexels_photos(query: str, per_page: int = 6) -> list[VideoCandidate]:
     """Search Pexels Real Photography API (same PEXELS_API_KEY, 100% real camera & monetization-safe) for Ken Burns fallback."""
-    api_key = os.environ.get("PEXELS_API_KEY")
+    api_key = _resolve_pexels_api_key()
     if not api_key:
         return []
     q_clean = _clean_stock_query(query)
@@ -457,9 +457,29 @@ def _render_photo_ken_burns_mp4(candidate: VideoCandidate, dest_mp4: Path, durat
         raw_img.unlink(missing_ok=True)
 
 
+_PIXABAY_KEY_RE = re.compile(r"^\d+-[0-9a-fA-F]{12,}$")
+
+
+def _resolve_pexels_api_key() -> str:
+    k = (os.environ.get("PEXELS_API_KEY") or "").strip()
+    if not k or _PIXABAY_KEY_RE.match(k):
+        return ""
+    return k
+
+
+def _resolve_pixabay_api_key() -> str:
+    k = (os.environ.get("PIXABAY_API_KEY") or "").strip()
+    if k:
+        return k
+    pk = (os.environ.get("PEXELS_API_KEY") or "").strip()
+    if pk and _PIXABAY_KEY_RE.match(pk):
+        return pk
+    return ""
+
+
 def search_pixabay(query: str, per_page: int = 8) -> list[VideoCandidate]:
-    """Search Pixabay Video API when PIXABAY_API_KEY is configured."""
-    api_key = os.environ.get("PIXABAY_API_KEY")
+    """Search Pixabay Video API when PIXABAY_API_KEY (or Pixabay-formatted key) is configured."""
+    api_key = _resolve_pixabay_api_key()
     if not api_key:
         return []
     q_clean = _clean_stock_query(query)
@@ -516,6 +536,59 @@ def search_pixabay(query: str, per_page: int = 8) -> list[VideoCandidate]:
                 width=int(best.get("width") or 1280),
                 height=int(best.get("height") or 720),
                 thumb_url=None,
+            )
+        )
+    return out
+
+
+def search_pixabay_photos(query: str, per_page: int = 6) -> list[VideoCandidate]:
+    """Search Pixabay Photo API (100% real camera photography & commercial monetization safe)."""
+    api_key = _resolve_pixabay_api_key()
+    if not api_key:
+        return []
+    q_clean = _clean_stock_query(query)
+    if not q_clean:
+        return []
+    try:
+        resp = requests.get(
+            "https://pixabay.com/api/",
+            headers={"User-Agent": USER_AGENT},
+            params={
+                "key": api_key,
+                "q": q_clean,
+                "image_type": "photo",
+                "per_page": per_page,
+                "safesearch": "true",
+            },
+            timeout=20,
+        )
+    except requests.RequestException:
+        return []
+    if resp.status_code != 200:
+        return []
+    out: list[VideoCandidate] = []
+    for p in resp.json().get("hits", []):
+        img_url = str(p.get("largeImageURL") or p.get("webformatURL") or "").strip()
+        if not img_url:
+            continue
+        tags = str(p.get("tags") or "")
+        if not _is_real_video_title(tags) or not _is_family_safe_text(tags):
+            continue
+        w = int(p.get("imageWidth") or p.get("webformatWidth") or 1280)
+        h = int(p.get("imageHeight") or p.get("webformatHeight") or 720)
+        if w < 640 or h < 480:
+            continue
+        out.append(
+            VideoCandidate(
+                source="pixabay_photo",
+                title=f"PixabayPhoto #{p.get('id')} - {tags or q_clean}"[:120],
+                download_url=img_url,
+                page_url=p.get("pageURL") or img_url,
+                license="Pixabay Content License (Free Real Photo)",
+                duration_sec=7.0,
+                width=w,
+                height=h,
+                thumb_url=p.get("previewURL"),
             )
         )
     return out
@@ -1460,13 +1533,13 @@ def scout_assets_for_scenes(
                 for pq in (queries[:3] + generic_fallbacks[:2]):
                     if photo_screens >= 2:
                         break
-                    p_cands = search_pexels_photos(pq, per_page=4)
+                    p_cands = search_pexels_photos(pq, per_page=4) + search_pixabay_photos(pq, per_page=4)
                     if not p_cands:
                         p_cands = search_wikimedia_photos(pq, limit=4) + search_openverse_photos(pq, limit=4)
                     p_cands.sort(
                         key=lambda pc: (
                             -_metadata_relevance_score(pc, scene, topic_terms),
-                            0 if pc.source == "pexels_photo" else (1 if pc.source == "wikimedia_photo" else 2),
+                            0 if pc.source in ("pexels_photo", "pixabay_photo") else (1 if pc.source == "wikimedia_photo" else 2),
                         )
                     )
                     for pc in p_cands[:2]:
