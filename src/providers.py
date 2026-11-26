@@ -57,6 +57,14 @@ def _extract_json(text: str) -> dict[str, Any]:
     return json.loads(cleaned)
 
 
+class GeminiQuotaExhaustedError(ProviderError):
+    """Raised when all available Gemini models hit 429/503 quota limits."""
+
+
+def _redact_url_secrets(msg: str) -> str:
+    return re.sub(r"([?&](?:key|token)=)[^&\s'\"]+", r"\1***", msg)
+
+
 DEFAULT_MODELS: dict[str, str] = {
     "gemini_api": "gemini-3.8-flash",
     "anthropic_api": "claude-sonnet-4-5",
@@ -74,10 +82,12 @@ GEMINI_FALLBACK_MODELS: tuple[str, ...] = (
 
 TRANSIENT_STATUS_CODES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
 _HYDROGEN_ALERT_SENT = False
-# Permanent skip for models that return 402/403/404 (deprecated or paid-only on this API key).
+# Permanent skip for models that return 402/403/404 or daily limit:0 on this API key.
 _EXHAUSTED_MODELS_THIS_RUN: set[str] = set()
-# Short cooldown map (seconds) for temporary RPM 429 / 503 / timeout bursts so working models recover automatically.
+# Cooldown map (seconds) for temporary RPM 429 / 503 / timeout bursts so working models recover automatically.
 _MODEL_COOLDOWN_UNTIL: dict[str, float] = {}
+# Cache discovered models for 10 minutes to avoid spamming GET /models.
+_DISCOVERED_MODELS_CACHE: tuple[float, list[str]] | None = None
 
 
 def _notify_hydrogen_alert(status_code: int, detail: str) -> None:
@@ -149,7 +159,7 @@ def _post_with_retry(
         except requests.RequestException as exc:
             last_exc = exc
             wait_sec = min(10, 2 * (2 ** attempt))
-            print(f"[providers] Network error ({exc}), retrying in {wait_sec}s (attempt {attempt + 1}/{max_attempts})...")
+            print(f"[providers] Network error ({_redact_url_secrets(str(exc))}), retrying in {wait_sec}s (attempt {attempt + 1}/{max_attempts})...")
             time.sleep(wait_sec)
     if resp is not None:
         return resp
@@ -158,11 +168,15 @@ def _post_with_retry(
 
 
 def _discover_gemini_flash_models(api_key: str) -> list[str]:
-    """Query Gemini /v1beta/models to find available Flash models supporting generateContent (non-omni first)."""
+    """Query Gemini /v1beta/models (cached 10m) to find available Flash models supporting generateContent."""
+    global _DISCOVERED_MODELS_CACHE
+    now_m = time.monotonic()
+    if _DISCOVERED_MODELS_CACHE is not None and (now_m - _DISCOVERED_MODELS_CACHE[0]) < 600.0:
+        return [m for m in _DISCOVERED_MODELS_CACHE[1] if m not in _EXHAUSTED_MODELS_THIS_RUN]
     try:
         resp = requests.get(
             f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}",
-            timeout=25,
+            timeout=20,
         )
         if resp.status_code != 200:
             return []
@@ -176,11 +190,12 @@ def _discover_gemini_flash_models(api_key: str) -> list[str]:
                     if name not in _EXHAUSTED_MODELS_THIS_RUN:
                         candidates.append(name)
         if candidates:
-            # Prefer full numeric Flash generations (3.x/2.x) over experimental omni / lite / preview
+            # Prefer full stable Flash generations over experimental omni / preview / lite
             candidates.sort(
-                key=lambda n: ("omni" not in n, "lite" not in n, "preview" not in n, n),
+                key=lambda n: ("omni" not in n, "preview" not in n, "lite" not in n, n),
                 reverse=True,
             )
+            _DISCOVERED_MODELS_CACHE = (now_m, list(candidates))
             return candidates
     except Exception:
         return []
@@ -384,19 +399,53 @@ def call_structured_agent(
         last_parse_err: Exception | None = None
         for parse_try in range(2):
             tried: list[str] = []
-            raw_candidates = [model, *[m for m in GEMINI_FALLBACK_MODELS if m != model]]
-            non_perm = [m for m in raw_candidates if m not in _EXHAUSTED_MODELS_THIS_RUN] or raw_candidates
+            discovered_all = _discover_gemini_flash_models(api_key)
+            ordered_pool = [model, *[m for m in GEMINI_FALLBACK_MODELS if m != model]]
+            for dm in discovered_all:
+                if dm not in ordered_pool and "omni" not in dm:
+                    ordered_pool.append(dm)
+            non_perm = [m for m in ordered_pool if m not in _EXHAUSTED_MODELS_THIS_RUN]
+            if not non_perm:
+                non_perm = [m for m in discovered_all if m not in _EXHAUSTED_MODELS_THIS_RUN]
+            if not non_perm:
+                if os.environ.get("OPENROUTER_API_KEY"):
+                    print("[providers] Kuota harian Gemini habis -> failover otomatis ke OPENROUTER_API_KEY...")
+                    return call_structured_agent(
+                        provider="openrouter",
+                        model=DEFAULT_MODELS["openrouter"],
+                        system_prompt=system_prompt,
+                        user_payload=user_payload,
+                        response_model=response_model,
+                        handoff_path=handoff_path,
+                        image_paths=image_paths,
+                    )
+                if os.environ.get("ANTHROPIC_API_KEY") and not image_paths:
+                    print("[providers] Kuota harian Gemini habis -> failover otomatis ke ANTHROPIC_API_KEY...")
+                    return call_structured_agent(
+                        provider="anthropic_api",
+                        model=DEFAULT_MODELS["anthropic_api"],
+                        system_prompt=system_prompt,
+                        user_payload=user_payload,
+                        response_model=response_model,
+                        handoff_path=handoff_path,
+                        image_paths=None,
+                    )
+                raise GeminiQuotaExhaustedError(
+                    "429 Daily Quota Exhausted: Seluruh model Gemini Flash sudah mencapai batas kuota harian."
+                )
+
             now_mono = time.monotonic()
             candidates = [m for m in non_perm if _MODEL_COOLDOWN_UNTIL.get(m, 0.0) <= now_mono]
             if not candidates:
                 earliest = min(_MODEL_COOLDOWN_UNTIL.get(m, now_mono) for m in non_perm)
-                cool_wait = min(25.0, max(4.0, earliest - now_mono))
+                cool_wait = min(35.0, max(5.0, earliest - now_mono))
                 print(f"[providers] Semua model Gemini sedang jeda RPM sesaat; menunggu {cool_wait:.0f}s agar kuota pulih...")
                 time.sleep(cool_wait)
                 candidates = non_perm
 
             resp = None
             active_model = model
+            last_quota_msg = ""
             for cand_idx, cand_model in enumerate(candidates):
                 tried.append(cand_model)
                 url = (
@@ -408,63 +457,66 @@ def call_structured_agent(
                     resp = _post_with_retry(
                         url,
                         json_body=body,
-                        max_attempts=1 if (has_more and cand_model in ("gemini-4-hydrogen", "gemini-3.8-flash", "gemini-3.6-flash")) else (2 if has_more else 3),
+                        max_attempts=1 if (has_more and cand_model in ("gemini-4-hydrogen", "gemini-3.8-flash", "gemini-3.6-flash")) else 2,
                         timeout=22 if has_more else 32,
-                        fail_fast_429=has_more,
+                        fail_fast_429=True,
                     )
                 except requests.RequestException as exc:
-                    print(f"[providers] Gemini model '{cand_model}' timeout/network error ({exc}), trying next fallback...")
+                    print(f"[providers] Gemini model '{cand_model}' timeout/network error ({_redact_url_secrets(str(exc))}), beralih ke fallback berikutnya...")
                     if has_more:
-                        _MODEL_COOLDOWN_UNTIL[cand_model] = time.monotonic() + 45.0
+                        _MODEL_COOLDOWN_UNTIL[cand_model] = time.monotonic() + 60.0
                     resp = None
                     continue
                 if resp.status_code == 200:
                     _MODEL_COOLDOWN_UNTIL.pop(cand_model, None)
                     active_model = cand_model
                     break
-                if resp.status_code in (402, 403, 404) and has_more:
+                err_txt_low = (resp.text or "").lower()
+                is_daily_exhausted = (
+                    "perday" in err_txt_low
+                    or "per day" in err_txt_low
+                    or "daily" in err_txt_low
+                    or '"limit": 0' in err_txt_low
+                    or "'limit': 0" in err_txt_low
+                )
+                if resp.status_code in (429, 503):
+                    last_quota_msg = _redact_url_secrets(f"HTTP {resp.status_code} ({cand_model}): {resp.text[:140]}")
+                if resp.status_code in (402, 403, 404) or (resp.status_code == 429 and is_daily_exhausted):
                     _EXHAUSTED_MODELS_THIS_RUN.add(cand_model)
-                elif resp.status_code in (429, 503) and has_more:
-                    _MODEL_COOLDOWN_UNTIL[cand_model] = time.monotonic() + 35.0
+                elif resp.status_code in (429, 503):
+                    _MODEL_COOLDOWN_UNTIL[cand_model] = time.monotonic() + (90.0 if resp.status_code == 429 else 45.0)
                 if cand_model == "gemini-4-hydrogen" and resp.status_code in (402, 403):
                     _notify_hydrogen_alert(resp.status_code, resp.text[:400])
                 if resp.status_code not in (402, 403, 404, *TRANSIENT_STATUS_CODES):
                     break
-                label = "limit/quota" if resp.status_code == 429 else f"HTTP {resp.status_code}"
+                label = "kuota harian" if (resp.status_code == 429 and is_daily_exhausted) else ("limit/quota" if resp.status_code == 429 else f"HTTP {resp.status_code}")
                 print(f"[providers] Model '{cand_model}' ({label}), otomatis beralih ke fallback berikutnya...")
             if resp is None or resp.status_code in (404, *TRANSIENT_STATUS_CODES):
-                for discovered in _discover_gemini_flash_models(api_key):
-                    if discovered in tried or _MODEL_COOLDOWN_UNTIL.get(discovered, 0.0) > time.monotonic():
+                for discovered in discovered_all:
+                    if discovered in tried or discovered in _EXHAUSTED_MODELS_THIS_RUN or _MODEL_COOLDOWN_UNTIL.get(discovered, 0.0) > time.monotonic():
                         continue
                     url = (
                         f"https://generativelanguage.googleapis.com/v1beta/models/"
                         f"{discovered}:generateContent?key={api_key}"
                     )
-                    resp = _post_with_retry(url, json_body=body, max_attempts=2, fail_fast_429=True)
+                    try:
+                        resp = _post_with_retry(url, json_body=body, max_attempts=1, timeout=24, fail_fast_429=True)
+                    except requests.RequestException as exc:
+                        print(f"[providers] Gemini model '{discovered}' timeout/network error ({_redact_url_secrets(str(exc))}), lanjut...")
+                        _MODEL_COOLDOWN_UNTIL[discovered] = time.monotonic() + 60.0
+                        resp = None
+                        continue
                     if resp.status_code == 200:
+                        _MODEL_COOLDOWN_UNTIL.pop(discovered, None)
                         active_model = discovered
                         break
+                    err_d_low = (resp.text or "").lower()
                     if resp.status_code in (429, 503):
-                        _MODEL_COOLDOWN_UNTIL[discovered] = time.monotonic() + 35.0
-                    elif resp.status_code in (402, 403, 404):
+                        last_quota_msg = _redact_url_secrets(f"HTTP {resp.status_code} ({discovered}): {resp.text[:140]}")
+                    if resp.status_code in (402, 403, 404) or (resp.status_code == 429 and ("perday" in err_d_low or "per day" in err_d_low or "daily" in err_d_low)):
                         _EXHAUSTED_MODELS_THIS_RUN.add(discovered)
-            # Final recovery wave: brief cooldown wait for 1-minute Gemini RPM reset, then secondary provider failover
-            if resp is None or resp.status_code in TRANSIENT_STATUS_CODES:
-                retry_m = next((m for m in candidates if m not in _EXHAUSTED_MODELS_THIS_RUN), model)
-                print(f"[providers] Seluruh model Gemini sedang limit/sibuk; tunggu 28s untuk reset RPM lalu coba ulang '{retry_m}'...")
-                time.sleep(28)
-                try:
-                    resp = _post_with_retry(
-                        f"https://generativelanguage.googleapis.com/v1beta/models/{retry_m}:generateContent?key={api_key}",
-                        json_body=body,
-                        max_attempts=2,
-                        timeout=32,
-                        fail_fast_429=False,
-                    )
-                    if resp.status_code == 200:
-                        active_model = retry_m
-                except requests.RequestException:
-                    pass
+                    elif resp.status_code in (429, 503):
+                        _MODEL_COOLDOWN_UNTIL[discovered] = time.monotonic() + (90.0 if resp.status_code == 429 else 45.0)
             if (resp is None or resp.status_code != 200) and os.environ.get("OPENROUTER_API_KEY"):
                 print("[providers] Gemini gagal/limit -> failover otomatis ke OPENROUTER_API_KEY...")
                 return call_structured_agent(
@@ -487,7 +539,12 @@ def call_structured_agent(
                     handoff_path=handoff_path,
                     image_paths=None,
                 )
-            assert resp is not None
+            if resp is None:
+                raise GeminiQuotaExhaustedError("429/timeout di seluruh model Gemini (tanpa respons HTTP)")
+            if resp.status_code in (429, 503) or (resp.status_code == 404 and last_quota_msg):
+                raise GeminiQuotaExhaustedError(
+                    f"429 Client Error: Seluruh model Gemini Flash tidak tersedia ({resp.status_code}) — {last_quota_msg or _redact_url_secrets(resp.text[:160])}"
+                )
             resp.raise_for_status()
             text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
             try:

@@ -12,6 +12,7 @@ import base64
 import json
 import mimetypes
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -20,6 +21,10 @@ from typing import Any, Optional
 import requests
 
 DEFAULT_NOTIFY_EMAIL = "researchfalsyabillah@gmail.com"
+
+
+def _redact_url_secrets(msg: str) -> str:
+    return re.sub(r"([?&](?:key|token)=)[^&\s'\"]+", r"\1***", msg)
 
 
 def _run_gdrive(args: list[str]) -> str:
@@ -106,11 +111,25 @@ def _normalize_webhook_url(raw: str) -> str:
     return f"https://{url}"
 
 
-def _post_webhook(webhook_url: str, payload: dict[str, Any], timeout: int = 180) -> dict[str, Any]:
+def _resolve_youtube_webhook(default_url: str) -> tuple[str, Optional[str]]:
+    """Return (youtube_webhook_url, token_override), falling back to Drive webhook when unset."""
+    yt_url = os.environ.get("YOUTUBE_WEBHOOK_URL", "").strip()
+    if yt_url:
+        yt_tok = os.environ.get("YOUTUBE_WEBHOOK_TOKEN", "").strip() or None
+        return yt_url, yt_tok
+    return default_url, None
+
+
+def _post_webhook(
+    webhook_url: str,
+    payload: dict[str, Any],
+    timeout: int = 180,
+    token_override: Optional[str] = None,
+) -> dict[str, Any]:
     import time
 
     webhook_url = _normalize_webhook_url(webhook_url)
-    token = os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
+    token = token_override if token_override is not None else os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
     if token:
         payload = {**payload, "token": token}
     last_exc: Optional[Exception] = None
@@ -128,7 +147,7 @@ def _post_webhook(webhook_url: str, payload: dict[str, Any], timeout: int = 180)
             last_exc = exc
             if attempt < 3:
                 wait_s = attempt * 8
-                print(f"[gdrive] Webhook transient error ({exc}); retry {attempt}/2 dalam {wait_s}s...")
+                print(f"[gdrive] Webhook transient error ({_redact_url_secrets(str(exc))}); retry {attempt}/2 dalam {wait_s}s...")
                 time.sleep(wait_s)
             else:
                 raise
@@ -370,20 +389,22 @@ def _upload_via_webhook(
         try:
             import time as _time
 
+            yt_webhook_url, yt_token = _resolve_youtube_webhook(webhook_url)
             yt_res: dict[str, Any] = {}
             yt_last_exc: Optional[Exception] = None
             for yt_try in range(1, 3):
                 try:
                     yt_res = _post_webhook(
-                        webhook_url,
+                        yt_webhook_url,
                         yt_payload,
                         timeout=240,
+                        token_override=yt_token,
                     )
                     yt_last_exc = None
                     break
                 except Exception as _exc:
                     yt_last_exc = _exc
-                    print(f"[youtube] Percobaan upload #{yt_try}/2 gagal ({_exc}); mencoba ulang dalam 15 detik...")
+                    print(f"[youtube] Percobaan upload #{yt_try}/2 gagal ({_redact_url_secrets(str(_exc))}); mencoba ulang dalam 15 detik...")
                     if yt_try < 2:
                         _time.sleep(15)
             if yt_last_exc is not None:
@@ -399,19 +420,31 @@ def _upload_via_webhook(
             if thumbnail_file_id and not thumbnail_set and video_id_yt:
                 import time
 
+                thumb_b64_retry = ""
+                thumb_files = sorted(episode_dir.glob("THUMBNAIL_*.jpg"))
+                if thumb_files:
+                    try:
+                        thumb_b64_retry = base64.b64encode(thumb_files[0].read_bytes()).decode("ascii")
+                    except Exception:
+                        thumb_b64_retry = ""
+
                 for th_try in range(2):
                     time.sleep(12)
                     try:
+                        th_payload: dict[str, Any] = {
+                            "action": "set_thumbnail",
+                            "video_id": video_id_yt,
+                            "thumbnail_file_id": thumbnail_file_id,
+                        }
+                        if thumb_b64_retry:
+                            th_payload["image_base64"] = thumb_b64_retry
                         th_res = _post_webhook(
-                            webhook_url,
-                            {
-                                "action": "set_thumbnail",
-                                "video_id": video_id_yt,
-                                "thumbnail_file_id": thumbnail_file_id,
-                            },
+                            yt_webhook_url,
+                            th_payload,
                             timeout=60,
+                            token_override=yt_token,
                         )
-                        if th_res.get("thumbnail_set"):
+                        if th_res.get("thumbnail_set") or th_res.get("ok"):
                             thumbnail_set = True
                             thumbnail_error = ""
                             break
@@ -419,7 +452,7 @@ def _upload_via_webhook(
                         if th_res.get("processing_status") != "processing" and "processing" not in thumbnail_error.lower():
                             break
                     except Exception as th_exc:
-                        thumbnail_error = str(th_exc)
+                        thumbnail_error = _redact_url_secrets(str(th_exc))
                         break
 
             comment_posted = bool(yt_res.get("comment_posted"))
@@ -431,19 +464,20 @@ def _upload_via_webhook(
                 time.sleep(10)
                 try:
                     c_res = _post_webhook(
-                        webhook_url,
+                        yt_webhook_url,
                         {
                             "action": "post_comment",
                             "video_id": video_id_yt,
                             "comment_text": yt_payload["first_comment"],
                         },
                         timeout=60,
+                        token_override=yt_token,
                     )
                     if c_res.get("ok"):
                         comment_posted = True
                         comment_error = ""
                 except Exception as c_exc:
-                    comment_error = str(c_exc)
+                    comment_error = _redact_url_secrets(str(c_exc))
             print(
                 f"[youtube] Berhasil upload ke YouTube Shorts ({youtube_privacy}): {youtube_url} "
                 f"(thumbnail_set={thumbnail_set}, comment_posted={comment_posted}, replied_requester={yt_res.get('replied_requester')}"
@@ -470,8 +504,9 @@ def _upload_via_webhook(
             except Exception:
                 pass
         except Exception as exc:
-            youtube_note = f"Belum ter-upload otomatis ({exc})"
-            print(f"[youtube] Peringatan: gagal upload YouTube via webhook ({exc})")
+            err_clean = _redact_url_secrets(str(exc))
+            youtube_note = f"Belum ter-upload otomatis ({err_clean})"
+            print(f"[youtube] Peringatan: gagal upload YouTube via webhook ({err_clean})")
     elif publish_mode == "dry_run":
         youtube_note = "Mode dry_run (hanya simpan ke Drive; ubah publish_mode ke draft/public untuk auto-upload YouTube)."
 
