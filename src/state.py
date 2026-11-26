@@ -56,26 +56,40 @@ class MechanismVisual(BaseModel):
         "receptor_binding",
         "force_wave",
         "math_geometry",
+        "osmosis_membrane",
+        "protein_cleavage",
+        "phase_transition",
+        "surface_surfactant",
+        "acid_base_bubble",
+        "crystal_lattice",
     ] = "molecular_reaction"
     title: str = Field(
         default="MEKANISME SAINS",
-        description="Short Indonesian simulation title, e.g. 'TRANSFER ELEKTRON' or 'PENGUATAN STRUKTUR POLIMER'",
+        description="Short Indonesian simulation title, e.g. 'TRANSFER ELEKTRON' or 'OSMOSIS MEMBRAN SEL'",
     )
     actor_a: str = Field(
         default="A",
-        description="Short formula/actor label (max 14 chars), e.g. 'Fe', 'Rantai Gula', 'Obat'",
+        description="Short formula/actor label (max 14 chars), e.g. 'Fe', 'Enzim Bromelain', 'Air (H2O)'",
     )
     actor_b: str = Field(
         default="B",
-        description="Second formula/actor/force label (max 14 chars), e.g. 'O₂', 'Ikatan Silang', 'Enzim COX'",
+        description="Second formula/actor/force label (max 14 chars), e.g. 'O2', 'Serat Daging', 'Membran Sel'",
     )
     result: str = Field(
         default="Produk",
-        description="Outcome label (max 18 chars), e.g. 'Fe₂O₃ (Karat)', 'Struktur Rigid', 'Nyeri Reda'",
+        description="Outcome label (max 18 chars), e.g. 'Fe2O3 (Karat)', 'Protein Terpotong', 'Sel Mengerut'",
     )
     caption: str = Field(
         default="",
         description="Concise Indonesian caption under the animation (max 48 chars)",
+    )
+    preset_id: Optional[str] = Field(
+        default=None,
+        description="Optional custom preset_id from data/mechanism_bank.json",
+    )
+    accent_color: Optional[str] = Field(
+        default=None,
+        description="Optional color theme hint (blue, green, orange, purple, cyan, red, amber)",
     )
 
 
@@ -300,6 +314,34 @@ class NextWeekTopicMapOutput(BaseModel):
     )
 
 
+class MechanismBankPresetProposal(BaseModel):
+    preset_id: str = Field(description="Lowercase snake_case unique preset ID, e.g. 'maillard_caramel_browning'")
+    label_title: str = Field(description="Concise Indonesian header (<= 28 chars), e.g. 'REAKSI MAILLARD & AROMA'")
+    engine_kind: Literal[
+        "electron_transfer",
+        "polymer_crosslink",
+        "molecular_reaction",
+        "receptor_binding",
+        "force_wave",
+        "math_geometry",
+        "osmosis_membrane",
+        "protein_cleavage",
+        "phase_transition",
+        "surface_surfactant",
+        "acid_base_bubble",
+        "crystal_lattice",
+    ] = "molecular_reaction"
+    accent_color: Literal["blue", "green", "orange", "purple", "cyan", "red", "amber"] = "cyan"
+    trigger_keywords: list[str] = Field(
+        default_factory=list,
+        description="3-6 Indonesian/English topic keywords triggering this preset",
+    )
+    default_actor_a: str = Field(default="A", description="Short default actor A (<= 14 chars)")
+    default_actor_b: str = Field(default="B", description="Short default actor B (<= 14 chars)")
+    default_result: str = Field(default="Hasil", description="Short default result label (<= 20 chars)")
+    rationale: str = Field(default="", description="Brief Indonesian reason why this preset expands the bank")
+
+
 class Agent8WeeklyAuditOutput(BaseModel):
     week_ending: str = Field(description="ISO date YYYY-MM-DD (WIB) of the Sunday audit")
     summary: str = Field(description="Executive summary in Indonesian of this week's channel & video performance")
@@ -335,6 +377,10 @@ class Agent8WeeklyAuditOutput(BaseModel):
         default_factory=list,
         description="2-4 concrete instructions for Agent 3 (Script, Hook & Mechanistic Storyboarder) for next week",
     )
+    agent_4_animator_directives: list[str] = Field(
+        default_factory=list,
+        description="2-4 concrete instructions specifically for Agent 3/4 Mechanistic Animator to prevent repetitive visuals & ensure topic accuracy",
+    )
     agent_5_directives: list[str] = Field(
         default_factory=list,
         description="2-4 concrete instructions for Agent 5 (Video QA Auditor) for next week",
@@ -342,6 +388,18 @@ class Agent8WeeklyAuditOutput(BaseModel):
     agent_6_directives: list[str] = Field(
         default_factory=list,
         description="2-3 concrete instructions for Agent 6 (Footage Scout) to reduce wasted screening & find better clips faster",
+    )
+    mechanism_audit_summary: str = Field(
+        default="",
+        description="Indonesian audit verdict on whether this week's mechanistic animations matched each topic or overused rigid/lock-and-key/electron templates",
+    )
+    mechanism_mismatches: list[str] = Field(
+        default_factory=list,
+        description="Specific episodes/scenes whose mechanism animation mismatched the narration or repeated generic templates",
+    )
+    new_mechanism_presets: list[MechanismBankPresetProposal] = Field(
+        default_factory=list,
+        description="1-3 new topic-specific mechanism bank presets to auto-save into data/mechanism_bank.json",
     )
     workflow_efficiency_summary: str = Field(
         default="",

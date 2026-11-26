@@ -1209,31 +1209,90 @@ def _smart_trim(txt: str, max_chars: int) -> str:
     return cut
 
 
+_ACCENT_COLOR_MAP: dict[str, tuple[int, int, int, int]] = {
+    "blue": BLUE,
+    "green": GREEN,
+    "orange": ORANGE,
+    "purple": PURPLE,
+    "cyan": CYAN,
+    "red": RED,
+    "amber": GOLD,
+}
+
+
 def _infer_mechanism_params(seg: TimelineSegment, discipline: str = "kimia") -> dict[str, str]:
-    """Return structured mechanism parameters from seg.mechanism or smartly infer from narration/badge."""
+    """Return structured mechanism parameters from seg.mechanism, mechanism_bank, or smart keyword inference."""
+    from src.tools.mechanism_bank import load_mechanism_bank, resolve_preset_style
+
     if seg.mechanism is not None:
         m = seg.mechanism
+        preset_meta = resolve_preset_style(getattr(m, "preset_id", None))
+        accent = getattr(m, "accent_color", None) or preset_meta.get("accent_color") or ""
         return {
             "kind": m.kind,
-            "title": _smart_trim(m.title or "MEKANISME SAINS", 34),
-            "actor_a": _smart_trim(m.actor_a or "A", 16),
-            "actor_b": _smart_trim(m.actor_b or "B", 16),
-            "result": _smart_trim(m.result or "Hasil", 22),
+            "title": _smart_trim(m.title or preset_meta.get("label_title") or "MEKANISME SAINS", 34),
+            "actor_a": _smart_trim(m.actor_a or preset_meta.get("default_actor_a") or "A", 16),
+            "actor_b": _smart_trim(m.actor_b or preset_meta.get("default_actor_b") or "B", 16),
+            "result": _smart_trim(m.result or preset_meta.get("default_result") or "Hasil", 22),
             "caption": _smart_trim(m.caption or "", 54),
+            "accent_color": str(accent).strip().lower(),
         }
 
     import re
     blob = f"{seg.narration} {seg.overlay_badge or ''} {discipline}".lower()
-    if any(k in blob for k in ("polimer", "hidrogel", "tekuk", "elastis", "rigid", "rantai", "silang", "crosslink", "serat", "kuat")):
+
+    # Check custom bank trigger_keywords first so Agent 8's growing bank works automatically!
+    try:
+        bank = load_mechanism_bank()
+        best_preset: dict | None = None
+        best_hits = 0
+        for pr in bank.get("custom_presets") or []:
+            kws = [str(k).lower() for k in (pr.get("trigger_keywords") or []) if str(k).strip()]
+            hits = sum(1 for k in kws if k in blob)
+            if hits >= 2 and hits > best_hits:
+                best_hits = hits
+                best_preset = pr
+        if best_preset is not None:
+            return {
+                "kind": str(best_preset.get("engine_kind") or "molecular_reaction"),
+                "title": _smart_trim(str(best_preset.get("label_title") or "MEKANISME SAINS"), 34),
+                "actor_a": _smart_trim(str(best_preset.get("default_actor_a") or "A"), 16),
+                "actor_b": _smart_trim(str(best_preset.get("default_actor_b") or "B"), 16),
+                "result": _smart_trim(str(best_preset.get("default_result") or "Hasil"), 22),
+                "caption": _smart_trim(seg.overlay_badge or seg.narration, 50),
+                "accent_color": str(best_preset.get("accent_color") or "").strip().lower(),
+            }
+    except Exception:
+        pass
+
+    if any(k in blob for k in ("bromelain", "protease", "nanas", "kolagen", "memotong", "pemecah", "daging", "peptida")):
+        kind = "protein_cleavage"
+        default_title = "PEMOTONGAN RANTAI PROTEIN"
+    elif any(k in blob for k in ("osmosis", "keriput", "membran", "epidermis", "hipotonik", "hipertonik", "berendam")):
+        kind = "osmosis_membrane"
+        default_title = "ALIRAN AIR & OSMOSIS"
+    elif any(k in blob for k in ("surfaktan", "sabun", "deterjen", "emulsi", "misel", "lemak")):
+        kind = "surface_surfactant"
+        default_title = "SURFAKTAN & EMULSI MINYAK"
+    elif any(k in blob for k in ("mendidih", "uap", "1600", "meledak", "karamel", "maillard", "mencair", "penguapan", "fase", "kalor")):
+        kind = "phase_transition"
+        default_title = "TRANSISI FASE & KALOR"
+    elif any(k in blob for k in ("cuka", "asam", "basa", "soda", "karbonat", "gelembung", "co2", "lambung")):
+        kind = "acid_base_bubble"
+        default_title = "REAKSI ASAM-BASA & GAS"
+    elif any(k in blob for k in ("kristal", "kisi", "beku", "salju", "es batu")):
+        kind = "crystal_lattice"
+        default_title = "STRUKTUR KISI KRISTAL"
+    elif any(k in blob for k in ("polimer", "hidrogel", "tekuk", "elastis", "rigid", "silang", "crosslink", "plastik")):
         kind = "polymer_crosslink"
         default_title = "PENGUATAN STRUKTUR POLIMER"
     elif any(k in blob for k in ("elektron", "redoks", "oksidasi", "karat", "ion", "baterai", "arus", "muatan")):
         kind = "electron_transfer"
         default_title = "ARAH TRANSFER ELEKTRON"
-    elif any(k in blob for k in ("enzim", "reseptor", "obat", "sel", "protein", "hormon", "antibodi", "virus", "bakteri")):
+    elif any(k in blob for k in ("reseptor", "obat", "hormon", "antibodi", "virus", "saraf", "nyeri")):
         kind = "receptor_binding"
-        default_title = "INTERAKSI MOLEKUL & RESEPTOR"
-    elif any(k in blob for k in ("gelombang", "gaya", "energi", "cahaya", "suara", "frekuensi", "tekanan", "panas", "gravitasi")):
+        default_title = "IKATAN MOLEKUL & RESEPTOR"
+    elif any(k in blob for k in ("gelombang", "gaya", "energi", "cahaya", "suara", "frekuensi", "tekanan", "gravitasi")):
         kind = "force_wave"
         default_title = "MEKANISME GAYA & GELOMBANG"
     elif any(k in blob for k in ("matematika", "grafik", "eksponensial", "pola", "kurva", "probabilitas", "fraktal", "geometri")):
@@ -1255,6 +1314,7 @@ def _infer_mechanism_params(seg: TimelineSegment, discipline: str = "kimia") -> 
         "actor_b": actor_b,
         "result": result,
         "caption": _smart_trim(badge, 54) if badge else _smart_trim(seg.narration, 50),
+        "accent_color": "",
     }
 
 
@@ -1604,6 +1664,290 @@ def _anim_math_geometry(
     _draw_label_pill(draw, cx, y1 - 24, f"HASIL: {params['result']}", fonts["tiny_bold"], bg=PURPLE, fg=WHITE, max_w=(x1 - x0) - 40)
 
 
+def _anim_osmosis_membrane(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate water molecules passing through a semi-permeable phospholipid membrane down a gradient."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    cy = y0 + 114
+    prog = clamp(t / max(dur * 0.80, 1.8))
+
+    # Left (hipotonik / air tinggi) vs Right (konsentrasi tinggi / sel)
+    _draw_label_pill(draw, x0 + 170, y0 + 24, params["actor_a"], fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=260)
+    _draw_label_pill(draw, x1 - 170, y0 + 24, params["actor_b"], fonts["micro_bold"], bg=PURPLE, fg=WHITE, max_w=260)
+
+    # Bilayer semi-permeable membrane columns with 2 aquaporin channels (gaps)
+    for row_i in range(9):
+        ry = y0 + 44 + row_i * 20
+        if row_i in (3, 6):
+            continue  # open water channel pores!
+        for mx in (cx - 12, cx + 12):
+            draw.ellipse([mx - 9, ry - 8, mx + 9, ry + 8], fill=GOLD, outline=INK, width=2)
+
+    # Expanding / shifting target compartment on right
+    swell = int(18 * ease_out_cubic(prog))
+    cell_rx0, cell_ry0 = cx + 80 - swell // 2, cy - 52 - swell // 3
+    cell_rx1, cell_ry1 = x1 - 65 + swell // 4, cy + 56 + swell // 3
+    draw.rounded_rectangle([cell_rx0, cell_ry0, cell_rx1, cell_ry1], radius=34, fill=(224, 242, 254, 240), outline=BLUE, width=5)
+
+    # Solute ions inside right compartment
+    for ix, iy in ((cx + 150, cy - 22), (cx + 210, cy + 18), (cx + 265, cy - 12)):
+        draw.ellipse([ix - 13, iy - 13, ix + 13, iy + 13], fill=PURPLE, outline=INK, width=2)
+    draw.text(((cell_rx0 + cell_rx1) // 2, cy + 28), "KONSENTRASI TINGGI", font=fonts["micro_bold"], fill=INK, anchor="mm")
+
+    # Cyan H2O molecules streaming through aquaporin pores left -> right
+    pore_ys = (y0 + 44 + 3 * 20, y0 + 44 + 6 * 20)
+    for k in range(6):
+        u = (t * 0.65 + k * 0.167) % 1.0
+        px = int((x0 + 95) + u * ((cx + 120) - (x0 + 95)))
+        py = pore_ys[k % 2] + int(math.sin(t * 7 + k) * 4)
+        draw.ellipse([px - 13, py - 13, px + 13, py + 13], fill=CYAN, outline=INK, width=3)
+        draw.text((px, py), "H2O", font=fonts["micro_bold"], fill=INK, anchor="mm")
+
+    _draw_label_pill(draw, cx, y1 - 24, f"OSMOSIS: {params['result']}", fonts["tiny_bold"], bg=BLUE, fg=WHITE, max_w=(x1 - x0) - 40)
+
+
+def _anim_protein_cleavage(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate enzyme protease slicing a long protein polymer chain cleanly into short peptide fragments."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    cy = y0 + 132
+    prog = clamp(t / max(dur * 0.80, 1.8))
+
+    _draw_label_pill(draw, x0 + 180, y0 + 26, params["actor_a"], fonts["micro_bold"], bg=ORANGE, fg=WHITE, max_w=270)
+    _draw_label_pill(draw, x1 - 180, y0 + 26, params["actor_b"], fonts["micro_bold"], bg=PURPLE, fg=WHITE, max_w=270)
+
+    n_beads = 10
+    span_w = (x1 - x0) - 180
+    base_xs = [x0 + 90 + i * (span_w / (n_beads - 1)) for i in range(n_beads)]
+    cut_points = (2, 5, 7)
+
+    # Moving enzyme blade scanning left -> right
+    sweep_u = ease_out_cubic(min(prog / 0.85, 1.0))
+    enz_x = int(x0 + 70 + sweep_u * ((x1 - x0) - 140))
+    enz_y = cy - 42 + int(math.sin(t * 14) * 8)
+
+    pts: list[tuple[int, int]] = []
+    for i, bx in enumerate(base_xs):
+        drift = 0
+        for cp in cut_points:
+            cut_ratio = clamp((enz_x - base_xs[cp]) / 75.0)
+            if i > cp:
+                drift += int(18 * cut_ratio)
+        jitter_y = int(math.sin(t * 5 + i * 0.8) * (10 if enz_x > bx else 4))
+        pts.append((int(bx + drift - 18 * sweep_u), cy + jitter_y))
+
+    # Peptide bonds that haven't been sliced yet
+    for i in range(n_beads - 1):
+        is_cut_site = i in cut_points and enz_x >= base_xs[i] + 10
+        if not is_cut_site:
+            draw.line([pts[i], pts[i + 1]], fill=INK, width=9)
+            draw.line([pts[i], pts[i + 1]], fill=PURPLE, width=5)
+        else:
+            # Tiny burst spark at cut peptide bond!
+            mx = (pts[i][0] + pts[i + 1][0]) // 2
+            my = (pts[i][1] + pts[i + 1][1]) // 2
+            draw.line([(mx - 10, my - 12), (mx + 10, my + 12)], fill=RED, width=4)
+            draw.line([(mx + 10, my - 12), (mx - 10, my + 12)], fill=RED, width=4)
+
+    for i, (px, py) in enumerate(pts):
+        col = GREEN if enz_x > base_xs[i] else BLUE
+        draw.ellipse([px - 15, py - 15, px + 15, py + 15], fill=col, outline=INK, width=3)
+
+    # Golden protease cutter Pacman/wedge above chain
+    draw.pieslice([enz_x - 32, enz_y - 32, enz_x + 32, enz_y + 32], start=35, end=325, fill=GOLD, outline=INK, width=4)
+    draw.text((enz_x, enz_y - 44), "POTONG IKATAN", font=fonts["micro_bold"], fill=INK, anchor="mm")
+
+    _draw_label_pill(
+        draw, cx, y1 - 24, f"TERURAI: {params['result']}", fonts["tiny_bold"],
+        bg=(18, 132, 74, 255) if prog > 0.55 else CARD_DARK, fg=WHITE if prog > 0.55 else YELLOW,
+        max_w=(x1 - x0) - 40,
+    )
+
+
+def _anim_phase_transition(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate live thermometer + particles transitioning from tightly packed liquid/solid into expanding vapor/heat."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    prog = clamp(t / max(dur * 0.80, 1.8))
+
+    # Live thermometer on left
+    tx = x0 + 78
+    ty0, ty1 = y0 + 26, y1 - 56
+    draw.rounded_rectangle([tx - 14, ty0, tx + 14, ty1], radius=14, fill=WHITE, outline=INK, width=4)
+    fill_h = int((ty1 - ty0 - 16) * (0.25 + 0.72 * prog))
+    therm_col = BLUE if prog < 0.35 else (ORANGE if prog < 0.70 else RED)
+    draw.rounded_rectangle([tx - 8, ty1 - fill_h, tx + 8, ty1 - 6], radius=8, fill=therm_col)
+    draw.ellipse([tx - 24, ty1 - 14, tx + 24, ty1 + 22], fill=therm_col, outline=INK, width=4)
+
+    _draw_label_pill(draw, cx - 90, y0 + 26, params["actor_a"], fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=240)
+    _draw_label_pill(draw, x1 - 175, y0 + 26, params["actor_b"], fonts["micro_bold"], bg=RED, fg=WHITE, max_w=240)
+
+    # Expanding chamber showing molecules accelerating & spreading apart
+    chamber_cx = cx + 35
+    chamber_cy = y0 + 132
+    expand = 1.0 + 2.4 * ease_out_cubic(prog)
+    for idx in range(12):
+        ang = (idx / 12.0) * math.tau + t * (1.5 + 3.0 * prog)
+        rad = (28 + (idx % 3) * 14) * expand
+        px = int(chamber_cx + math.cos(ang) * min(290, rad))
+        py = int(chamber_cy + math.sin(ang) * min(66, rad * 0.38))
+        p_col = CYAN if prog < 0.4 else (YELLOW if prog < 0.75 else ORANGE)
+        r_p = 14 if prog < 0.6 else 18
+        draw.ellipse([px - r_p, py - r_p, px + r_p, py + r_p], fill=p_col, outline=INK, width=3)
+
+    if prog > 0.55:
+        ring_r = int(42 + (prog - 0.55) * 180)
+        draw.ellipse([chamber_cx - ring_r, chamber_cy - ring_r // 2, chamber_cx + ring_r, chamber_cy + ring_r // 2], outline=RED, width=4)
+
+    _draw_label_pill(
+        draw, cx, y1 - 24, f"ENERGI PANAS: {params['result']}", fonts["tiny_bold"],
+        bg=RED if prog > 0.6 else CARD_DARK, fg=WHITE if prog > 0.6 else YELLOW,
+        max_w=(x1 - x0) - 40,
+    )
+
+
+def _anim_surface_surfactant(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate amphiphilic surfactant molecules surrounding oil droplets on a surface and lifting them into micelles."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    prog = clamp(t / max(dur * 0.80, 1.8))
+    lift = ease_out_cubic(clamp((prog - 0.35) / 0.65))
+
+    _draw_label_pill(draw, x0 + 175, y0 + 24, params["actor_a"], fonts["micro_bold"], bg=CYAN, fg=INK, max_w=260)
+    _draw_label_pill(draw, x1 - 175, y0 + 24, params["actor_b"], fonts["micro_bold"], bg=ORANGE, fg=WHITE, max_w=260)
+
+    # Bottom surface line
+    surf_y = y1 - 62
+    draw.rounded_rectangle([x0 + 50, surf_y, x1 - 50, surf_y + 12], radius=6, fill=IRON_DARK, outline=INK, width=2)
+
+    # Two oil/grease spheres lifting off surface inside surfactant ring (micelle)
+    for idx, ox in enumerate((cx - 170, cx + 170)):
+        oy = int((surf_y - 34) - lift * 66 + math.sin(t * 4 + idx) * 5)
+        draw.ellipse([ox - 34, oy - 34, ox + 34, oy + 34], fill=GOLD, outline=INK, width=4)
+        n_surf = int(2 + 8 * clamp(prog / 0.55))
+        for s_i in range(n_surf):
+            ang = (s_i / 10.0) * math.tau + t * 1.4
+            hx = int(ox + math.cos(ang) * 58)
+            hy = int(oy + math.sin(ang) * 58)
+            tx_in = int(ox + math.cos(ang) * 38)
+            ty_in = int(oy + math.sin(ang) * 38)
+            draw.line([(hx, hy), (tx_in, ty_in)], fill=ORANGE, width=4)
+            draw.ellipse([hx - 10, hy - 10, hx + 10, hy + 10], fill=CYAN, outline=INK, width=2)
+
+    _draw_label_pill(
+        draw, cx, y1 - 24, f"TERANGKAT: {params['result']}", fonts["tiny_bold"],
+        bg=(18, 132, 74, 255) if lift > 0.35 else BLUE, fg=WHITE, max_w=(x1 - x0) - 40,
+    )
+
+
+def _anim_acid_base_bubble(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate acid/reactant droplets hitting solid/base substrate and erupting rising gas bubbles."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    prog = clamp(t / max(dur * 0.80, 1.8))
+
+    _draw_label_pill(draw, x0 + 175, y0 + 24, params["actor_a"], fonts["micro_bold"], bg=RED, fg=WHITE, max_w=260)
+    _draw_label_pill(draw, x1 - 175, y0 + 24, params["actor_b"], fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=260)
+
+    # Eroding solid reactant block at bottom
+    base_y0 = y1 - 92 + int(18 * prog)
+    draw.rounded_rectangle([x0 + 130, base_y0, x1 - 130, y1 - 54], radius=14, fill=IRON_GRAY, outline=INK, width=4)
+    draw.text((cx, (base_y0 + y1 - 54) // 2), params["actor_b"].upper(), font=fonts["micro_bold"], fill=INK, anchor="mm")
+
+    # Dropping acid/ion spheres + rising gas bubbles
+    for k in range(4):
+        du = (t * 0.9 + k * 0.25) % 1.0
+        dx = cx - 90 + k * 60
+        dy = int((y0 + 48) + du * ((base_y0 - 8) - (y0 + 48)))
+        draw.ellipse([dx - 11, dy - 11, dx + 11, dy + 11], fill=RED, outline=INK, width=2)
+
+    for b in range(10):
+        bu = (t * 0.75 + b * 0.11) % 1.0
+        bx = x0 + 170 + (b * 67) % max(80, (x1 - x0) - 340) + int(math.sin(t * 6 + b) * 8)
+        by = int((base_y0 - 6) - bu * ((base_y0 - 6) - (y0 + 46)))
+        br = 10 + (b % 3) * 5
+        draw.ellipse([bx - br, by - br, bx + br, by + br], fill=CYAN, outline=INK, width=2)
+
+    _draw_label_pill(draw, cx, y1 - 24, f"REAKSI GAS: {params['result']}", fonts["tiny_bold"], bg=(18, 132, 74, 255), fg=WHITE, max_w=(x1 - x0) - 40)
+
+
+def _anim_crystal_lattice(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate ordered symmetric crystal lattice assembling node-by-node (or reacting with guest ions)."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    cy = y0 + 118
+    prog = clamp(t / max(dur * 0.80, 1.8))
+
+    _draw_label_pill(draw, x0 + 160, y0 + 26, params["actor_a"], fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=240)
+    _draw_label_pill(draw, x1 - 160, y0 + 26, params["actor_b"], fonts["micro_bold"], bg=CYAN, fg=INK, max_w=240)
+
+    # Hexagonal / cubic lattice nodes centered around (cx, cy)
+    offsets = [
+        (0, 0), (-74, 0), (74, 0),
+        (-37, -56), (37, -56), (-37, 56), (37, 56),
+        (-111, -56), (111, -56), (-111, 56), (111, 56),
+    ]
+    visible_n = max(1, int(clamp(prog * 1.15) * len(offsets)))
+    nodes = [(cx + ox, cy + oy) for ox, oy in offsets[:visible_n]]
+
+    # Draw crystal bonds between neighboring lattice points
+    for i in range(len(nodes)):
+        for j in range(i + 1, len(nodes)):
+            d = math.hypot(nodes[i][0] - nodes[j][0], nodes[i][1] - nodes[j][1])
+            if 20 < d <= 86:
+                draw.line([nodes[i], nodes[j]], fill=INK, width=7)
+                draw.line([nodes[i], nodes[j]], fill=CYAN, width=4)
+
+    for idx, (nx, ny) in enumerate(nodes):
+        pulse = 2 if (int(t * 6) + idx) % 4 == 0 else 0
+        col = GOLD if idx == 0 else (BLUE if idx % 2 == 1 else CYAN)
+        draw.ellipse([nx - 14 - pulse, ny - 14 - pulse, nx + 14 + pulse, ny + 14 + pulse], fill=col, outline=INK, width=3)
+
+    _draw_label_pill(draw, cx, y1 - 24, f"STRUKTUR KRISTAL: {params['result']}", fonts["tiny_bold"], bg=BLUE, fg=WHITE, max_w=(x1 - x0) - 40)
+
+
 def _draw_mechanistic_diagram_card(
     draw: ImageDraw.ImageDraw,
     seg: TimelineSegment,
@@ -1612,7 +1956,7 @@ def _draw_mechanistic_diagram_card(
     fonts: dict,
     discipline: str = "kimia",
 ) -> None:
-    """Draw a genuine 30fps comic-science mechanistic visual simulation (atoms, electrons, chains, receptors, waves, graphs)."""
+    """Draw a genuine 30fps comic-science mechanistic visual simulation (12 distinct engines + dynamic bank presets)."""
     p = ease_out_back(local_t / 0.35)
     if p <= 0.05:
         return
@@ -1620,11 +1964,13 @@ def _draw_mechanistic_diagram_card(
     card_x0, card_y0, card_x1, card_y1 = 56, 935, 1024, 1305
     cy = (card_y0 + card_y1) // 2
     half_h = int(((card_y1 - card_y0) // 2) * min(p, 1.02))
+    params = _infer_mechanism_params(seg, discipline=discipline)
+    accent_rgba = _ACCENT_COLOR_MAP.get(params.get("accent_color") or "", INK)
     draw_comic_box(
         draw,
         (card_x0, cy - half_h, card_x1, cy + half_h),
         fill=CARD_BG,
-        outline=INK,
+        outline=accent_rgba if accent_rgba != INK else INK,
         radius=28,
         border_w=6,
         shadow_offset=10,
@@ -1632,14 +1978,14 @@ def _draw_mechanistic_diagram_card(
     if p < 0.65:
         return
 
-    params = _infer_mechanism_params(seg, discipline=discipline)
     # Header bar inside simulation box
+    header_fg = _ACCENT_COLOR_MAP.get(params.get("accent_color") or "", YELLOW)
     draw.rounded_rectangle([card_x0 + 18, card_y0 + 14, card_x1 - 18, card_y0 + 62], radius=16, fill=CARD_DARK)
     draw.text(
         ((card_x0 + card_x1) // 2, card_y0 + 38),
         f"SIMULASI MEKANISME • {params['title'].upper()}",
         font=fonts["tiny_bold"],
-        fill=YELLOW,
+        fill=header_fg,
         anchor="mm",
     )
 
@@ -1655,6 +2001,18 @@ def _draw_mechanistic_diagram_card(
         _anim_force_wave(draw, sim_box, local_t, seg.duration_sec, params, fonts)
     elif kind == "math_geometry":
         _anim_math_geometry(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "osmosis_membrane":
+        _anim_osmosis_membrane(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "protein_cleavage":
+        _anim_protein_cleavage(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "phase_transition":
+        _anim_phase_transition(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "surface_surfactant":
+        _anim_surface_surfactant(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "acid_base_bubble":
+        _anim_acid_base_bubble(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "crystal_lattice":
+        _anim_crystal_lattice(draw, sim_box, local_t, seg.duration_sec, params, fonts)
     else:
         _anim_molecular_reaction(draw, sim_box, local_t, seg.duration_sec, params, fonts)
 

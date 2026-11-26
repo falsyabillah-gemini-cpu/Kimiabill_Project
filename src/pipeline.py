@@ -476,6 +476,11 @@ def run_agent_1_to_3(
         if requested_by
         else ""
     )
+    from src.tools.mechanism_bank import format_mechanism_catalog_for_agent3
+
+    mech_catalog = format_mechanism_catalog_for_agent3()
+    animator_dirs = weekly_dir.get("agent_4_animator_directives", []) + get_agent_specific_owner_directives("agent_4")
+
     state.agent3 = call_structured_agent(
         provider=a3_cfg["provider"],
         model=a3_cfg.get("model", a3_cfg["recommended_prod_model"]),
@@ -499,10 +504,21 @@ def run_agent_1_to_3(
             "CONCRETE, FAMILY-SAFE, filmable object or kitchen/lab process (e.g. 'charcoal barbecue smoke rising outdoor', "
             "'gel cube compressed by hand in laboratory'). NEVER use words about human bodies, skin, stretching people, clothing, "
             "dance, music, or vague single words; provide 2-3 equally concrete fallback_queries. "
+            "MECHANISTIC ANIMATION BANK RULES (CRITICAL — NO GENERIC TEMPLATES!):\n"
             "For ALL middle explanation scenes (scenes 2 through second-to-last), ALWAYS provide BOTH `overlay_badge` AND `mechanism` "
-            "so the renderer draws a REAL animated scientific diagram (NOT just text boxes!): choose `mechanism.kind` from "
-            "'electron_transfer', 'polymer_crosslink', 'molecular_reaction', 'receptor_binding', 'force_wave', or 'math_geometry', and fill concise "
-            "`title` (<=28 chars), `actor_a` & `actor_b` (<=14 chars, 1-2 crisp Indonesian words so cards NEVER truncate), `result` (<=20 chars), and `caption`. "
+            "picking from the FULL 12 engines + matching `custom_presets` in `mechanism_bank`:\n"
+            "- `osmosis_membrane` (osmosis air, sel/kulit keriput, konsentrasi membran)\n"
+            "- `protein_cleavage` (enzim memotong serat/protein seperti bromelain/pencernaan — DO NOT use lock-and-key receptor_binding for chopping enzymes!)\n"
+            "- `phase_transition` (uap memuai/meledak, air mendidih, mencair, karamelisasi panas)\n"
+            "- `surface_surfactant` (sabun mengangkat minyak/lemak, emulsi, tegangan permukaan)\n"
+            "- `acid_base_bubble` (cuka/asam melarutkan basa/kerak, gelembung gas CO2/H2)\n"
+            "- `crystal_lattice` (pembentukan/retak kisi kristal es, garam, gula, logam)\n"
+            "- `electron_transfer` (ONLY redox, karat, ion listrik, baterai)\n"
+            "- `polymer_crosslink` (ONLY bending hydrogels/polymers/plastics becoming rigid)\n"
+            "- `receptor_binding` (ONLY drug/hormone/neurotransmitter lock-and-key docking)\n"
+            "- `molecular_reaction`, `force_wave`, `math_geometry`.\n"
+            "VARIETY RULE: NEVER pick the same `mechanism.kind` for back-to-back middle scenes unless truly identical; set optional `preset_id` / `accent_color` if a preset in `mechanism_bank` matches! "
+            "Fill concise `title` (<=28 chars), `actor_a` & `actor_b` (<=14 chars, 1-2 crisp Indonesian words so cards NEVER truncate), `result` (<=20 chars), and `caption`. "
             "COPYRIGHT-FREE SFX RULE (MANDATORY): Set `sfx_cue` on EVERY scene (NEVER `'none'`!) using ONLY internal synthesized royalty-free cues "
             "(`riser` for hook/build-up, `whoosh` for footage transitions, `pop`/`spark` for animated diagrams/facts, `ding` for key reveal, `chime` for closing CTA). "
             "ALWAYS populate `references` with 1-3 real, accurate scientific references."
@@ -514,6 +530,8 @@ def run_agent_1_to_3(
             "requested_by": requested_by,
             "request_comment": request_source_comment,
             "weekly_growth_directives": owner_a3 + weekly_dir.get("agent_3_directives", []) + karat_dir,
+            "animator_directives": animator_dirs,
+            "mechanism_bank": mech_catalog,
         },
         response_model=Agent3Output,
         handoff_path=paths["handoffs"] / "agent3_script.json",
@@ -710,7 +728,8 @@ def run_agent_5_video_qa(
             "the same clip — this is the house style, NOT a defect. Also judge whether each clip visually matches its narration "
             "and is free of watermarks/music-player/app UI.\n"
             "2. Mechanistic comic-science overlays: Are the animated mechanism diagrams clearly visible, with 100% crisp "
-            "text contrast (NO white text spilling onto white card background, NO clipped/overflowing labels, NO mascot covering text)?\n"
+            "text contrast (NO white text spilling onto white card background, NO clipped/overflowing labels, NO mascot covering text), "
+            "AND does `mechanism.kind` + actors actually match that scene's scientific mechanism (flag if generic rigid/lock-and-key/electron is misused)?\n"
             "3. Duo mascots: Are the Kimiabill mascots visible and cleanly positioned without blocking subtitles?\n"
             "4. Subtitle readability: Are Indonesian subtitles sharp, centered, and inside safe zone?\n"
             "5. End-card references: The LAST tile of the contact sheet labelled 'END-CARD' is the closing frame; "
@@ -741,6 +760,7 @@ def run_agent_5_video_qa(
                     "narration": s.narration,
                     "visual_query": s.visual_query,
                     "overlay_badge": s.overlay_badge,
+                    "mechanism": s.mechanism.model_dump() if s.mechanism else None,
                 }
                 for s in state.agent3.scenes
             ],
@@ -842,6 +862,19 @@ def run_upload(
     if allow_youtube and state.agent3:
         from src.tools.weekly_growth_auditor import record_published_episode
 
+        mechanisms_used = [
+            {
+                "scene_id": s.scene_id,
+                "kind": s.mechanism.kind,
+                "title": s.mechanism.title,
+                "actor_a": s.mechanism.actor_a,
+                "actor_b": s.mechanism.actor_b,
+                "result": s.mechanism.result,
+                "preset_id": s.mechanism.preset_id,
+            }
+            for s in state.agent3.scenes
+            if s.mechanism is not None
+        ]
         record_published_episode(
             episode_id=episode_id,
             title=state.agent3.title,
@@ -855,6 +888,7 @@ def run_upload(
             revisions_used=state.revision_count,
             topic_attempts_used=topic_attempts_used,
             production_seconds=production_seconds,
+            mechanisms_used=mechanisms_used,
         )
 
     memory = StudioMemory(BASE_DIR)

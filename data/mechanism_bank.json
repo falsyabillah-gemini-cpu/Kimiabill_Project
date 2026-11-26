@@ -1,0 +1,143 @@
+{
+  "schema_version": 2,
+  "core_engines": {
+    "electron_transfer": {
+      "name": "Transfer Elektron (Redoks / Korosi / Baterai)",
+      "when_to_use": "Oksidasi-reduksi, perkaratan logam, ion listrik, baterai, elektrokimia.",
+      "visual": "Cluster atom donor & akseptor dengan panah lengkung dan elektron e- bergerak."
+    },
+    "polymer_crosslink": {
+      "name": "Ikatan Silang Polimer / Rigiditas Material",
+      "when_to_use": "HANYA untuk polimer, hidrogel, elastisitas bahan ditekuk, penguatan serat atau plastik.",
+      "visual": "Rantai node polimer melengkung saat ditekan lalu terkunci oleh jembatan silang."
+    },
+    "molecular_reaction": {
+      "name": "Tumbukan & Pembentukan Ikatan Molekul",
+      "when_to_use": "Dua senyawa bereaksi membentuk senyawa kimia baru (reaksi sintesis/kovalen umum).",
+      "visual": "Dua gugus molekul bola-tongkat mendekat lalu membentuk ikatan ganda baru."
+    },
+    "receptor_binding": {
+      "name": "Ikatan Reseptor / Sinyal Saraf (Lock & Key)",
+      "when_to_use": "HANYA untuk obat menempel di reseptor nyeri, hormon, kafein di adenosin, virus ke sel.",
+      "visual": "Ligan masuk presisi ke kantong aktif reseptor target."
+    },
+    "force_wave": {
+      "name": "Gelombang Energi, Cahaya, Suara & Gaya Fisika",
+      "when_to_use": "Gelombang elektromagnetik, UV, suara/akustik, konduksi getaran panas, gaya tarik.",
+      "visual": "Gelombang sinus berjalan dengan partikel berosilasi dan vektor gaya."
+    },
+    "math_geometry": {
+      "name": "Kurva Matematika, Peluang & Pola Eksponensial",
+      "when_to_use": "Grafik pertumbuhan cepat, kurva probabilitas, perbandingan rasio, pola geometri.",
+      "visual": "Koordinat grafik dengan kurva hidup dan titik pelacak bergerak."
+    },
+    "osmosis_membrane": {
+      "name": "Osmosis & Perpindahan Air Menembus Membran Sel",
+      "when_to_use": "Jari keriput berendam, osmosis garam/gula, sel mengembang/mengerut, kadar air.",
+      "visual": "Membran bilayer berpori dengan aliran molekul air ke sisi konsentrasi pekat."
+    },
+    "protein_cleavage": {
+      "name": "Pemotongan Rantai Protein / Enzim Protease",
+      "when_to_use": "Nanas melunakkan daging (bromelain), enzim pencerna makanan, pemecahan serat/polimer.",
+      "visual": "Enzim pemotong bergerak menyusuri rantai protein panjang dan memutus ikatan jadi fragmen."
+    },
+    "phase_transition": {
+      "name": "Transisi Fase & Ekspansi Kalor (Padat/Cair/Uap)",
+      "when_to_use": "Air meledak di minyak panas 180C, es mencair, pemuaian uap, karamelisasi gula panas.",
+      "visual": "Termometer aktif bersama partikel yang bertransisi dari rapat hingga memuai jadi uap."
+    },
+    "surface_surfactant": {
+      "name": "Surfaktan, Tegangan Permukaan & Emulsi Minyak-Air",
+      "when_to_use": "Sabun mengangkat lemak, minyak tidak campur air, misel deterjen, tegangan permukaan.",
+      "visual": "Molekul surfaktan berpolar ganda mengelilingi tetes minyak lalu mengangkatnya lepas."
+    },
+    "acid_base_bubble": {
+      "name": "Reaksi Asam-Basa & Pelepasan Gelembung Gas",
+      "when_to_use": "Cuka melarutkan kerak/baking soda, korosi asam lambung, reaksi berbusa CO2/H2.",
+      "visual": "Tetes asam menghantam lapisan basa/logam menghasilkan puluhan gelembung gas naik."
+    },
+    "crystal_lattice": {
+      "name": "Pertumbuhan / Retaknya Kisi Kristal Teratur",
+      "when_to_use": "Pembentukan kristal es, depresi titik beku garam+es, kristal gula/garam, kisi logam.",
+      "visual": "Kisi kristal simetris tumbuh node demi node atau retak saat tersisipi ion asing."
+    }
+  },
+  "custom_presets": [
+    {
+      "preset_id": "bromelain_meat_tenderizer",
+      "label_title": "PEMOTONGAN SERAT PROTEIN",
+      "engine_kind": "protein_cleavage",
+      "accent_color": "amber",
+      "trigger_keywords": [
+        "nanas",
+        "bromelain",
+        "daging",
+        "protease",
+        "empuk",
+        "kolagen"
+      ],
+      "default_actor_a": "Enzim Bromelain",
+      "default_actor_b": "Serat Kolagen",
+      "default_result": "Protein Terpotong",
+      "created_by": "seed_bank",
+      "created_week": "2026-11-26"
+    },
+    {
+      "preset_id": "skin_osmosis_wrinkle",
+      "label_title": "OSMOSIS & SARAF PEMBULUH",
+      "engine_kind": "osmosis_membrane",
+      "accent_color": "cyan",
+      "trigger_keywords": [
+        "keriput",
+        "berendam",
+        "osmosis",
+        "membran",
+        "kulit",
+        "garam"
+      ],
+      "default_actor_a": "Air Luar (H₂O)",
+      "default_actor_b": "Lapisan Epidermis",
+      "default_result": "Lipatan Cengkeram",
+      "created_by": "seed_bank",
+      "created_week": "2026-11-26"
+    },
+    {
+      "preset_id": "flash_steam_oil_burst",
+      "label_title": "UAP AIR MEMUAI 1600X",
+      "engine_kind": "phase_transition",
+      "accent_color": "red",
+      "trigger_keywords": [
+        "minyak",
+        "panas",
+        "meledak",
+        "mendidih",
+        "uap",
+        "kalor"
+      ],
+      "default_actor_a": "Air (100°C)",
+      "default_actor_b": "Minyak (180°C)",
+      "default_result": "Ledakan Uap 1600x",
+      "created_by": "seed_bank",
+      "created_week": "2026-11-26"
+    },
+    {
+      "preset_id": "soap_micelle_lift",
+      "label_title": "MISEL SABUN ANGKAT LEMAK",
+      "engine_kind": "surface_surfactant",
+      "accent_color": "blue",
+      "trigger_keywords": [
+        "sabun",
+        "deterjen",
+        "lemak",
+        "emulsi",
+        "surfaktan",
+        "bilas"
+      ],
+      "default_actor_a": "Surfaktan Sabun",
+      "default_actor_b": "Lapisan Minyak",
+      "default_result": "Misel Terbilas Air",
+      "created_by": "seed_bank",
+      "created_week": "2026-11-26"
+    }
+  ]
+}

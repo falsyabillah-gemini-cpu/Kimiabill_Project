@@ -139,8 +139,9 @@ def record_published_episode(
     revisions_used: int = 0,
     topic_attempts_used: int = 1,
     production_seconds: Optional[float] = None,
+    mechanisms_used: Optional[list[dict[str, Any]]] = None,
 ) -> None:
-    """Persist each published episode + 0-token efficiency telemetry into data/published_history.json."""
+    """Persist each published episode + 0-token efficiency & mechanism telemetry into data/published_history.json."""
     HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
     items: list[dict[str, Any]] = []
     if HISTORY_PATH.exists():
@@ -172,6 +173,7 @@ def record_published_episode(
         "production_seconds": round(production_seconds, 1) if production_seconds is not None else None,
         "publish_mode": os.environ.get("PUBLISH_MODE", "public"),
         "agent_models": agent_models,
+        "mechanisms_used": mechanisms_used or [],
     }
     items = [x for x in items if x.get("episode_id") != episode_id]
     items.append(record)
@@ -182,6 +184,56 @@ def record_published_episode(
         StudioMemory(BASE_DIR).upsert_episode_analytics([record])
     except Exception:
         pass
+
+
+def _collect_weekly_mechanism_audit_data(recent_history: list[dict[str, Any]]) -> dict[str, Any]:
+    """Gather mechanistic animation records across recent episodes for Agent 8 match & diversity auditing."""
+    from collections import Counter
+
+    episodes_summary: list[dict[str, Any]] = []
+    kind_counts: Counter[str] = Counter()
+
+    for row in recent_history[-14:]:
+        ep_id = str(row.get("episode_id") or "").strip()
+        mechs = row.get("mechanisms_used") or []
+        if not mechs and ep_id:
+            a3_path = BASE_DIR / "episodes" / ep_id / "handoffs" / "agent3_script.json"
+            if a3_path.exists():
+                try:
+                    a3_data = json.loads(a3_path.read_text(encoding="utf-8"))
+                    for sc in a3_data.get("scenes") or []:
+                        m = sc.get("mechanism")
+                        if isinstance(m, dict):
+                            mechs.append(
+                                {
+                                    "scene_id": sc.get("scene_id"),
+                                    "kind": m.get("kind"),
+                                    "title": m.get("title"),
+                                    "actor_a": m.get("actor_a"),
+                                    "actor_b": m.get("actor_b"),
+                                    "result": m.get("result"),
+                                    "preset_id": m.get("preset_id"),
+                                }
+                            )
+                except Exception:
+                    pass
+        for m in mechs:
+            if isinstance(m, dict) and m.get("kind"):
+                kind_counts[str(m["kind"])] += 1
+        episodes_summary.append(
+            {
+                "episode_id": ep_id,
+                "title": row.get("title"),
+                "discipline": row.get("discipline"),
+                "mechanisms_used": mechs,
+            }
+        )
+
+    return {
+        "episodes_checked": len(episodes_summary),
+        "kind_frequency": dict(kind_counts),
+        "episodes": episodes_summary,
+    }
 
 
 def load_latest_agent_directives() -> dict[str, Any]:
@@ -585,6 +637,23 @@ def _format_audit_markdown(
     _sec("Instruksi Upgrade ke Agent 1 (Trend & Ideasi)", audit.agent_1_directives)
     _sec("Instruksi Upgrade ke Agent 2 (Editor & Hook)", audit.agent_2_directives)
     _sec("Instruksi Upgrade ke Agent 3 (Skrip & Animasi Mekanistik)", audit.agent_3_directives)
+    if getattr(audit, "mechanism_audit_summary", "") or getattr(audit, "mechanism_mismatches", None) or getattr(audit, "agent_4_animator_directives", None):
+        lines.append("")
+        lines.append("## Audit Kecocokan & Variasi Animasi Mekanistik (Agent 4 & Bank)")
+        if getattr(audit, "mechanism_audit_summary", ""):
+            lines.append(audit.mechanism_audit_summary)
+        if getattr(audit, "mechanism_mismatches", None):
+            _sec("Animasi Kurang Cocok / Monoton Minggu Ini", audit.mechanism_mismatches)
+        if getattr(audit, "agent_4_animator_directives", None):
+            _sec("Instruksi Agent 8 ke Generator Animasi Mekanistik (Agent 3/4)", audit.agent_4_animator_directives)
+        if getattr(audit, "new_mechanism_presets", None):
+            _sec(
+                "Preset Bank Animasi Baru Ditambahkan Otomatis (data/mechanism_bank.json)",
+                [
+                    f"`{p.preset_id}` ({p.engine_kind}) — **{p.label_title}**: {p.default_actor_a} → {p.default_actor_b} → {p.default_result}"
+                    for p in audit.new_mechanism_presets
+                ],
+            )
     _sec("Instruksi Upgrade ke Agent 5 (Video QA Auditor)", audit.agent_5_directives)
     _sec("Instruksi Upgrade ke Agent 6 (Pencari Footage Real)", audit.agent_6_directives)
     if audit.karat_weekend_directives:
@@ -1123,13 +1192,21 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
         "all_produced_titles": [t["title"] for t in topic_landscape["all_topics"][:40]],
     }
 
+    from src.tools.mechanism_bank import (
+        append_mechanism_presets_from_audit,
+        format_mechanism_catalog_for_agent3,
+    )
+
+    mechanism_audit_input = _collect_weekly_mechanism_audit_data(recent)
+    current_mech_bank = format_mechanism_catalog_for_agent3()
+
     audit = call_structured_agent(
         provider=a8_cfg.get("provider", "auto"),
         model=a8_cfg.get("model", a8_cfg.get("recommended_prod_model", "gemini-3.8-flash")),
         system_prompt=(
             "You are Agent 8 (Chief Weekly System, Engagement & Workflow Efficiency Auditor) for Kimiabill, an Indonesian "
             "pure-science YouTube Shorts studio (Kimia, Fisika, Matematika, Medisinal, Biologi). "
-            "Perform FIVE deep audits in clear Indonesian from this week's data:\n"
+            "Perform SIX deep audits in clear Indonesian from this week's data:\n"
             "1. SOCIAL MEDIA ENGAGEMENT & MONETIZATION AUDIT: Analyze views, likes, comments, retention %, avg view duration, "
             "QA scores, hooks, topics, and durations. Also state clearly in `summary` how far the channel is from YouTube "
             "Partner Program Shorts monetization (500 subs / 3M views and 1,000 subs / 10M views) and what will accelerate it.\n"
@@ -1148,6 +1225,13 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             "`bottom_videos`, and `discipline_breakdown` gaps across 5 pillars). Populate `topic_performance_highlights` (3-5 crisp "
             "Indonesian findings naming exact highest-views vs lowest-views topics and WHY they succeeded/stalled). "
             "Leave `next_week_topic_map` as `[]` — Agent 1 (Trend Scout & Planner) will draft the 14-slot weekly titles right after your audit!\n"
+            "6. MECHANISTIC ANIMATION MATCH & AUTO-BANK EXPANSION: Inspect `mechanism_audit_input` (`kind_frequency` and each episode's "
+            "`mechanisms_used`) alongside `current_mechanism_bank`. Evaluate strictly in `mechanism_audit_summary` whether the mechanistic "
+            "animations accurately matched the topic narratives OR fell back to repetitive generic templates (`polymer_crosslink`, "
+            "`receptor_binding` lock-and-key, `electron_transfer`). List concrete issues in `mechanism_mismatches`, write sharp "
+            "instructions into `agent_4_animator_directives` for Agent 3 & Agent 4 Animator, AND propose 1-3 NEW topic-specific presets in "
+            "`new_mechanism_presets` (not duplicating `current_mechanism_bank.custom_presets`, mapped cleanly to the best engine from "
+            "`current_mechanism_bank.core_engines`) so the bank automatically expands every week!\n"
             "Produce sharp, concrete next-week upgrade directives for Agents 1, 2, 3, 5, and 6 so the entire studio "
             "becomes higher quality, faster, and more token-efficient every single week — ALWAYS honoring any active `owner_telegram_directives` without contradicting the owner. "
             "Also populate `recommended_weekend_hours_wib` with 2 optimal HH:MM WIB upload times (1 midday slot around 11:30-13:30 "
@@ -1165,12 +1249,21 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             "cumulative_milestone_stats": milestone_stats,
             "viewer_comments": viewer_comments[:60],
             "existing_requests_queue": existing_requests[-25:],
+            "mechanism_audit_input": mechanism_audit_input,
+            "current_mechanism_bank": current_mech_bank,
             "previous_week_directives": prev_directives,
             "owner_telegram_directives": __import__("src.tools.telegram_notify", fromlist=["get_agent_specific_owner_directives"]).get_agent_specific_owner_directives("agent_8"),
         },
         response_model=Agent8WeeklyAuditOutput,
         handoff_path=AUDITS_DIR / f"agent8_audit_{today_wib}.json",
     )
+
+    try:
+        added_presets = append_mechanism_presets_from_audit(audit.new_mechanism_presets, today_wib)
+        if added_presets:
+            print(f"[agent8->mechanism_bank] Menambahkan {len(added_presets)} preset animasi mekanistik baru ke bank: {[p['preset_id'] for p in added_presets]}")
+    except Exception as exc:
+        print(f"[agent8->mechanism_bank] Peringatan gagal update bank mekanistik: {exc}")
 
     queued_new = queue_audience_requests(audit.audience_requests, today_wib)
     if queued_new:
