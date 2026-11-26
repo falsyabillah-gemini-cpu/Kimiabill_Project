@@ -399,7 +399,7 @@ def search_wikimedia_photos(query: str, limit: int = 6) -> list[VideoCandidate]:
         if not _is_real_video_title(meta_txt) or not _is_family_safe_text(title, meta_txt):
             continue
         lic = re.sub(r"<[^>]+>", "", str(meta.get("LicenseShortName", {}).get("value", "CC Wikimedia"))).strip()
-        if not any(ok_l in lic.lower() for ok in ("cc", "public domain", "pd", "gfdl")):
+        if not any(ok_l in lic.lower() for ok_l in ("cc", "public domain", "pd", "gfdl")):
             continue
         out.append(
             VideoCandidate(
@@ -521,8 +521,26 @@ def search_pixabay(query: str, per_page: int = 8) -> list[VideoCandidate]:
     return out
 
 
+_NASA_NOISE_TOKENS: tuple[str, ...] = (
+    "annual highlights", "the quiet crew", "profile:", "ksc-", "jsc-", "briefing",
+    "conference", "expedition", "astronaut", "press", "highlights", "suits",
+    "interview", "mission overview", "space station", "payload", "hangar",
+)
+
+
+def _is_space_or_earth_topic(text_blob: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:space|planet|earth|moon|mars|solar|sun|orbit|galaxy|star|stars|"
+            r"gravity|climate|atmosphere|ozone|aurora|satellite|astronomy|cosmic|nebula|"
+            r"black hole|telescope|eclipse|meteor|asteroid)\b",
+            (text_blob or "").lower(),
+        )
+    )
+
+
 def search_nasa_videos(query: str, limit: int = 5) -> list[VideoCandidate]:
-    """Search NASA Images & Video API (0 API key, Public Domain) for physics/earth/science HD clips."""
+    """Search NASA Images & Video API (0 API key, Public Domain) strictly for space/earth/climate HD clips."""
     try:
         resp = requests.get(
             "https://images-api.nasa.gov/search",
@@ -546,6 +564,9 @@ def search_nasa_videos(query: str, limit: int = 5) -> list[VideoCandidate]:
         title = str(data.get("title") or "").strip()
         desc = str(data.get("description") or "")
         nasa_id = str(data.get("nasa_id") or "").strip()
+        low_td = f"{title} {nasa_id}".lower()
+        if any(nt in low_td for nt in _NASA_NOISE_TOKENS):
+            continue
         if not title or not _is_real_video_title(title) or not _is_family_safe_text(title, desc):
             continue
         collection_url = item.get("href")
@@ -1213,7 +1234,7 @@ def scout_assets_for_scenes(
     results: list[SceneAsset] = []
     used_urls: set[str] = set(exclude_urls or ())
     used_stems: set[str] = set()
-    max_screens = int(os.environ.get("ASSET_MAX_SCREENS_PER_SCENE", "6"))
+    max_screens = int(os.environ.get("ASSET_MAX_SCREENS_PER_SCENE", "4"))
     non_generic_cap = max(2, max_screens - 2)
     flow_bank_clips = list_flow_clip_bank()
     used_flow_ids: set[str] = set()
@@ -1347,7 +1368,7 @@ def scout_assets_for_scenes(
                     stock_cands += search_pexels(q, orientation="landscape")
                 nasa_cands = (
                     search_nasa_videos(q, limit=3)
-                    if (not is_kitchen and len(stock_cands) < 3)
+                    if (_is_space_or_earth_topic(scene_text_blob) and not is_kitchen and len(stock_cands) < 3)
                     else []
                 )
                 # Priority 4: Wikimedia Commons (strictly filtered & 2s head/tail trimmed)

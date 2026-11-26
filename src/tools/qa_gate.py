@@ -15,7 +15,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from src.state import FORBIDDEN_VISUAL_PLACEHOLDERS, EpisodeState, Gate0CheckResult
+from src.state import EpisodeState, Gate0CheckResult, contains_forbidden_placeholder
 
 MECHANICS_DOMAIN_TERMS: tuple[str, ...] = (
     "tekuk", "lentur", "elastis", "kaku", "rigid", "polimer", "hidrogel", "crosslink",
@@ -39,11 +39,18 @@ def run_pre_render_gate0_checks(state: EpisodeState) -> tuple[bool, list[str]]:
         return False, ["Agent 3 script missing"]
 
     ep_blob_parts = [state.agent3.title]
+    total_words = 0
     for s in state.agent3.scenes:
         ep_blob_parts.append(s.narration)
+        total_words += len((s.narration or "").split())
         if s.overlay_badge:
             ep_blob_parts.append(s.overlay_badge)
     ep_blob_low = " ".join(ep_blob_parts).lower()
+
+    if total_words < 72:
+        issues.append(
+            f"Narration too short ({total_words} words < 72 words minimum; risks falling below 25s after silence trim). Target 85-115 words (32-46s)."
+        )
 
     if FOLLOW_CTA_RE.search(state.agent3.title or "") or FOLLOW_CTA_RE.search(state.agent3.caption_social or ""):
         issues.append("Forbidden CTA word 'follow' found in YouTube title/caption (use 'Subscribe').")
@@ -53,9 +60,10 @@ def run_pre_render_gate0_checks(state: EpisodeState) -> tuple[bool, list[str]]:
         nar_low = nar.lower()
         if FOLLOW_CTA_RE.search(nar):
             issues.append(f"{sc.scene_id}: forbidden CTA word 'follow' in narration (must use 'Subscribe' or seamless loop).")
-        for tok in FORBIDDEN_VISUAL_PLACEHOLDERS:
-            if tok in nar_low or (sc.overlay_badge and tok in sc.overlay_badge.lower()):
-                issues.append(f"{sc.scene_id}: forbidden placeholder '{tok}' in narration/badge.")
+        bad_nar_tok = contains_forbidden_placeholder(nar_low)
+        bad_badge_tok = contains_forbidden_placeholder(sc.overlay_badge or "")
+        if bad_nar_tok or bad_badge_tok:
+            issues.append(f"{sc.scene_id}: forbidden placeholder '{bad_nar_tok or bad_badge_tok}' in narration/badge.")
         if sc.overlay_badge and len(sc.overlay_badge.strip()) > 48:
             issues.append(f"{sc.scene_id}: overlay_badge too long ({len(sc.overlay_badge)} chars > 48).")
 
@@ -72,16 +80,16 @@ def run_pre_render_gate0_checks(state: EpisodeState) -> tuple[bool, list[str]]:
                 if len(sval) > max_len:
                     issues.append(f"{sc.scene_id}.mechanism.{field_name} exceeds {max_len} chars ('{sval}')")
                 low_v = sval.lower()
-                if any(tok in low_v for tok in FORBIDDEN_VISUAL_PLACEHOLDERS) or low_v in {"a", "b", "produk", "hasil", "todo", "none", "undefined"}:
+                if contains_forbidden_placeholder(low_v) or low_v in {"a", "b", "produk", "hasil", "todo", "none", "undefined"}:
                     issues.append(f"{sc.scene_id}.mechanism.{field_name} contains forbidden placeholder '{sval}'")
 
             if m.kind in ("polymer_crosslink", "mechanical_stress"):
-                if not any(k in scene_ctx for k in MECHANICS_DOMAIN_TERMS):
+                if not any(re.search(rf"\b{re.escape(k)}", scene_ctx) for k in MECHANICS_DOMAIN_TERMS):
                     issues.append(
                         f"{sc.scene_id}: mechanism.kind='{m.kind}' invalid for non-mechanics topic (use process_flow / concept_comparison / highlight_stat)."
                     )
             if m.kind in ("electron_transfer", "redox_reaction"):
-                if not any(k in scene_ctx for k in REDOX_DOMAIN_TERMS):
+                if not any(re.search(rf"\b{re.escape(k)}", scene_ctx) for k in REDOX_DOMAIN_TERMS):
                     issues.append(
                         f"{sc.scene_id}: mechanism.kind='{m.kind}' invalid without real redox/electron transfer (use process_flow / concept_comparison)."
                     )

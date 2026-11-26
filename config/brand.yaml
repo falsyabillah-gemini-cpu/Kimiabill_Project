@@ -75,6 +75,6 @@ publishing:
 
 guardrails:
   max_revisions: 2
-  max_topic_attempts: 3
+  max_topic_attempts: 2
   min_idea_score: 7.5
   min_qa_score: 8.0

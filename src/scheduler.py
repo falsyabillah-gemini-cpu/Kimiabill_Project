@@ -185,7 +185,7 @@ def run_one_automated_episode() -> None:
         pending_req = None
 
     run_t0 = time.monotonic()
-    max_recovery_rounds = max(1, int(os.environ.get("MAX_RECOVERY_ROUNDS", "2")))
+    max_recovery_rounds = max(1, int(os.environ.get("MAX_RECOVERY_ROUNDS", "1")))
     max_wall_clock_sec = float(os.environ.get("MAX_PRODUCTION_WALL_SEC", str(120 * 60)))
 
     last_err = "Error tidak diketahui"
@@ -282,6 +282,11 @@ def run_one_automated_episode() -> None:
 
                     if audit.passed:
                         qa_passed = True
+                        break
+
+                    gate0_issues = list(state.gate0.issues) if state.gate0 else []
+                    if any("outside strict Shorts target" in gi or "Duration" in gi for gi in gate0_issues):
+                        print(f"[scheduler] Gate 0 gagal pada durasi ({gate0_issues}); menghentikan revisi visual agar tidak membuang kuota.")
                         break
 
                     if version <= max_revisions:

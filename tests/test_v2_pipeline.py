@@ -78,20 +78,22 @@ def _sample_scene(
     )
 
 
-def _sample_state(scene2: SceneSpec | None = None, cta_narration: str = "Subscribe biar nggak ketinggalan fakta kimia berikutnya!") -> EpisodeState:
+def _sample_state(scene2: SceneSpec | None = None, cta_narration: str = "Subscribe sekarang agar kamu tidak ketinggalan fakta kimia seru berikutnya di channel ini!") -> EpisodeState:
     s1 = SceneSpec(
         scene_id="scene_1",
         purpose="hook",
         duration_sec=5.0,
-        narration="Kenapa minum air es justru bikin pedas cabai makin menyebar?",
+        narration="Kenapa minum air es justru bikin rasa pedas cabai di lidah makin menyebar ke seluruh mulut dan terasa semakin panas?",
         visual_query="drinking cold water",
     )
-    s2 = scene2 or _sample_scene()
+    s2 = scene2 or _sample_scene(
+        narration="Ternyata molekul bergerak bebas dari kapsaisin bersifat nonpolar, sehingga senyawa ini menempel erat di reseptor panas TRPV1 pada permukaan lidah tanpa bisa dilarutkan atau bereaksi dengan air dingin biasa."
+    )
     s3 = SceneSpec(
         scene_id="scene_3",
         purpose="takeaway",
         duration_sec=8.0,
-        narration="Susu mengandung kasein yang mengikat kapsaisin nonpolar jauh lebih efektif daripada air.",
+        narration="Sebaliknya, segelas susu dingin mengandung protein kasein dan lemak alami yang langsung mengikat molekul kapsaisin nonpolar lalu membilasnya dari reseptor lidah jauh lebih efektif.",
         visual_query="milk glass pour",
     )
     s4 = SceneSpec(

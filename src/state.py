@@ -24,13 +24,24 @@ FORBIDDEN_VISUAL_PLACEHOLDERS: tuple[str, ...] = (
 )
 
 
+def contains_forbidden_placeholder(text: str) -> Optional[str]:
+    """Return matching forbidden placeholder token using word boundaries (avoids matching 'molekul bergerak')."""
+    s = " ".join((text or "").strip().lower().split())
+    if not s:
+        return None
+    for tok in FORBIDDEN_VISUAL_PLACEHOLDERS:
+        if re.search(rf"(?<![a-z0-9]){re.escape(tok)}(?![a-z0-9])", s):
+            return tok
+    return None
+
+
 def _has_forbidden_placeholder(text: str, allow_empty: bool = False) -> bool:
     s = " ".join((text or "").strip().lower().split())
     if not s:
         return not allow_empty
     if s in {"a", "b", "produk", "hasil", "none", "null", "n/a", "-", "struktur baru", "mekanisme sains"}:
         return True
-    return any(tok in s for tok in FORBIDDEN_VISUAL_PLACEHOLDERS)
+    return contains_forbidden_placeholder(s) is not None
 
 
 class IdeaCandidate(BaseModel):
@@ -134,7 +145,7 @@ class MechanismVisual(BaseModel):
             raise ValueError(f"MechanismVisual.actor_b uses forbidden placeholder/missing text: '{self.actor_b}'")
         if _has_forbidden_placeholder(self.result):
             raise ValueError(f"MechanismVisual.result uses forbidden placeholder/empty text: '{self.result}'")
-        if self.caption and any(tok in self.caption.lower() for tok in FORBIDDEN_VISUAL_PLACEHOLDERS):
+        if self.caption and contains_forbidden_placeholder(self.caption):
             raise ValueError(f"MechanismVisual.caption contains forbidden placeholder: '{self.caption}'")
         if len(self.title.strip()) > 32:
             raise ValueError(f"MechanismVisual.title exceeds 32 chars ({len(self.title)}): '{self.title}'")
