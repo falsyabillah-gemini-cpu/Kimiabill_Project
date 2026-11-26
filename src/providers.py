@@ -186,7 +186,7 @@ def _discover_gemini_flash_models(api_key: str) -> list[str]:
             methods = m.get("supportedGenerationMethods", [])
             name = m.get("name", "").removeprefix("models/")
             if "generateContent" in methods and name.startswith("gemini-") and "flash" in name:
-                if not any(skip in name for skip in ("tts", "image", "audio", "live", "embedding")):
+                if not any(skip in name for skip in ("tts", "image", "audio", "live", "embedding", "omni", "gemini-2.5-", "gemini-4-hydrogen")):
                     if name not in _EXHAUSTED_MODELS_THIS_RUN:
                         candidates.append(name)
         if candidates:
