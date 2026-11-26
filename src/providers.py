@@ -597,33 +597,76 @@ def call_structured_agent(
         api_key = os.environ.get("OPENROUTER_API_KEY")
         if not api_key:
             raise ProviderError("OPENROUTER_API_KEY is not set")
-        resp = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "response_format": {"type": "json_object"},
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {
-                        "role": "user",
-                        "content": (
-                            f"INPUT_JSON:\n{json.dumps(user_payload, ensure_ascii=False)}\n\n"
-                            f"Return ONLY valid JSON matching schema:\n{schema_hint}"
-                        ),
-                    },
-                ],
-            },
-            timeout=120,
+        text_prompt = (
+            f"INPUT_JSON:\n{json.dumps(user_payload, ensure_ascii=False)}\n\n"
+            f"Return ONLY valid raw JSON matching schema (no markdown or extra prose):\n{schema_hint}"
         )
-        resp.raise_for_status()
-        text = resp.json()["choices"][0]["message"]["content"]
-        parsed = response_model.model_validate(_extract_json(text))
-        _record_model_usage(agent_label, requested_model, model)
-        _save_handoff(parsed, handoff_path)
-        return parsed
+        valid_imgs = [p for p in (image_paths or []) if p.exists()]
+        if valid_imgs:
+            user_content: Any = [{"type": "text", "text": text_prompt}]
+            for img_p in valid_imgs:
+                mime = "image/png" if img_p.suffix.lower() == ".png" else "image/jpeg"
+                b64 = base64.b64encode(img_p.read_bytes()).decode("ascii")
+                user_content.append(
+                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
+                )
+        else:
+            user_content = text_prompt
+
+        env_or_model = os.environ.get("OPENROUTER_MODEL", "").strip()
+        or_candidates: list[str] = []
+        for cand in (env_or_model or model, "openrouter/free"):
+            if cand and cand not in or_candidates:
+                or_candidates.append(cand)
+
+        last_err: Exception | None = None
+        for or_model in or_candidates:
+            # openrouter/free routes dynamically across free providers, try twice in case one route returns invalid JSON
+            max_tries = 2 if or_model == "openrouter/free" else 1
+            for _ in range(max_tries):
+                for use_json_mode in (True, False):
+                    req_body: dict[str, Any] = {
+                        "model": or_model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_content},
+                        ],
+                    }
+                    if use_json_mode:
+                        req_body["response_format"] = {"type": "json_object"}
+                    try:
+                        resp = requests.post(
+                            "https://openrouter.ai/api/v1/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {api_key}",
+                                "Content-Type": "application/json",
+                            },
+                            json=req_body,
+                            timeout=120,
+                        )
+                    except requests.RequestException as exc:
+                        last_err = exc
+                        print(f"[providers] OpenRouter '{or_model}' network error ({_redact_url_secrets(str(exc))})")
+                        break
+                    if resp.status_code == 400 and use_json_mode:
+                        # Some free models reject response_format: json_object; retry plain text JSON prompt
+                        continue
+                    if resp.status_code in (402, 403, 404, *TRANSIENT_STATUS_CODES):
+                        last_err = RuntimeError(f"OpenRouter '{or_model}' HTTP {resp.status_code}: {resp.text[:160]}")
+                        print(f"[providers] OpenRouter '{or_model}' HTTP {resp.status_code} — beralih ke fallback berikutnya...")
+                        break
+                    resp.raise_for_status()
+                    text = resp.json()["choices"][0]["message"]["content"]
+                    try:
+                        parsed = response_model.model_validate(_extract_json(text))
+                        _record_model_usage(agent_label, requested_model, f"openrouter:{or_model}")
+                        _save_handoff(parsed, handoff_path)
+                        return parsed
+                    except Exception as exc:
+                        last_err = exc
+                        print(f"[providers] OpenRouter '{or_model}' JSON parse error ({exc}), retrying...")
+                        break
+        assert last_err is not None
+        raise last_err
 
     raise ProviderError(f"Unsupported provider: {provider}")
