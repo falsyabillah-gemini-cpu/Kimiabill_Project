@@ -298,14 +298,137 @@ def search_pexels_photos(query: str, per_page: int = 6) -> list[VideoCandidate]:
     return out
 
 
+def search_openverse_photos(query: str, limit: int = 6) -> list[VideoCandidate]:
+    """Search Openverse Public Domain / CC0 / CC-BY real photographs (0 API key, commercial monetization safe)."""
+    q_clean = _clean_stock_query(query)
+    if not q_clean:
+        return []
+    try:
+        resp = requests.get(
+            "https://api.openverse.org/v1/images/",
+            headers={"User-Agent": USER_AGENT},
+            params={
+                "q": q_clean,
+                "license_type": "commercial,modification",
+                "extension": "jpg",
+                "page_size": limit,
+            },
+            timeout=15,
+        )
+    except requests.RequestException:
+        return []
+    if resp.status_code != 200:
+        return []
+    out: list[VideoCandidate] = []
+    for item in resp.json().get("results", []):
+        img_url = str(item.get("url") or "").strip()
+        if not img_url.lower().startswith("http"):
+            continue
+        title = str(item.get("title") or q_clean).strip()
+        if not _is_real_video_title(title) or not _is_family_safe_text(title):
+            continue
+        w = int(item.get("width") or 0)
+        h = int(item.get("height") or 0)
+        if (w and w < 640) or (h and h < 480):
+            continue
+        lic = str(item.get("license") or "cc0").upper()
+        out.append(
+            VideoCandidate(
+                source="openverse_photo",
+                title=f"Openverse - {title}"[:120],
+                download_url=img_url,
+                page_url=str(item.get("foreign_landing_url") or img_url),
+                license=f"Openverse {lic} (Commercial Safe)",
+                duration_sec=7.0,
+                width=w or 1280,
+                height=h or 960,
+                thumb_url=item.get("thumbnail"),
+            )
+        )
+    return out
+
+
+def search_wikimedia_photos(query: str, limit: int = 6) -> list[VideoCandidate]:
+    """Search Wikimedia Commons high-res real camera JPEGs (0 API key, excluding charts/diagrams/logos)."""
+    q_clean = _clean_stock_query(query)
+    if not q_clean:
+        return []
+    try:
+        resp = requests.get(
+            "https://commons.wikimedia.org/w/api.php",
+            headers={"User-Agent": USER_AGENT},
+            params={
+                "action": "query",
+                "format": "json",
+                "generator": "search",
+                "gsrsearch": f"{q_clean} filetype:bitmap",
+                "gsrnamespace": "6",
+                "gsrlimit": str(limit),
+                "prop": "imageinfo",
+                "iiprop": "url|size|mime|extmetadata",
+                "iiurlwidth": "1280",
+            },
+            timeout=15,
+        )
+    except requests.RequestException:
+        return []
+    if resp.status_code != 200:
+        return []
+    pages = resp.json().get("query", {}).get("pages", {})
+    out: list[VideoCandidate] = []
+    for page in pages.values():
+        title = str(page.get("title") or "")
+        low = title.lower()
+        if not (low.endswith(".jpg") or low.endswith(".jpeg")):
+            continue
+        if not _is_real_video_title(title) or any(tok in low for tok in ("chart", "graph", "map", "scheme", "structure", "formula", "table", "portrait of")):
+            continue
+        iis = page.get("imageinfo") or []
+        if not iis:
+            continue
+        ii = iis[0]
+        w = int(ii.get("width") or 0)
+        h = int(ii.get("height") or 0)
+        if w < 720 or h < 480:
+            continue
+        url = ii.get("thumburl") or ii.get("url")
+        if not url:
+            continue
+        meta = ii.get("extmetadata") or {}
+        meta_txt = " ".join(str(meta.get(k, {}).get("value", "")) for k in ("Categories", "ImageDescription"))
+        if not _is_real_video_title(meta_txt) or not _is_family_safe_text(title, meta_txt):
+            continue
+        lic = re.sub(r"<[^>]+>", "", str(meta.get("LicenseShortName", {}).get("value", "CC Wikimedia"))).strip()
+        if not any(ok_l in lic.lower() for ok in ("cc", "public domain", "pd", "gfdl")):
+            continue
+        out.append(
+            VideoCandidate(
+                source="wikimedia_photo",
+                title=f"WikiPhoto - {title.replace('File:', '')}"[:120],
+                download_url=url,
+                page_url=ii.get("descriptionurl", url),
+                license=lic,
+                duration_sec=7.0,
+                width=w,
+                height=h,
+                thumb_url=ii.get("thumburl"),
+            )
+        )
+    return out
+
+
 def _render_photo_ken_burns_mp4(candidate: VideoCandidate, dest_mp4: Path, duration_sec: float = 7.0) -> Optional[dict]:
-    """Convert a real Pexels photograph into a smooth 30fps 9:16 subtle zoom-in MP4 clip."""
+    """Convert a real photograph into a smooth 30fps 9:16 subtle zoom-in MP4 clip."""
     raw_img = dest_mp4.with_suffix(".jpg")
     dest_mp4.parent.mkdir(parents=True, exist_ok=True)
     try:
+        from PIL import Image
+
         r = requests.get(candidate.download_url, headers={"User-Agent": USER_AGENT}, timeout=25)
         r.raise_for_status()
         raw_img.write_bytes(r.content)
+        with Image.open(raw_img) as im:
+            im.verify()
         frames = max(60, int(round(duration_sec * 30)))
         vf = (
             "scale=1280:2276:force_original_aspect_ratio=increase,"
@@ -581,7 +704,7 @@ def _try_match_flow_bank_clip(
         if not fid or fid in used_flow_ids or wurl in used_urls:
             continue
         sc = _score_flow_clip_for_scene(str(clip.get("filename") or ""), scene)
-        if sc >= 1:
+        if sc >= 2:
             scored.append((sc, clip))
     if not scored:
         return None
@@ -595,7 +718,7 @@ def _try_match_flow_bank_clip(
     webhook_url = _normalize_webhook_url(raw_url)
     token = os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
 
-    for _sc, clip in scored[:3]:
+    for _sc, clip in scored[:1]:
         fid = str(clip["file_id"])
         fname = str(clip["filename"])
         wurl = str(clip.get("url") or clip.get("web_url") or f"flow://{fid}")
@@ -1229,7 +1352,7 @@ def scout_assets_for_scenes(
                 )
                 # Priority 4: Wikimedia Commons (strictly filtered & 2s head/tail trimmed)
                 wiki_cands: list[VideoCandidate] = []
-                if len(stock_cands) == 0 and len(nasa_cands) == 0:
+                if len(stock_cands) == 0:
                     wiki_cands = search_wikimedia_videos(q)
                     q_terms = [w for w in re.findall(r"[a-z]+", q.lower()) if len(w) >= 3 and w not in _FILLER_AND_ADJECTIVES]
                     if wiki_cands and not is_generic_q and q_terms:
@@ -1289,7 +1412,7 @@ def scout_assets_for_scenes(
                                 fallback_raw = None
                             break
                         continue
-                    eligible_fb = clean and (m_score >= 1 or is_generic_q or cand.source == "pexels")
+                    eligible_fb = clean and (m_score >= 1 or is_generic_q or cand.source in ("pexels", "wikimedia_commons"))
                     if eligible_fb and (fallback_cand is None or m_score > fallback_meta_score):
                         if fallback_raw is not None:
                             fallback_raw.unlink(missing_ok=True)
@@ -1307,10 +1430,14 @@ def scout_assets_for_scenes(
                     chosen_cand, chosen_info = fallback_cand, norm_info
                     print(f"[asset_scout] {scene.scene_id}: memakai fallback aman (meta={fallback_meta_score})")
 
-            # Final 100% real-camera monetization-safe fallback: Pexels Real Photography + smooth Ken Burns motion
+            # Final 100% real-camera monetization-safe fallback: Real Photography (Pexels / Openverse CC0 / Wikimedia) + Ken Burns motion
             if chosen_cand is None:
                 for pq in (queries[:3] + generic_fallbacks[:2]):
                     p_cands = search_pexels_photos(pq, per_page=4)
+                    if not p_cands:
+                        p_cands = search_openverse_photos(pq, limit=5)
+                    if not p_cands:
+                        p_cands = search_wikimedia_photos(pq, limit=5)
                     for pc in p_cands:
                         if pc.download_url in used_urls or pc.page_url in used_urls:
                             continue
@@ -1319,7 +1446,7 @@ def scout_assets_for_scenes(
                         used_urls.add(pc.page_url)
                         if kb_info:
                             chosen_cand, chosen_info = pc, kb_info
-                            print(f"[asset_scout] {scene.scene_id}: memakai fallback Pexels Real Photo Ken Burns ('{pc.title[:48]}')")
+                            print(f"[asset_scout] {scene.scene_id}: memakai fallback Real Photo Ken Burns ({pc.source}: '{pc.title[:48]}')")
                             break
                     if chosen_cand:
                         break
