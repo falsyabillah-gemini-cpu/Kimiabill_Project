@@ -9,11 +9,11 @@ on:
     - cron: "30 11 * * *"  # 18:30 WIB: Pengingat Audit jika belum direspons
     - cron: "45 11 * * *"  # 18:45 WIB: AI Chief Editor Blind Audit Fallback
   repository_dispatch:
-    types: [telegram_approve, telegram_ai_audit]
+    types: [telegram_approve, telegram_ai_audit, telegram_save_backup, telegram_reject_use_backup]
   workflow_dispatch:
     inputs:
       action:
-        description: "Aksi audit (ai_audit / approve / reminder)"
+        description: "Aksi audit (ai_audit / approve / reminder / save_backup / reject_use_backup)"
         required: false
         default: "ai_audit"
         type: choice
@@ -21,6 +21,8 @@ on:
           - ai_audit
           - approve
           - reminder
+          - save_backup
+          - reject_use_backup
       episode_id:
         description: "Opsional: Episode ID spesifik (kosong = draft aktif terbaru)"
         required: false
@@ -78,7 +80,12 @@ jobs:
           python - <<'PY'
           import json, os
           from src.chief_editor_audit import run_chief_editor_audit
-          from src.tools.review_manager import handle_telegram_approve, send_pending_review_reminder
+          from src.tools.review_manager import (
+              handle_telegram_approve,
+              handle_telegram_reject_use_backup,
+              handle_telegram_save_backup,
+              send_pending_review_reminder,
+          )
 
           ev = os.environ.get("EVENT_NAME", "")
           ev_action = os.environ.get("EVENT_ACTION", "")
@@ -90,6 +97,10 @@ jobs:
               res = send_pending_review_reminder()
           elif (ev == "repository_dispatch" and ev_action == "telegram_approve") or (ev == "workflow_dispatch" and manual_action == "approve"):
               res = handle_telegram_approve(ep_id, by_ai=False)
+          elif (ev == "repository_dispatch" and ev_action == "telegram_save_backup") or (ev == "workflow_dispatch" and manual_action == "save_backup"):
+              res = handle_telegram_save_backup(ep_id)
+          elif (ev == "repository_dispatch" and ev_action == "telegram_reject_use_backup") or (ev == "workflow_dispatch" and manual_action == "reject_use_backup"):
+              res = handle_telegram_reject_use_backup(ep_id)
           else:
               force = (ev != "schedule")
               res = run_chief_editor_audit(ep_id, force=force)
@@ -100,7 +111,7 @@ jobs:
         run: |
           git config user.name "Kimiabill Audit Bot"
           git config user.email "bot@kimiabill.local"
-          git add data/pending_review.json data/published_history.json data/rejected_topics.json data/audience_requests.json data/memory.db data/owner_feedback.json 2>/dev/null || true
+          git add data/pending_review.json data/published_history.json data/rejected_topics.json data/backup_queue.json data/audience_requests.json data/memory.db data/owner_feedback.json 2>/dev/null || true
           if ! git diff --cached --quiet; then
             BRANCH=$(git rev-parse --abbrev-ref HEAD)
             git commit -m "chore: update audit decision & published history [skip ci]"

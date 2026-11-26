@@ -533,6 +533,69 @@ class TestReviewManagerAndChiefEditor(unittest.TestCase):
         self.assertEqual(res["decision"], "HOLD")
         self.assertEqual(res["verdict"]["decision"], "REVISE")
 
+    def test_backup_queue_save_and_promote_on_reject(self) -> None:
+        import src.tools.backup_queue as bq
+        import src.tools.review_manager as rm
+        import src.tools.topic_guard as tg
+
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            pr_path = tmp / "pending_review.json"
+            future_iso = (datetime.now(WIB) + timedelta(minutes=60)).isoformat(timespec="seconds")
+
+            rec_backup = PendingReviewRecord(
+                episode_id="ep_backup_1",
+                topic_title="Kenapa Es Licin Saat Disentuh",
+                topic_slug="kenapa-es-licin",
+                youtube_video_id="yt_bk_1",
+                youtube_url="https://youtube.com/shorts/yt_bk_1",
+                status="awaiting_review",
+                target_publish_iso=future_iso,
+            )
+            rec_bad = PendingReviewRecord(
+                episode_id="ep_bad_today",
+                topic_title="Topik Jelek Hari Ini",
+                topic_slug="topik-jelek-hari-ini",
+                youtube_video_id="yt_bad_1",
+                youtube_url="https://youtube.com/shorts/yt_bad_1",
+                status="awaiting_review",
+                target_publish_iso=future_iso,
+            )
+
+            with (
+                patch.object(rm, "PENDING_REVIEW_PATH", pr_path),
+                patch.object(rm, "BASE_DIR", tmp),
+                patch.object(rm, "_bot_creds", return_value=("tok", "chat")),
+                patch.object(rm, "send_telegram_message", return_value=True),
+                patch.object(rm, "clear_audit_buttons_on_telegram"),
+                patch.object(rm, "push_backup_video", side_effect=lambda r, **kw: bq.push_backup_video(r, base_dir=tmp, **kw)),
+                patch.object(rm, "pop_next_backup_video", side_effect=lambda: bq.pop_next_backup_video(base_dir=tmp)),
+                patch.object(rm, "peek_backup_count", side_effect=lambda: bq.peek_backup_count(base_dir=tmp)),
+                patch.object(rm, "record_rejected_topic", side_effect=lambda **kw: tg.record_rejected_topic(**kw, base_dir=tmp)),
+                patch.object(rm, "delete_youtube_video", return_value={"ok": True}) as m_del,
+                patch("src.tools.review_manager.requests.post") as m_post,
+            ):
+                m_post.return_value = MagicMock(status_code=200, json=lambda: {"ok": True, "result": {"message_id": 777}})
+
+                # 1. Save active trial draft as standby backup
+                rm.upsert_review_record(rec_backup)
+                res_sb = rm.handle_telegram_save_backup("ep_backup_1")
+                self.assertEqual(res_sb["backup_count"], 1)
+                self.assertIsNone(rm.load_pending_review_store()["current"])
+
+                # 2. Next episode arrives and owner clicks Reject -> Pakai Video Cadangan
+                rm.upsert_review_record(rec_bad)
+                res_rej = rm.handle_telegram_reject_use_backup("ep_bad_today")
+                self.assertTrue(res_rej["used_backup"])
+                self.assertEqual(res_rej["promoted_episode_id"], "ep_backup_1")
+                m_del.assert_called_once_with("yt_bad_1")
+
+                # Verify promoted backup is now awaiting review with 0 left in backup queue
+                self.assertEqual(bq.peek_backup_count(base_dir=tmp), 0)
+                curr = rm.load_pending_review_store()["current"]
+                self.assertEqual(curr["episode_id"], "ep_backup_1")
+                self.assertEqual(curr["status"], "awaiting_review")
+
 
 if __name__ == "__main__":
     unittest.main()

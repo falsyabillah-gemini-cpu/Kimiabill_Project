@@ -92,8 +92,10 @@ def run_one_automated_episode() -> None:
     ]
     try:
         from src.tools.topic_guard import load_rejected_topics
-        for rrow in load_rejected_topics():
-            rt = str(rrow.get("title") or "").strip()
+        from src.tools.backup_queue import load_backup_queue
+
+        for rrow in load_rejected_topics() + load_backup_queue():
+            rt = str(rrow.get("title") or rrow.get("topic_title") or "").strip()
             if rt and rt not in avoid_titles:
                 avoid_titles.append(rt)
     except Exception:
@@ -394,19 +396,29 @@ def run_one_automated_episode() -> None:
                                 f"tetapi auto-upload YouTube GAGAL (youtube_url kosong). Cek log [gdrive]/[youtube] di atas."
                             )
                         if pub_mode_now == "draft":
-                            from src.tools.review_manager import compute_target_publish_iso, send_audit_review_message
+                            save_backup = os.environ.get("SAVE_AS_BACKUP", "false").strip().lower() == "true"
+                            if save_backup:
+                                from src.tools.review_manager import save_episode_as_backup
 
-                            target_iso = compute_target_publish_iso()
-                            rec = send_audit_review_message(
-                                state,
-                                Path(final_video),
-                                qa_summary=qa_summary,
-                                target_publish_iso=target_iso,
-                            )
-                            print(
-                                f"[scheduler] Audit Manual Telegram terkirim! episode_id={rec.episode_id} | "
-                                f"target_publish={rec.target_publish_iso} | yt={rec.youtube_url}"
-                            )
+                                b_item = save_episode_as_backup(state, qa_summary=qa_summary, reason="manual_backup_run")
+                                print(
+                                    f"[scheduler] Video disimpan ke Bank Cadangan! episode_id={b_item.get('episode_id')} | "
+                                    f"yt={b_item.get('youtube_url')}"
+                                )
+                            else:
+                                from src.tools.review_manager import compute_target_publish_iso, send_audit_review_message
+
+                                target_iso = compute_target_publish_iso()
+                                rec = send_audit_review_message(
+                                    state,
+                                    Path(final_video),
+                                    qa_summary=qa_summary,
+                                    target_publish_iso=target_iso,
+                                )
+                                print(
+                                    f"[scheduler] Audit Manual Telegram terkirim! episode_id={rec.episode_id} | "
+                                    f"target_publish={rec.target_publish_iso} | yt={rec.youtube_url}"
+                                )
                         if (
                             state.request_id
                             and pub_mode_now == "public"
@@ -438,11 +450,7 @@ def run_one_automated_episode() -> None:
                 if is_quota_err:
                     consecutive_quota_errors += 1
                     if consecutive_quota_errors >= 2:
-                        _tg_status(
-                            "🛑 [Kimiabill] Kuota Gemini API habis (429/503 beruntun setelah jeda RPM).\n"
-                            "Produksi dihentikan sementara agar kuota pulih pada jadwal berikutnya."
-                        )
-                        raise RuntimeError(f"Kuota Gemini API habis beruntun: {last_err}") from exc
+                        break
                     _tg_status(
                         f"⏳ [Kimiabill] Percobaan #{total_attempts_done} kena limit Gemini (429). "
                         f"Menunggu 75 detik agar kuota RPM pulih sebelum mencoba ulang 1x lagi..."
@@ -456,6 +464,9 @@ def run_one_automated_episode() -> None:
                     )
                 continue
 
+        if consecutive_quota_errors >= 2:
+            break
+
         if recovery_round < max_recovery_rounds and (time.monotonic() - run_t0) < max_wall_clock_sec:
             cooldown_s = min(180, 75 * recovery_round)
             print(f"[scheduler] Ronde pemulihan {recovery_round} habis; jeda {cooldown_s}s sebelum ronde {recovery_round + 1}...")
@@ -464,6 +475,28 @@ def run_one_automated_episode() -> None:
                 f"Jeda {cooldown_s} detik lalu lanjut ronde {recovery_round + 1}..."
             )
             time.sleep(cooldown_s)
+
+    # Standby Backup Fallback: jika produksi gagal, otomatis gunakan video cadangan jika tersedia!
+    pub_mode_fallback = os.environ.get("PUBLISH_MODE", "draft").strip().lower()
+    allow_backup = os.environ.get("ALLOW_BACKUP_FALLBACK", "true").strip().lower() != "false"
+    save_backup_mode = os.environ.get("SAVE_AS_BACKUP", "false").strip().lower() == "true"
+    if allow_backup and not save_backup_mode and pub_mode_fallback in ("draft", "public"):
+        try:
+            from src.tools.backup_queue import pop_next_backup_video
+            from src.tools.review_manager import compute_target_publish_iso, promote_backup_to_slot
+
+            b_item = pop_next_backup_video()
+            if b_item:
+                prom = promote_backup_to_slot(
+                    b_item,
+                    target_publish_iso=compute_target_publish_iso(),
+                    publish_mode=pub_mode_fallback,
+                    reason=f"Fallback otomatis gagal produksi ({last_err[:100]})",
+                )
+                print(f"[scheduler] Fallback Bank Cadangan berhasil diaktifkan: {prom}")
+                return
+        except Exception as bk_exc:
+            print(f"[scheduler] Gagal mengaktifkan fallback bank cadangan: {bk_exc}")
 
     _tg_status(
         f"❌ [Kimiabill] PRODUKSI DIHENTIKAN setelah {total_attempts_done} percobaan ({max_recovery_rounds} ronde).\n"

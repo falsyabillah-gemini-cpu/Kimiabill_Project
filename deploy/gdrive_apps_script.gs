@@ -138,14 +138,31 @@ function _processCallbackQuery(cb, botToken, allowedChatId, githubRepo, githubPa
     return { ok: true, action: "revise_menu" };
   }
 
+  if (action === "reject" && messageId) {
+    _answerCallbackQuery(botToken, cb.id, "Pilih pengganti: Cadangan atau Topik Baru?");
+    _editMessageReplyMarkup(botToken, allowedChatId, messageId, {
+      inline_keyboard: [
+        [
+          { text: "💾 Pakai Video Cadangan", callback_data: "reject_backup:" + epId },
+          { text: "🎬 Buat Topik Baru", callback_data: "reject_new:" + epId },
+        ],
+        [{ text: "⬅️ Kembali", callback_data: "revise_back:" + epId }],
+      ],
+    });
+    return { ok: true, action: "reject_menu" };
+  }
+
   if (action === "revise_back" && messageId) {
     props.deleteProperty("PENDING_REVISE_EPISODE_ID");
     _answerCallbackQuery(botToken, cb.id, "Kembali ke menu audit.");
     _editMessageReplyMarkup(botToken, allowedChatId, messageId, {
       inline_keyboard: [
         [{ text: "✅ Upload / Jadwalkan", callback_data: "approve:" + epId }],
-        [{ text: "🔄 Revisi Video Ini", callback_data: "revise:" + epId }],
-        [{ text: "❌ Tolak & Buat Topik Baru", callback_data: "reject:" + epId }],
+        [
+          { text: "🔄 Revisi Video Ini", callback_data: "revise:" + epId },
+          { text: "💾 Simpan Jadi Cadangan", callback_data: "save_backup:" + epId },
+        ],
+        [{ text: "❌ Tolak / Ganti", callback_data: "reject:" + epId }],
         [{ text: "🤖 Serahkan ke AI", callback_data: "ai_audit:" + epId }],
       ],
     });
@@ -170,6 +187,9 @@ function _processCallbackQuery(cb, botToken, allowedChatId, githubRepo, githubPa
   if (action === "approve") {
     eventType = "telegram_approve";
     confirmMsg = "✅ Disetujui! Memproses penjadwalan/publish YouTube untuk `" + epId + "`...";
+  } else if (action === "save_backup") {
+    eventType = "telegram_save_backup";
+    confirmMsg = "💾 Memindahkan `" + epId + "` ke Bank Video Cadangan...";
   } else if (action === "revise_broll") {
     eventType = "telegram_rerender";
     payload.feedback = "Ganti B-roll agar lebih relevan dengan narasi, full-screen 9:16 bersih, tanpa bumper asing.";
@@ -182,9 +202,12 @@ function _processCallbackQuery(cb, botToken, allowedChatId, githubRepo, githubPa
     eventType = "telegram_rerender";
     payload.feedback = "Perbaiki naskah/pelafalan audio agar padat 30-48 detik, tanpa typo, dan CTA Subscribe/loop.";
     confirmMsg = "🔄 Siap! Memulai revisi Naskah/Audio untuk `" + epId + "`...";
-  } else if (action === "reject") {
+  } else if (action === "reject_new") {
     eventType = "telegram_reject_next";
     confirmMsg = "❌ Topik `" + epId + "` ditolak & masuk blacklist. Memproduksi topik baru sekarang...";
+  } else if (action === "reject_backup") {
+    eventType = "telegram_reject_use_backup";
+    confirmMsg = "💾❌ Topik `" + epId + "` ditolak! Mengambil 1 video dari Bank Cadangan sebagai pengganti...";
   } else if (action === "ai_audit") {
     eventType = "telegram_ai_audit";
     confirmMsg = "🤖 Menyerahkan `" + epId + "` ke AI Chief Editor untuk audit video+audio native MP4...";

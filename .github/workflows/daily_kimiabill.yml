@@ -34,6 +34,11 @@ on:
         required: false
         default: ""
         type: string
+      save_as_backup:
+        description: "Simpan hasil video langsung ke Bank Cadangan (tidak masuk antrean tayang hari ini)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -259,6 +264,8 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           OWNER_FEEDBACK_OVERRIDE: ${{ github.event.inputs.owner_feedback || '' }}
+          SAVE_AS_BACKUP: ${{ github.event.inputs.save_as_backup || 'false' }}
+          ALLOW_BACKUP_FALLBACK: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
           AUTO_UPLOAD_GDRIVE: "true"
         run: |
           if [ -n "$OWNER_FEEDBACK_OVERRIDE" ]; then
@@ -271,7 +278,7 @@ jobs:
         run: |
           git config user.name "Kimiabill Studio Bot"
           git config user.email "bot@kimiabill.local"
-          git add data/published_history.json data/pending_review.json data/rejected_topics.json data/audience_requests.json data/memory.db data/owner_feedback.json 2>/dev/null || true
+          git add data/published_history.json data/pending_review.json data/rejected_topics.json data/backup_queue.json data/audience_requests.json data/memory.db data/owner_feedback.json 2>/dev/null || true
           if ! git diff --cached --quiet; then
             BRANCH=$(git rev-parse --abbrev-ref HEAD)
             git commit -m "chore: update pipeline state & audit queue [skip ci]"

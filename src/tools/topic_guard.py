@@ -199,6 +199,8 @@ def check_topic_duplication(
         corpus.append(("published_history", row))
     for row in load_rejected_topics(base_dir):
         corpus.append(("rejected_topics", row))
+    for row in _load_json_list(base_dir / "data" / "backup_queue.json"):
+        corpus.append(("backup_queue", row))
     for av in avoid_titles or []:
         if (av or "").strip():
             corpus.append(("avoid_titles", {"title": av, "topic_slug": slugify_topic(av), "keywords": extract_topic_keywords(av)}))

@@ -28,6 +28,11 @@ from src.tools.telegram_notify import (
     send_telegram_message,
 )
 from src.tools.topic_guard import extract_topic_keywords, record_rejected_topic, slugify_topic
+from src.tools.backup_queue import (
+    peek_backup_count,
+    pop_next_backup_video,
+    push_backup_video,
+)
 
 WIB = ZoneInfo("Asia/Jakarta")
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -158,8 +163,11 @@ def _build_inline_keyboard(episode_id: str, publish_time_label: str = "19:00 WIB
     return {
         "inline_keyboard": [
             [{"text": f"✅ Upload / Jadwalkan ({publish_time_label})", "callback_data": f"approve:{episode_id}"}],
-            [{"text": "🔄 Revisi Video Ini", "callback_data": f"revise:{episode_id}"}],
-            [{"text": "❌ Tolak & Buat Topik Baru", "callback_data": f"reject:{episode_id}"}],
+            [
+                {"text": "🔄 Revisi Video Ini", "callback_data": f"revise:{episode_id}"},
+                {"text": "💾 Simpan Jadi Cadangan", "callback_data": f"save_backup:{episode_id}"},
+            ],
+            [{"text": "❌ Tolak / Ganti", "callback_data": f"reject:{episode_id}"}],
             [{"text": "🤖 Serahkan ke AI", "callback_data": f"ai_audit:{episode_id}"}],
         ]
     }
@@ -598,3 +606,302 @@ def handle_telegram_reject_next(episode_id: str = "") -> dict[str, Any]:
     run_one_automated_episode()
     latest = get_review_record()
     return {"ok": True, "rejected_episode_id": rec.episode_id if rec else episode_id, "new_episode_id": latest.episode_id if latest else None}
+
+
+def save_episode_as_backup(
+    state: EpisodeState,
+    *,
+    qa_summary: str = "",
+    reason: str = "saved_manual",
+) -> dict[str, Any]:
+    """Store an unlisted EpisodeState directly into `data/backup_queue.json` and notify Telegram."""
+    ep_dir = BASE_DIR / "episodes" / state.episode_id
+    yt_meta_path = ep_dir / "handoffs" / "youtube_upload.json"
+    yt_meta: dict[str, Any] = {}
+    if yt_meta_path.exists():
+        try:
+            yt_meta = json.loads(yt_meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            yt_meta = {}
+
+    yt_url = state.youtube_url or yt_meta.get("youtube_url")
+    yt_vid = yt_meta.get("video_id") or (yt_url.rstrip("/").split("/")[-1] if yt_url else None)
+    drive_file_id = yt_meta.get("drive_video_file_id")
+    drive_url = state.gdrive_folder_url or yt_meta.get("drive_folder_url")
+
+    winner = (
+        next((c for c in state.agent1.candidates if c.id == state.agent2.winner_id), None)
+        if state.agent1 and state.agent2
+        else None
+    )
+    title = state.agent3.title if state.agent3 else state.episode_id
+    slug = state.agent3.episode_slug if state.agent3 else slugify_topic(title)
+    dur_sec = round(float(state.render_plan.total_duration_sec), 1) if state.render_plan else 0.0
+    refs = (state.render_plan.references if state.render_plan else []) or []
+    score = state.agent5_history[-1].overall_score if state.agent5_history else 0.0
+
+    pinned_cmt: Optional[str] = None
+    if state.agent7:
+        for cp in state.agent7.platform_copies:
+            if cp.platform == "youtube_shorts" and cp.pinned_comment:
+                pinned_cmt = cp.pinned_comment.strip()
+                break
+
+    item = push_backup_video(
+        {
+            "episode_id": state.episode_id,
+            "topic_title": title,
+            "topic_slug": slug,
+            "source_url": winner.viral_source_url if winner else None,
+            "keywords": extract_topic_keywords(f"{title} {winner.phenomenon if winner else ''}"),
+            "topic_bucket": winner.topic_bucket if winner else "everyday",
+            "discipline": state.render_plan.discipline if state.render_plan else "kimia",
+            "section": state.render_plan.section_tag if state.render_plan else "REGULER",
+            "duration_sec": dur_sec,
+            "references": refs,
+            "youtube_video_id": yt_vid,
+            "youtube_url": yt_url,
+            "drive_url": drive_url,
+            "artifact_path_or_url": drive_file_id,
+            "qa_summary": qa_summary or f"Agent 5 QA {score}/10",
+            "pinned_comment": pinned_cmt,
+        },
+        reason=reason,
+    )
+    stok = peek_backup_count()
+    send_telegram_message(
+        "\n".join([
+            f"💾 [BANK CADANGAN KIMIABILL] Video tersimpan sebagai cadangan!",
+            f"• Judul: `{title}`",
+            f"• Episode: `{state.episode_id}` | Skor QA: {score}/10",
+            f"• YouTube (Unlisted aman): {yt_url or '-'}",
+            f"• Google Drive: {drive_url or '-'}",
+            f"• Total stok cadangan sekarang: {stok} video (otomatis terpakai jika produksi gagal / Anda pilih Pakai Cadangan saat Reject).",
+        ])
+    )
+    return item
+
+
+def handle_telegram_save_backup(episode_id: str = "") -> dict[str, Any]:
+    """Move an `awaiting_review` draft out of `pending_review.json['current']` into `data/backup_queue.json`."""
+    rec = get_review_record(episode_id)
+    if not rec:
+        raise RuntimeError(f"Draft review tidak ditemukan untuk episode_id='{episode_id}'")
+    if rec.status in ("approved", "approved_by_ai"):
+        clear_audit_buttons_on_telegram(rec)
+        raise RuntimeError(f"Episode '{rec.episode_id}' sudah disetujui untuk tayang dan tidak bisa dijadikan cadangan.")
+    if rec.status == "rejected":
+        clear_audit_buttons_on_telegram(rec)
+        raise RuntimeError(f"Episode '{rec.episode_id}' sudah ditolak.")
+
+    clear_audit_buttons_on_telegram(rec)
+    rec.status = "saved_as_backup"
+    rec.decision_note = "Disimpan owner ke Bank Video Cadangan"
+    rec.updated_at = datetime.now(WIB).isoformat(timespec="seconds")
+
+    # Preserve pinned comment if episode state exists locally
+    pinned_cmt: Optional[str] = None
+    a7_p = BASE_DIR / "episodes" / rec.episode_id / "handoffs" / "agent7_package.json"
+    if a7_p.exists():
+        try:
+            a7 = json.loads(a7_p.read_text(encoding="utf-8"))
+            for cp in a7.get("platform_copies") or []:
+                if cp.get("platform") == "youtube_shorts" and cp.get("pinned_comment"):
+                    pinned_cmt = str(cp["pinned_comment"]).strip()
+                    break
+        except Exception:
+            pass
+
+    rec_dump = rec.model_dump()
+    rec_dump["pinned_comment"] = pinned_cmt
+    push_backup_video(rec_dump, reason="telegram_save_backup")
+
+    # Clear active 'current' slot so 11:45 / 18:45 AI fallback will NOT publish this backup early
+    store = load_pending_review_store()
+    store["current"] = None
+    hist = [h for h in (store.get("history") or []) if h.get("episode_id") != rec.episode_id]
+    hist.append(rec.model_dump())
+    store["history"] = hist[-120:]
+    save_pending_review_store(store)
+
+    stok = peek_backup_count()
+    send_telegram_message(
+        "\n".join([
+            f"💾 [DISIMPAN JADI CADANGAN] `{rec.topic_title}`",
+            f"• Status YouTube: Tetap *Unlisted* aman ({rec.youtube_url or '-'})",
+            f"• Total stok cadangan: {stok} video",
+            "• Video ini tidak akan dipublish jam 11:45/18:45 dan siap menggantikan jika ada jadwal gagal atau video ditolak.",
+        ])
+    )
+    return {"ok": True, "episode_id": rec.episode_id, "backup_count": stok}
+
+
+def promote_backup_to_slot(
+    backup_item: dict[str, Any],
+    *,
+    target_publish_iso: Optional[str] = None,
+    publish_mode: str = "draft",
+    reason: str = "Fallback cadangan otomatis",
+) -> dict[str, Any]:
+    """Promote a standby backup video to the active publish/review slot."""
+    pub_iso = target_publish_iso or compute_target_publish_iso()
+    try:
+        pub_dt = datetime.fromisoformat(pub_iso)
+        pub_hhmm = pub_dt.strftime("%H:%M WIB")
+        fallback_hhmm = (pub_dt - timedelta(minutes=15)).strftime("%H:%M WIB")
+    except Exception:
+        pub_dt = datetime.now(WIB)
+        pub_hhmm = "19:00 WIB"
+        fallback_hhmm = "18:45 WIB"
+
+    ep_id = str(backup_item.get("episode_id") or "")
+    title = str(backup_item.get("topic_title") or ep_id)
+    yt_vid = backup_item.get("youtube_video_id")
+    yt_url = backup_item.get("youtube_url")
+    drive_url = backup_item.get("drive_url")
+
+    if publish_mode == "public" and yt_vid:
+        now_wib = datetime.now(WIB)
+        if now_wib < pub_dt:
+            upd = update_youtube_publish_status(
+                str(yt_vid),
+                privacy_status="private",
+                publish_at_iso=pub_dt.isoformat(timespec="seconds"),
+            )
+            mode_label = f"Scheduled Private -> Tayang {pub_hhmm}"
+        else:
+            upd = update_youtube_publish_status(
+                str(yt_vid),
+                privacy_status="public",
+                first_comment=backup_item.get("pinned_comment"),
+            )
+            mode_label = "Published Public Sekarang"
+
+        from src.tools.weekly_growth_auditor import record_published_episode
+
+        record_published_episode(
+            episode_id=ep_id,
+            title=title,
+            discipline=str(backup_item.get("discipline") or "kimia"),
+            section=str(backup_item.get("section") or "REGULER"),
+            duration_sec=float(backup_item.get("duration_sec") or 0.0),
+            publish_mode="public",
+            youtube_url=yt_url,
+            gdrive_folder_url=drive_url,
+            source_url=backup_item.get("source_url"),
+            topic_slug=str(backup_item.get("topic_slug") or ep_id),
+            keywords=list(backup_item.get("keywords") or []),
+            topic_bucket=str(backup_item.get("topic_bucket") or "everyday"),
+        )
+        send_telegram_message(
+            "\n".join([
+                f"🆘✅ [CADANGAN AKTIF & DIJADWALKAN] `{title}`",
+                f"• Alasan: {reason}",
+                f"• Status YouTube: {mode_label}",
+                f"• YouTube: {yt_url or '-'}",
+                f"• Sisa stok cadangan: {peek_backup_count()} video",
+            ])
+        )
+        return {"ok": True, "promoted_episode_id": ep_id, "mode": mode_label, "youtube_update": upd}
+
+    # Draft audit mode -> populate active pending_review.json & send audit buttons
+    rec = PendingReviewRecord(
+        episode_id=ep_id,
+        topic_title=title,
+        topic_slug=str(backup_item.get("topic_slug") or ep_id),
+        source_url=backup_item.get("source_url"),
+        keywords=list(backup_item.get("keywords") or []),
+        topic_bucket=str(backup_item.get("topic_bucket") or "everyday"),
+        discipline=str(backup_item.get("discipline") or "kimia"),
+        section=str(backup_item.get("section") or "REGULER"),
+        duration_sec=float(backup_item.get("duration_sec") or 0.0),
+        references=list(backup_item.get("references") or []),
+        youtube_video_id=yt_vid,
+        youtube_url=yt_url,
+        drive_url=drive_url,
+        artifact_path_or_url=backup_item.get("artifact_path_or_url"),
+        revision_count=0,
+        qa_summary=f"{reason} | {backup_item.get('qa_summary') or 'QA OK'}",
+        target_publish_iso=pub_iso,
+        status="awaiting_review",
+        decision_note=reason,
+        reminder_sent=False,
+        created_at=datetime.now(WIB).isoformat(timespec="seconds"),
+    )
+
+    token, chat_id = _bot_creds()
+    keyboard = _build_inline_keyboard(ep_id, publish_time_label=pub_hhmm)
+    msg_id: Optional[int] = None
+    msg_txt = "\n".join([
+        f"🆘🧪 [VIDEO CADANGAN DIAKTIFKAN] ({rec.section})",
+        f"Alasan: {reason}",
+        f"Judul: {title}",
+        f"Target Tayang: {pub_hhmm} (Unlisted Draft siap tayang)",
+        f"▶️ YouTube Unlisted: {yt_url or '-'}",
+        f"📁 Google Drive: {drive_url or '-'}",
+        f"📦 Sisa stok cadangan: {peek_backup_count()} video",
+        "",
+        f"Pilih aksi di bawah sebelum AI Chief Editor ambil alih otomatis ({fallback_hhmm}):",
+    ])
+    if token and chat_id:
+        try:
+            resp = requests.post(
+                _api_url(token, "sendMessage"),
+                json={
+                    "chat_id": chat_id,
+                    "text": msg_txt,
+                    "reply_markup": keyboard,
+                    "disable_web_page_preview": False,
+                },
+                timeout=30,
+            )
+            j = resp.json() if resp.status_code == 200 else {}
+            if j.get("ok"):
+                msg_id = int((j.get("result") or {}).get("message_id") or 0) or None
+        except Exception as exc:
+            print(f"[backup] Gagal kirim preview cadangan ke Telegram: {exc}")
+
+    rec.telegram_message_id = msg_id
+    upsert_review_record(rec)
+    return {"ok": True, "promoted_episode_id": ep_id, "status": "awaiting_review", "youtube_url": yt_url}
+
+
+def handle_telegram_reject_use_backup(episode_id: str = "") -> dict[str, Any]:
+    """Blacklist rejected topic, delete rejected YT draft, and immediately promote 1 standby backup video."""
+    rec = get_review_record(episode_id)
+    target_iso = (rec.target_publish_iso if rec else None) or compute_target_publish_iso()
+    if rec:
+        if rec.status in ("approved", "approved_by_ai"):
+            clear_audit_buttons_on_telegram(rec)
+            raise RuntimeError(f"Episode '{rec.episode_id}' sudah disetujui dan tidak bisa ditolak ulang.")
+        clear_audit_buttons_on_telegram(rec)
+        record_rejected_topic(
+            episode_id=rec.episode_id,
+            title=rec.topic_title,
+            topic_slug=rec.topic_slug,
+            source_url=rec.source_url,
+            keywords=rec.keywords,
+            reason="Ditolak via tombol Telegram (diganti video cadangan)",
+        )
+        if rec.youtube_video_id:
+            delete_youtube_video(rec.youtube_video_id)
+        rec.status = "rejected"
+        rec.decision_note = "Ditolak user -> diganti video cadangan"
+        upsert_review_record(rec)
+
+    b_item = pop_next_backup_video()
+    if not b_item:
+        send_telegram_message("⚠️ Stok Bank Cadangan sedang kosong! Otomatis memproduksi topik baru sekarang...")
+        from src.scheduler import run_one_automated_episode
+        os.environ["PUBLISH_MODE"] = "draft"
+        run_one_automated_episode()
+        latest = get_review_record()
+        return {"ok": True, "used_backup": False, "new_episode_id": latest.episode_id if latest else None}
+
+    prom = promote_backup_to_slot(
+        b_item,
+        target_publish_iso=target_iso,
+        publish_mode="draft",
+        reason=f"Pengganti topik ditolak ({rec.topic_title if rec else episode_id})",
+    )
+    return {"ok": True, "used_backup": True, "rejected_episode_id": rec.episode_id if rec else episode_id, **prom}
