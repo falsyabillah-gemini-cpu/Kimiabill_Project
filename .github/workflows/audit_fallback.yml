@@ -46,13 +46,16 @@ jobs:
           cache: "pip"
           cache-dependency-path: "requirements.txt"
 
-      - name: Install FFmpeg & Python Dependencies
+      - name: Install FFmpeg & Fonts (AI Audit Only)
+        if: ${{ (github.event_name == 'schedule' && (github.event.schedule == '45 4 * * *' || github.event.schedule == '45 11 * * *')) || (github.event_name == 'repository_dispatch' && github.event.action == 'telegram_ai_audit') || (github.event_name == 'workflow_dispatch' && (inputs.action == 'ai_audit' || inputs.action == '')) }}
         run: |
           if ! command -v ffmpeg >/dev/null 2>&1 || ! fc-list | grep -qi "DejaVuSans-Bold"; then
             sudo apt-get update -qq
             sudo apt-get install -y -qq --no-install-recommends ffmpeg fonts-dejavu-core fonts-liberation
           fi
-          pip install -q -r requirements.txt
+
+      - name: Install Python Dependencies
+        run: pip install -q -r requirements.txt
 
       - name: Execute Audit Action or AI Chief Editor Fallback
         env:

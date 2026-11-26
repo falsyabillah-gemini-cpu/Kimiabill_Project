@@ -2,9 +2,7 @@ name: Kimiabill Ecosystem — Portfolio CEO Assistant (Daily Watchdog + Weekly V
 
 on:
   schedule:
-    # 1. Watchdog Error Harian (0 Token AI): Setiap hari 21:15 WIB (14:15 UTC)
-    - cron: "15 14 * * *"
-    # 2. Audit Besar-besaran Visual Mingguan: Setiap Minggu 20:30 WIB (13:30 UTC)
+    # Audit Besar-besaran Visual Mingguan: Setiap Minggu 20:30 WIB (13:30 UTC)
     - cron: "30 13 * * 0"
   repository_dispatch:
     types: [telegram_ceo_audit]
