@@ -178,19 +178,47 @@ def _is_real_video_title(title: str) -> bool:
     return not any(tok in low for tok in DISALLOWED_TITLE_TOKENS)
 
 
+_NON_FILM_QUERY_TOKENS: frozenset[str] = frozenset({
+    "animation", "animated", "visualization", "diagram", "cartoon", "3d", "blender",
+    "illustration", "cgi", "render", "rendered", "graphics", "graphic", "infographic",
+    "closeup", "close-up", "macro", "shot", "view", "setting",
+})
+
+
+def _clean_stock_query(query: str) -> str:
+    """Strip CGI/animation/diagram modifiers so stock video APIs return genuine real-camera footage."""
+    words = [w for w in re.findall(r"[A-Za-z0-9-]+", (query or "").strip()) if w.lower() not in _NON_FILM_QUERY_TOKENS]
+    cleaned = " ".join(words).strip()
+    return cleaned or " ".join((query or "").split()[:3]).strip()
+
+
+def _extract_pexels_slug(page_url: str, fallback: str) -> str:
+    """Extract human-readable descriptive slug from Pexels video/photo URL (e.g. 'woman-drinking-water-1234')."""
+    m = re.search(r"/(?:video|photo)/([a-z0-9-]+?)(?:-\d+)?/?$", (page_url or "").lower())
+    if m and m.group(1):
+        return m.group(1).replace("-", " ").strip()
+    return fallback
+
+
 def search_pexels(query: str, per_page: int = 8, orientation: Optional[str] = "portrait") -> list[VideoCandidate]:
     api_key = os.environ.get("PEXELS_API_KEY")
     if not api_key:
         return []
-    params: dict[str, Any] = {"query": query, "per_page": per_page}
+    q_clean = _clean_stock_query(query)
+    if not q_clean:
+        return []
+    params: dict[str, Any] = {"query": q_clean, "per_page": per_page}
     if orientation:
         params["orientation"] = orientation
-    resp = requests.get(
-        "https://api.pexels.com/videos/search",
-        headers={"Authorization": api_key, "User-Agent": USER_AGENT},
-        params=params,
-        timeout=20,
-    )
+    try:
+        resp = requests.get(
+            "https://api.pexels.com/videos/search",
+            headers={"Authorization": api_key, "User-Agent": USER_AGENT},
+            params=params,
+            timeout=20,
+        )
+    except requests.RequestException:
+        return []
     if resp.status_code != 200:
         return []
     out: list[VideoCandidate] = []
@@ -205,12 +233,16 @@ def search_pexels(query: str, per_page: int = 8, orientation: Optional[str] = "p
         if not files:
             continue
         best = files[0]
+        page_url = v.get("url", best["link"])
+        slug_words = _extract_pexels_slug(page_url, q_clean)
+        if not _is_real_video_title(slug_words) or not _is_family_safe_text(slug_words):
+            continue
         out.append(
             VideoCandidate(
                 source="pexels",
-                title=f"Pexels #{v.get('id')} - {query}",
+                title=f"Pexels #{v.get('id')} - {slug_words}"[:120],
                 download_url=best["link"],
-                page_url=v.get("url", best["link"]),
+                page_url=page_url,
                 license="Pexels License (Free)",
                 duration_sec=dur,
                 width=int(best.get("width") or 720),
@@ -221,10 +253,94 @@ def search_pexels(query: str, per_page: int = 8, orientation: Optional[str] = "p
     return out
 
 
+def search_pexels_photos(query: str, per_page: int = 6) -> list[VideoCandidate]:
+    """Search Pexels Real Photography API (same PEXELS_API_KEY, 100% real camera & monetization-safe) for Ken Burns fallback."""
+    api_key = os.environ.get("PEXELS_API_KEY")
+    if not api_key:
+        return []
+    q_clean = _clean_stock_query(query)
+    if not q_clean:
+        return []
+    out: list[VideoCandidate] = []
+    for orient in ("portrait", "landscape"):
+        try:
+            resp = requests.get(
+                "https://api.pexels.com/v1/search",
+                headers={"Authorization": api_key, "User-Agent": USER_AGENT},
+                params={"query": q_clean, "per_page": per_page, "orientation": orient},
+                timeout=20,
+            )
+        except requests.RequestException:
+            continue
+        if resp.status_code != 200:
+            continue
+        for p in resp.json().get("photos", []):
+            src = p.get("src") or {}
+            img_url = src.get("large2x") or src.get("large") or src.get("original")
+            if not img_url:
+                continue
+            alt = str(p.get("alt") or _extract_pexels_slug(p.get("url", ""), q_clean)).strip()
+            if not _is_family_safe_text(alt):
+                continue
+            out.append(
+                VideoCandidate(
+                    source="pexels_photo",
+                    title=f"PexelsPhoto #{p.get('id')} - {alt or q_clean}"[:120],
+                    download_url=img_url,
+                    page_url=p.get("url", img_url),
+                    license="Pexels License (Free Real Photo)",
+                    duration_sec=7.0,
+                    width=int(p.get("width") or (1080 if orient == "portrait" else 1920)),
+                    height=int(p.get("height") or (1920 if orient == "portrait" else 1080)),
+                    thumb_url=src.get("medium") or img_url,
+                )
+            )
+    return out
+
+
+def _render_photo_ken_burns_mp4(candidate: VideoCandidate, dest_mp4: Path, duration_sec: float = 7.0) -> Optional[dict]:
+    """Convert a real Pexels photograph into a smooth 30fps 9:16 subtle zoom-in MP4 clip."""
+    raw_img = dest_mp4.with_suffix(".jpg")
+    dest_mp4.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        r = requests.get(candidate.download_url, headers={"User-Agent": USER_AGENT}, timeout=25)
+        r.raise_for_status()
+        raw_img.write_bytes(r.content)
+        frames = max(60, int(round(duration_sec * 30)))
+        vf = (
+            "scale=1280:2276:force_original_aspect_ratio=increase,"
+            "crop=1280:2276,"
+            f"zoompan=z='min(zoom+0.0008,1.12)':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps=30"
+        )
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", str(raw_img),
+                "-vf", vf,
+                "-t", f"{duration_sec:.2f}",
+                "-an",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                str(dest_mp4),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return probe_video(dest_mp4)
+    except Exception:
+        return None
+    finally:
+        raw_img.unlink(missing_ok=True)
+
+
 def search_pixabay(query: str, per_page: int = 8) -> list[VideoCandidate]:
     """Search Pixabay Video API when PIXABAY_API_KEY is configured."""
     api_key = os.environ.get("PIXABAY_API_KEY")
     if not api_key:
+        return []
+    q_clean = _clean_stock_query(query)
+    if not q_clean:
         return []
     try:
         resp = requests.get(
@@ -232,10 +348,10 @@ def search_pixabay(query: str, per_page: int = 8) -> list[VideoCandidate]:
             headers={"User-Agent": USER_AGENT},
             params={
                 "key": api_key,
-                "q": query,
+                "q": q_clean,
                 "per_page": per_page,
                 "safesearch": "true",
-                "video_type": "film",
+                "video_type": "all",
             },
             timeout=20,
         )
@@ -974,7 +1090,8 @@ def scout_assets_for_scenes(
     results: list[SceneAsset] = []
     used_urls: set[str] = set(exclude_urls or ())
     used_stems: set[str] = set()
-    max_screens = int(os.environ.get("ASSET_MAX_SCREENS_PER_SCENE", "3"))
+    max_screens = int(os.environ.get("ASSET_MAX_SCREENS_PER_SCENE", "6"))
+    non_generic_cap = max(2, max_screens - 2)
     flow_bank_clips = list_flow_clip_bank()
     used_flow_ids: set[str] = set()
     try:
@@ -1085,27 +1202,32 @@ def scout_assets_for_scenes(
             seen_q: set[str] = set()
             queries: list[str] = []
             for q in [*raw_queries, *broadened, *noun_anchors[:2], *generic_fallbacks]:
-                q_norm = q.strip()
+                q_norm = _clean_stock_query(q)
                 if q_norm and q_norm.lower() not in seen_q:
                     seen_q.add(q_norm.lower())
                     queries.append(q_norm)
 
+            generic_set = {g.lower() for g in generic_fallbacks}
             source_rank = {"pexels": 0, "pixabay": 1, "nasa": 2, "wikimedia_commons": 3}
             for q in queries:
-                is_generic_q = q in generic_fallbacks
+                is_generic_q = q.lower() in generic_set
+                if (not is_generic_q) and screens_done >= non_generic_cap:
+                    continue
+                if screens_done >= max_screens:
+                    break
                 # Priority 1: Pexels Portrait (native 9:16)
                 stock_cands = search_pexels(q, orientation="portrait")
-                # Priority 2: Pixabay + Pexels Landscape only when portrait hits are sparse
-                if len(stock_cands) < 3:
+                # Priority 2: Pixabay + Pexels Landscape (center-cropped cleanly 9:16)
+                if len(stock_cands) < 4:
                     stock_cands += search_pixabay(q)
-                if len(stock_cands) < 3:
+                if len(stock_cands) < 4:
                     stock_cands += search_pexels(q, orientation="landscape")
                 nasa_cands = (
                     search_nasa_videos(q, limit=3)
-                    if (not is_kitchen and len(stock_cands) < 2)
+                    if (not is_kitchen and len(stock_cands) < 3)
                     else []
                 )
-                # Priority 4 (Last-resort fallback only when Pexels + Pixabay + NASA return 0)
+                # Priority 4: Wikimedia Commons (strictly filtered & 2s head/tail trimmed)
                 wiki_cands: list[VideoCandidate] = []
                 if len(stock_cands) == 0 and len(nasa_cands) == 0:
                     wiki_cands = search_wikimedia_videos(q)
@@ -1121,9 +1243,6 @@ def scout_assets_for_scenes(
                     m_score = _metadata_relevance_score(cand, scene, topic_terms)
                     if m_score < 0:
                         continue
-                    # Reject untagged / 0-overlap Pixabay hits BEFORE spending Vision API quota
-                    if not is_generic_q and m_score == 0 and cand.source == "pixabay":
-                        continue
                     scored_cands.append((m_score, cand))
 
                 scored_cands.sort(
@@ -1136,12 +1255,15 @@ def scout_assets_for_scenes(
                     )
                 )
 
+                per_query_cap = 2 if is_generic_q else 1
                 per_query_screens = 0
                 for m_score, cand in scored_cands:
                     stem = cand.title.lower()[:32]
                     if cand.download_url in used_urls or cand.page_url in used_urls or stem in used_stems:
                         continue
-                    if screens_done >= max_screens or per_query_screens >= 2:
+                    if screens_done >= max_screens or per_query_screens >= per_query_cap:
+                        break
+                    if (not is_generic_q) and screens_done >= non_generic_cap:
                         break
                     raw_path = dest_mp4.with_suffix(".raw_dl")
                     raw_info = _download_raw_clip(cand, raw_path)
@@ -1155,7 +1277,7 @@ def scout_assets_for_scenes(
                     ok, clean, reason = vision_screen_clip(raw_path, scene)
                     is_rate_limit = "rate-limit" in reason.lower()
                     print(f"[asset_scout] {scene.scene_id} screen (meta={m_score}) '{cand.title[:56]}': ok={ok} ({reason[:145]})")
-                    if not ok and is_rate_limit and m_score >= 2:
+                    if not ok and is_rate_limit and m_score >= 1:
                         ok = True
                         print(f"[asset_scout] {scene.scene_id}: menerima kecocokan leksikal kuat (meta={m_score}) saat Vision limit")
                     if ok:
@@ -1167,7 +1289,7 @@ def scout_assets_for_scenes(
                                 fallback_raw = None
                             break
                         continue
-                    eligible_fb = clean and (m_score >= 1 or (not is_rate_limit and is_generic_q))
+                    eligible_fb = clean and (m_score >= 1 or is_generic_q or cand.source == "pexels")
                     if eligible_fb and (fallback_cand is None or m_score > fallback_meta_score):
                         if fallback_raw is not None:
                             fallback_raw.unlink(missing_ok=True)
@@ -1184,6 +1306,23 @@ def scout_assets_for_scenes(
                 if norm_info:
                     chosen_cand, chosen_info = fallback_cand, norm_info
                     print(f"[asset_scout] {scene.scene_id}: memakai fallback aman (meta={fallback_meta_score})")
+
+            # Final 100% real-camera monetization-safe fallback: Pexels Real Photography + smooth Ken Burns motion
+            if chosen_cand is None:
+                for pq in (queries[:3] + generic_fallbacks[:2]):
+                    p_cands = search_pexels_photos(pq, per_page=4)
+                    for pc in p_cands:
+                        if pc.download_url in used_urls or pc.page_url in used_urls:
+                            continue
+                        kb_info = _render_photo_ken_burns_mp4(pc, dest_mp4, duration_sec=max(5.5, min(10.0, float(scene.duration_sec or 7.0))))
+                        used_urls.add(pc.download_url)
+                        used_urls.add(pc.page_url)
+                        if kb_info:
+                            chosen_cand, chosen_info = pc, kb_info
+                            print(f"[asset_scout] {scene.scene_id}: memakai fallback Pexels Real Photo Ken Burns ('{pc.title[:48]}')")
+                            break
+                    if chosen_cand:
+                        break
 
         if fallback_raw is not None and fallback_raw.exists():
             fallback_raw.unlink(missing_ok=True)

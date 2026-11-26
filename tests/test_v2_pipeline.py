@@ -379,6 +379,49 @@ class TestAssetScoutAndAnimator(unittest.TestCase):
                 msg=f"Failed to block '{bad_title}'",
             )
 
+    def test_clean_stock_query_and_photo_ken_burns_fallback(self) -> None:
+        from io import BytesIO
+        from src.tools.asset_scout import (
+            VideoCandidate,
+            _clean_stock_query,
+            _extract_pexels_slug,
+            _render_photo_ken_burns_mp4,
+            probe_video,
+        )
+
+        self.assertEqual(_clean_stock_query("greenhouse gas emissions animation"), "greenhouse gas emissions")
+        self.assertEqual(_clean_stock_query("firefly glowing closeup"), "firefly glowing")
+        self.assertEqual(
+            _extract_pexels_slug("https://www.pexels.com/video/parched-dry-earth-98765/", "fallback"),
+            "parched dry earth",
+        )
+
+        img = Image.new("RGB", (1280, 720), (220, 140, 40))
+        buf = BytesIO()
+        img.save(buf, format="JPEG")
+        fake_resp = MagicMock(content=buf.getvalue())
+        fake_resp.raise_for_status = MagicMock()
+
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "scene_kb.mp4"
+            cand = VideoCandidate(
+                source="pexels_photo",
+                title="PexelsPhoto #1 - parched earth",
+                download_url="https://images.pexels.com/photos/1/pexels-photo-1.jpeg",
+                page_url="https://www.pexels.com/photo/parched-earth-1/",
+                license="Pexels License (Free Real Photo)",
+                duration_sec=5.5,
+                width=1280,
+                height=720,
+            )
+            with patch("src.tools.asset_scout.requests.get", return_value=fake_resp):
+                info = _render_photo_ken_burns_mp4(cand, dest, duration_sec=3.0)
+            self.assertIsNotNone(info)
+            probed = probe_video(dest)
+            self.assertEqual(probed["width"], 1080)
+            self.assertEqual(probed["height"], 1920)
+            self.assertGreaterEqual(probed["duration"], 2.8)
+
     def test_animator_neutral_templates_and_text_fit(self) -> None:
         fonts = _load_fonts()
         canvas = Image.new("RGBA", (1080, 1920), (20, 28, 44, 255))
