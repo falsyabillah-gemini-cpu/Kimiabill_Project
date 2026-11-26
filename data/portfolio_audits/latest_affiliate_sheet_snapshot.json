@@ -1,11 +1,11 @@
 {
-  "captured_at_wib": "2026-11-25 23:30 WIB",
+  "captured_at_wib": "2026-11-26 22:20 WIB",
   "sheet_id": "1PZ024Tr8kONsIlKf68i2Y-YQLX3BFKhOmS3pvl2BRcc",
   "status_counts": {
     "CONTOH": 2,
-    "DRAFT_ONLY": 3,
-    "PUBLISHED": 1,
-    "PENDING": 50
+    "PUBLISHED": 3,
+    "DRAFT_ONLY": 2,
+    "PENDING": 49
   },
   "category_counts": {
     "Meja Kerja": 1,
@@ -16,47 +16,72 @@
     "Aksesoris Meja": 9,
     "Rak & Organizer": 9
   },
-  "log_count": 4,
+  "log_count": 7,
   "live_logs": [
     {
       "tanggal_wib": "2026-11-24 21:20:28 WIB",
       "produk": "Hilya Furnitur",
       "mode": "TELEGRAM_ONLY",
-      "status": "SKIPPED_NO_TOKEN"
+      "status": "SKIPPED_NO_TOKEN",
+      "post_id": ""
     },
     {
       "tanggal_wib": "2026-11-25 12:56:01 WIB",
       "produk": "TNW Lampu Foto Lampu LED Video Light Fill light Tripod Ring Light Lampu Fotografi Live Vlogging",
       "mode": "TELEGRAM_ONLY",
-      "status": "SKIPPED_NO_TOKEN"
+      "status": "SKIPPED_NO_TOKEN",
+      "post_id": ""
     },
     {
       "tanggal_wib": "2026-11-25 17:57:25 WIB",
       "produk": "BASIKE Kepala Charger iPhone Fast Charging PD 40W Dual Port Type-C USB Fast Charging Soket Eropa Aman Mini Praktis Kompatibel iPhone Android HP Tablet Headset Rumah Kantor",
       "mode": "TELEGRAM_ONLY",
-      "status": "SKIPPED_NO_TOKEN"
+      "status": "SKIPPED_NO_TOKEN",
+      "post_id": ""
     },
     {
       "tanggal_wib": "2026-11-25 21:21:47 WIB",
       "produk": "Mipanda Watch Charger Kabel Pengisi Daya Magnet USB untuk Pengisian 1 / 2 / 3 / 4 / 5 / 6 / 7 / SE",
       "mode": "LIVE",
-      "status": "PUBLISHED"
+      "status": "PUBLISHED",
+      "post_id": "18106913354029414"
+    },
+    {
+      "tanggal_wib": "2026-11-26 13:38:06 WIB",
+      "produk": "ACMIC CQC01 USB 18W Kepala Charger Fast Charging Adaptor",
+      "mode": "DRY_RUN",
+      "status": "DRY_RUN",
+      "post_id": ""
+    },
+    {
+      "tanggal_wib": "2026-11-26 17:59:27 WIB",
+      "produk": "Hilya Furnitur",
+      "mode": "LIVE",
+      "status": "PUBLISHED",
+      "post_id": "17959997091043009"
+    },
+    {
+      "tanggal_wib": "2026-11-26 21:25:09 WIB",
+      "produk": "ACMIC CQC01 USB 18W Kepala Charger Fast Charging Adaptor",
+      "mode": "LIVE",
+      "status": "PUBLISHED",
+      "post_id": "18352416712268868"
     }
   ],
   "comments_count": 0,
-  "audit_riset_count": 0,
+  "audit_riset_count": 1,
   "settings": {
     "Niche_Utama": "Gadget Meja Kerja & Perlengkapan Kos/Rumah Tangga",
     "Gaya_Bahasa_Threads": "Santai, jujur, conversational, seperti teman merekomendasikan barang (bukan bahasa iklan kaku)",
     "Gaya_Bahasa_X": "Kurasi ringkas, to-the-point, pakai poin manfaat nyata, elegan & informatif",
     "Persona_Panggilan": "aku / kamu",
-    "Model_Gemini_Utama": "gemini-4-hydrogen",
-    "Rantai_Fallback_Gemini": "gemini-4-hydrogen, gemini-3.8-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite, gemini-2.5-pro, gemini-2.5-flash-lite",
+    "Model_Gemini_Utama": "gemini-3.8-flash",
+    "Rantai_Fallback_Gemini": "gemini-3.8-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite",
     "Kata_Kunci_Auto_Hunter": "lampu monitor, charger gan, stand laptop, kabel organizer, rak kos tanpa paku, vakum meja mini, kotak penyimpanan estetik",
-    "Min_Rating_Shopee": "46207.0",
-    "Min_Stok_Peringatan": "5.0",
+    "Min_Rating_Shopee": "2026-07-03T17:00:00.000Z",
+    "Min_Stok_Peringatan": "5",
     "Auto_Reply_Komentar": "OFF",
     "Link_Bio_Landing": "",
-    "Tanggal_Token_Threads": "46351.0"
+    "Tanggal_Token_Threads": "2026-11-24T17:00:00.000Z"
   }
 }
