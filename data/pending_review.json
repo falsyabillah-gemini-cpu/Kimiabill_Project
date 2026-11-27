@@ -1,5 +1,52 @@
 {
-  "current": null,
+  "current": {
+    "episode_id": "ep_20261127_1133",
+    "topic_title": "Parasit Mematikan yang Bikin Tanaman Kebal Kekeringan!",
+    "topic_slug": "jamur-pembuat-saluran-air",
+    "source_url": "https://phys.org/news/2026-11-fungi-specialized-cells-protein.html",
+    "keywords": [
+      "parasit",
+      "mematikan",
+      "tanaman",
+      "kebal",
+      "kekeringan",
+      "jamur",
+      "patogen",
+      "tertentu",
+      "memicu",
+      "pembentukan",
+      "sel",
+      "pengangkut",
+      "air",
+      "baru",
+      "tumbuhan",
+      "menggunakan",
+      "satu",
+      "protein",
+      "khusus"
+    ],
+    "topic_bucket": "research",
+    "discipline": "biologi",
+    "section": "DAPUR",
+    "duration_sec": 25.1,
+    "references": [
+      "Phys.org / Research News (2026): Fungal specialized cells and protein transport mechanisms in plants.",
+      "Sumber Riset"
+    ],
+    "youtube_video_id": "KtWwJCsdwT0",
+    "youtube_url": "https://youtube.com/shorts/KtWwJCsdwT0",
+    "drive_url": "https://drive.google.com/drive/folders/1bpOlckACy5JpoNsm1bW10CrYem7sD7ML",
+    "artifact_path_or_url": "1gEYdJ81A8HV27yv4tQUAD3whVchY2a92",
+    "revision_count": 0,
+    "qa_summary": "LOLOS AUDIT QA | Skor Akhir: 9.5/10 | Visual: 9.5 | Subtitle: 9.5 | Audio: 9.5 | Revisi: 0x",
+    "target_publish_iso": "2026-11-27T12:00:00+07:00",
+    "telegram_message_id": 79,
+    "status": "awaiting_review",
+    "reminder_sent": false,
+    "created_at": "2026-11-27T11:37:02+07:00",
+    "updated_at": "2026-11-27T11:37:08+07:00",
+    "decision_note": ""
+  },
   "history": [
     {
       "episode_id": "ep_20261126_2151_r1t2",
@@ -44,6 +91,54 @@
       "created_at": "2026-11-26T21:55:09+07:00",
       "updated_at": "2026-11-26T21:58:46+07:00",
       "decision_note": "Disimpan owner ke Bank Video Cadangan"
+    },
+    {
+      "episode_id": "ep_20261127_1133",
+      "topic_title": "Parasit Mematikan yang Bikin Tanaman Kebal Kekeringan!",
+      "topic_slug": "jamur-pembuat-saluran-air",
+      "source_url": "https://phys.org/news/2026-11-fungi-specialized-cells-protein.html",
+      "keywords": [
+        "parasit",
+        "mematikan",
+        "tanaman",
+        "kebal",
+        "kekeringan",
+        "jamur",
+        "patogen",
+        "tertentu",
+        "memicu",
+        "pembentukan",
+        "sel",
+        "pengangkut",
+        "air",
+        "baru",
+        "tumbuhan",
+        "menggunakan",
+        "satu",
+        "protein",
+        "khusus"
+      ],
+      "topic_bucket": "research",
+      "discipline": "biologi",
+      "section": "DAPUR",
+      "duration_sec": 25.1,
+      "references": [
+        "Phys.org / Research News (2026): Fungal specialized cells and protein transport mechanisms in plants.",
+        "Sumber Riset"
+      ],
+      "youtube_video_id": "KtWwJCsdwT0",
+      "youtube_url": "https://youtube.com/shorts/KtWwJCsdwT0",
+      "drive_url": "https://drive.google.com/drive/folders/1bpOlckACy5JpoNsm1bW10CrYem7sD7ML",
+      "artifact_path_or_url": "1gEYdJ81A8HV27yv4tQUAD3whVchY2a92",
+      "revision_count": 0,
+      "qa_summary": "LOLOS AUDIT QA | Skor Akhir: 9.5/10 | Visual: 9.5 | Subtitle: 9.5 | Audio: 9.5 | Revisi: 0x",
+      "target_publish_iso": "2026-11-27T12:00:00+07:00",
+      "telegram_message_id": 79,
+      "status": "awaiting_review",
+      "reminder_sent": false,
+      "created_at": "2026-11-27T11:37:02+07:00",
+      "updated_at": "2026-11-27T11:37:08+07:00",
+      "decision_note": ""
     }
   ]
 }
