@@ -233,5 +233,43 @@
     "publish_mode": "scheduled",
     "agent_models": {},
     "mechanisms_used": []
+  },
+  {
+    "episode_id": "ep_20261126_2151_r1t2",
+    "published_at": "2026-11-27T18:41:45+07:00",
+    "published_at_wib": "2026-11-27T18:41:45+07:00",
+    "title": "Tetes Hidung Pembalik Usia",
+    "topic_slug": "tetes-hidung-pembalik-usia",
+    "source_url": "https://www.sciencedaily.com/releases/2026/11/261123005337.htm",
+    "keywords": [
+      "tetes",
+      "hidung",
+      "pembalik",
+      "usia",
+      "terapi",
+      "mrna",
+      "menstimulasi",
+      "protein",
+      "pelindung",
+      "otak",
+      "memulihkan",
+      "memori",
+      "subjek",
+      "penuaan"
+    ],
+    "topic_bucket": "research",
+    "discipline": "biologi",
+    "section": "REGULER",
+    "youtube_url": "https://youtube.com/shorts/xNF5c0uwCZY",
+    "gdrive_folder_url": "https://drive.google.com/drive/folders/1nD9_7KYCmk6xWS1Be_F-4CxZOygVn05g",
+    "qa_score": null,
+    "duration_sec": 26.2,
+    "hook_line": "",
+    "revisions_used": 0,
+    "topic_attempts_used": 1,
+    "production_seconds": null,
+    "publish_mode": "scheduled",
+    "agent_models": {},
+    "mechanisms_used": []
   }
 ]

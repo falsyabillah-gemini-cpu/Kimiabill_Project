@@ -37,11 +37,11 @@
     "qa_summary": "Fallback otomatis gagal produksi (Topik 'Kandang Penjebak Reaksi Kimia' belum lolos QA setelah 2 revisi) | LOLOS AUDIT QA | Skor Akhir: 9.5/10 | Visual: 10.0 | Subtitle: 9.5 | Audio: 9.0 | Revisi: 0x",
     "target_publish_iso": "2026-11-27T19:00:00+07:00",
     "telegram_message_id": 87,
-    "status": "awaiting_review",
+    "status": "approved",
     "reminder_sent": false,
     "created_at": "2026-11-27T18:27:22+07:00",
-    "updated_at": "2026-11-27T18:27:22+07:00",
-    "decision_note": "Fallback otomatis gagal produksi (Topik 'Kandang Penjebak Reaksi Kimia' belum lolos QA setelah 2 revisi)"
+    "updated_at": "2026-11-27T18:41:45+07:00",
+    "decision_note": "Scheduled Private -> Tayang 19:00 WIB"
   },
   "history": [
     {
@@ -130,11 +130,11 @@
       "qa_summary": "Fallback otomatis gagal produksi (Topik 'Kandang Penjebak Reaksi Kimia' belum lolos QA setelah 2 revisi) | LOLOS AUDIT QA | Skor Akhir: 9.5/10 | Visual: 10.0 | Subtitle: 9.5 | Audio: 9.0 | Revisi: 0x",
       "target_publish_iso": "2026-11-27T19:00:00+07:00",
       "telegram_message_id": 87,
-      "status": "awaiting_review",
+      "status": "approved",
       "reminder_sent": false,
       "created_at": "2026-11-27T18:27:22+07:00",
-      "updated_at": "2026-11-27T18:27:22+07:00",
-      "decision_note": "Fallback otomatis gagal produksi (Topik 'Kandang Penjebak Reaksi Kimia' belum lolos QA setelah 2 revisi)"
+      "updated_at": "2026-11-27T18:41:45+07:00",
+      "decision_note": "Scheduled Private -> Tayang 19:00 WIB"
     }
   ]
 }
