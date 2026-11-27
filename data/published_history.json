@@ -190,5 +190,48 @@
       "Agent 5 (QA Video v1)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)",
       "Agent 7 (Packaging & SEO)": "gemini-flash-lite-latest (fallback dari gemini-3.8-flash)"
     }
+  },
+  {
+    "episode_id": "ep_20261127_1133",
+    "published_at": "2026-11-27T11:48:31+07:00",
+    "published_at_wib": "2026-11-27T11:48:31+07:00",
+    "title": "Parasit Mematikan yang Bikin Tanaman Kebal Kekeringan!",
+    "topic_slug": "jamur-pembuat-saluran-air",
+    "source_url": "https://phys.org/news/2026-11-fungi-specialized-cells-protein.html",
+    "keywords": [
+      "parasit",
+      "mematikan",
+      "tanaman",
+      "kebal",
+      "kekeringan",
+      "jamur",
+      "patogen",
+      "tertentu",
+      "memicu",
+      "pembentukan",
+      "sel",
+      "pengangkut",
+      "air",
+      "baru",
+      "tumbuhan",
+      "menggunakan",
+      "satu",
+      "protein",
+      "khusus"
+    ],
+    "topic_bucket": "research",
+    "discipline": "biologi",
+    "section": "DAPUR",
+    "youtube_url": "https://youtube.com/shorts/KtWwJCsdwT0",
+    "gdrive_folder_url": "https://drive.google.com/drive/folders/1bpOlckACy5JpoNsm1bW10CrYem7sD7ML",
+    "qa_score": null,
+    "duration_sec": 25.1,
+    "hook_line": "",
+    "revisions_used": 0,
+    "topic_attempts_used": 1,
+    "production_seconds": null,
+    "publish_mode": "scheduled",
+    "agent_models": {},
+    "mechanisms_used": []
   }
 ]
