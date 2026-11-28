@@ -38,11 +38,11 @@
     "qa_summary": "LOLOS AUDIT QA | Skor Akhir: 9.0/10 | Visual: 8.5 | Subtitle: 9.5 | Audio: 9.0 | Revisi: 0x",
     "target_publish_iso": "2026-11-28T19:00:00+07:00",
     "telegram_message_id": 97,
-    "status": "awaiting_review",
+    "status": "approved",
     "reminder_sent": false,
     "created_at": "2026-11-28T18:20:01+07:00",
-    "updated_at": "2026-11-28T18:20:06+07:00",
-    "decision_note": ""
+    "updated_at": "2026-11-28T18:21:19+07:00",
+    "decision_note": "Scheduled Private -> Tayang 19:00 WIB"
   },
   "history": [
     {
@@ -222,11 +222,11 @@
       "qa_summary": "LOLOS AUDIT QA | Skor Akhir: 9.0/10 | Visual: 8.5 | Subtitle: 9.5 | Audio: 9.0 | Revisi: 0x",
       "target_publish_iso": "2026-11-28T19:00:00+07:00",
       "telegram_message_id": 97,
-      "status": "awaiting_review",
+      "status": "approved",
       "reminder_sent": false,
       "created_at": "2026-11-28T18:20:01+07:00",
-      "updated_at": "2026-11-28T18:20:06+07:00",
-      "decision_note": ""
+      "updated_at": "2026-11-28T18:21:19+07:00",
+      "decision_note": "Scheduled Private -> Tayang 19:00 WIB"
     }
   ]
 }
